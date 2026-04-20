@@ -849,46 +849,305 @@ canvas {
 #mobile-hud {
   position: absolute;
   top: 0; left: 0; width: 100vw; height: 100vh;
-  z-index: 50; /* Above crosshair but below menus */
-  pointer-events: none; /* Let clicks pass except where wanted */
+  z-index: 50;
+  pointer-events: none;
   user-select: none;
   touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
 }
 #joystick-zone {
   position: absolute;
-  bottom: 20px; left: 20px;
-  width: 150px; height: 150px;
+  bottom: 100px; left: 15px;
+  width: 140px; height: 140px;
   pointer-events: auto;
+  z-index: 55;
 }
 #touch-look-zone {
   position: absolute;
-  top: 0; right: 0;
-  width: 50vw; height: 100vh;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
   pointer-events: auto;
+  z-index: 51;
 }
-#action-buttons {
+
+/* Menu button (top-left pause) */
+.mobile-btn-menu {
   position: absolute;
-  bottom: 20px; right: 20px;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 15px;
+  top: 10px; right: 10px;
+  width: 44px; height: 44px;
+  font-size: 22px;
+  pointer-events: auto;
+  z-index: 60;
+  border-radius: 10px;
+}
+
+/* Left-side action buttons (jump, run, sneak) — above joystick */
+#action-buttons-left {
+  position: absolute;
+  bottom: 20px; left: 170px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   pointer-events: auto;
   z-index: 55;
-  margin-right: 15px;
 }
+
+/* Right-side action buttons (mine, place) — large, thumb-friendly */
+#action-buttons-right {
+  position: absolute;
+  bottom: 20px; right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: auto;
+  z-index: 55;
+}
+
+/* Top-right toolbar (inv, shop, save) */
+#mobile-toolbar {
+  position: absolute;
+  top: 10px; left: 10px;
+  display: flex;
+  gap: 6px;
+  pointer-events: auto;
+  z-index: 60;
+}
+
+/* Mobile Button Base */
 .mobile-btn {
-  background: rgba(0,0,0,0.6);
-  border: 2px solid rgba(255,255,255,0.4);
-  backdrop-filter: blur(5px);
-  border-radius: 50%;
-  width: 70px; height: 70px;
-  color: white; font-weight: bold; font-size: 11px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-radius: 14px;
+  width: 60px; height: 60px;
+  color: white; font-weight: bold; font-size: 18px;
   text-align: center;
   user-select: none; touch-action: none;
-  display: flex; align-items: center; justify-content: center;
+  -webkit-touch-callout: none;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  line-height: 1.1;
+  transition: transform 0.1s, background 0.1s;
+}
+.mobile-btn span {
+  font-size: 9px;
+  opacity: 0.8;
+  margin-top: 1px;
 }
 .mobile-btn:active {
-  background: rgba(255,255,255,0.5);
-  transform: scale(0.95);
+  background: rgba(255, 255, 255, 0.4);
+  transform: scale(0.92);
+}
+
+/* Large buttons (jump, mine, place) */
+.mobile-btn-lg {
+  width: 72px; height: 72px;
+  font-size: 22px;
+}
+
+/* Small toolbar buttons */
+.mobile-btn-sm {
+  width: 42px; height: 42px;
+  font-size: 18px;
+  border-radius: 10px;
+}
+
+/* Colored action buttons */
+.mobile-btn-action {
+  background: rgba(180, 60, 60, 0.6);
+  border-color: rgba(255, 100, 100, 0.5);
+}
+.mobile-btn-place {
+  background: rgba(60, 120, 180, 0.6);
+  border-color: rgba(100, 160, 255, 0.5);
+}
+
+/* ===================== */
+/* MOBILE RESPONSIVE     */
+/* ===================== */
+
+@media (max-width: 768px), (pointer: coarse) {
+  /* Crosshair smaller on mobile */
+  #crosshair {
+    font-size: 18px;
+  }
+
+  /* Hotbar: smaller and tighter */
+  #inventory-bar {
+    bottom: 8px;
+    gap: 2px;
+    padding: 3px;
+    border-width: 1px;
+  }
+  #inventory-bar .slot {
+    width: 34px;
+    height: 34px;
+  }
+  #inventory-bar .slot img, #inventory-bar .item-icon {
+    width: 16px;
+    height: 16px;
+  }
+  #inventory-bar .slot .count {
+    font-size: 10px;
+  }
+
+  /* Armor HUD tighter */
+  #armor-hud {
+    bottom: 48px;
+    width: auto;
+  }
+  .armor-slot {
+    width: 24px;
+    height: 24px;
+  }
+
+  /* Full inventory modal - responsive */
+  #full-inventory-modal {
+    min-width: unset;
+    width: 96vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: 10px;
+    border-width: 2px;
+    transform: translate(-50%, -50%);
+  }
+  #modal-container {
+    flex-direction: column;
+    gap: 10px;
+  }
+  #full-inventory-grid {
+    grid-template-columns: repeat(9, 32px);
+    gap: 2px;
+  }
+  #full-inventory-grid .slot {
+    width: 32px;
+    height: 32px;
+  }
+  #crafting-grid.grid-2x2 {
+    grid-template-columns: repeat(2, 32px);
+  }
+  #crafting-grid.grid-3x3 {
+    grid-template-columns: repeat(3, 32px);
+  }
+
+  /* Menu content responsive */
+  .menu-content {
+    width: 90vw;
+    max-width: 400px;
+    gap: 12px;
+  }
+  .menu-content h1 {
+    font-size: 40px;
+    margin-bottom: 10px;
+  }
+  .menu-btn {
+    padding: 10px 15px;
+    font-size: 18px;
+    border-width: 3px;
+  }
+
+  /* Shop layout responsive */
+  .shop-layout {
+    flex-direction: column;
+    width: 95vw;
+    height: 90vh;
+    max-width: none;
+  }
+  .shop-preview {
+    width: 100%;
+    height: 35%;
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .shop-controls {
+    width: 100%;
+    height: 65%;
+    padding: 15px;
+    overflow-y: auto;
+  }
+  .shop-controls h2 {
+    font-size: 22px;
+    margin-bottom: 10px;
+  }
+  .shop-tabs {
+    gap: 4px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .shop-tab {
+    padding: 8px 6px;
+    font-size: 12px;
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+  .swatch-grid {
+    grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+    gap: 8px;
+  }
+
+  /* Homes sidebar */
+  #homes-sidebar {
+    right: 5px;
+    width: 150px;
+    padding: 10px;
+    font-size: 12px;
+  }
+
+  /* Debug text smaller */
+  #debug {
+    font-size: 11px !important;
+    padding: 4px !important;
+  }
+
+  /* Instructions overlay */
+  #instructions h2 {
+    font-size: 28px;
+  }
+  #instructions p {
+    font-size: 14px;
+    padding: 0 20px;
+  }
+}
+
+/* Extra small screens (phones in portrait) */
+@media (max-width: 480px) {
+  #inventory-bar .slot {
+    width: 28px;
+    height: 28px;
+  }
+  #full-inventory-grid {
+    grid-template-columns: repeat(9, 28px);
+  }
+  #full-inventory-grid .slot {
+    width: 28px;
+    height: 28px;
+  }
+  .menu-content h1 {
+    font-size: 32px;
+  }
+}
+
+/* Landscape phone optimization */
+@media (max-height: 500px) and (orientation: landscape) {
+  #joystick-zone {
+    bottom: 10px; left: 10px;
+    width: 120px; height: 120px;
+  }
+  #action-buttons-left {
+    bottom: 10px; left: 140px;
+  }
+  .mobile-btn {
+    width: 52px; height: 52px;
+    font-size: 16px;
+  }
+  .mobile-btn-lg {
+    width: 62px; height: 62px;
+    font-size: 20px;
+  }
+  #inventory-bar {
+    bottom: 4px;
+  }
 }
 

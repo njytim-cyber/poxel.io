@@ -2,7 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Poxel.io - Minecraft Web Clone</title>
     <link rel="stylesheet" href="./style.css">
 
@@ -11,12 +14,20 @@
     <div id="mobile-hud" style="display: none;">
         <div id="joystick-zone"></div>
         <div id="touch-look-zone"></div>
-        <div id="action-buttons">
-            <button class="mobile-btn" id="btn-mobile-hit">⛏</button>
-            <button class="mobile-btn" id="btn-mobile-jump">Jump</button>
-            <button class="mobile-btn" id="btn-mobile-inv">Inv</button>
-            <button class="mobile-btn" id="btn-mobile-sprint">Run</button>
-            <button class="mobile-btn" id="btn-mobile-shop">Shop</button>
+        <button class="mobile-btn mobile-btn-menu" id="btn-mobile-menu">☰</button>
+        <div id="action-buttons-left">
+            <button class="mobile-btn mobile-btn-lg" id="btn-mobile-jump">⬆<br><span>Jump</span></button>
+            <button class="mobile-btn" id="btn-mobile-sprint">🏃<br><span>Run</span></button>
+            <button class="mobile-btn" id="btn-mobile-sneak">🐾<br><span>Snk</span></button>
+        </div>
+        <div id="action-buttons-right">
+            <button class="mobile-btn mobile-btn-lg mobile-btn-action" id="btn-mobile-hit">⛏<br><span>Mine</span></button>
+            <button class="mobile-btn mobile-btn-lg mobile-btn-place" id="btn-mobile-place">🧱<br><span>Place</span></button>
+        </div>
+        <div id="mobile-toolbar">
+            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-inv">📦</button>
+            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-shop">🛒</button>
+            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-save">💾</button>
         </div>
     </div>
 

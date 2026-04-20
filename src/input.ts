@@ -1,7 +1,11 @@
 import { setSelectedSlot } from './inventory';
 import nipplejs from 'nipplejs';
 
-export const isMobile = ('ontouchstart' in window || navigator.maxTouchPoints > 0) && window.innerWidth <= 1024;
+export const isMobile = (() => {
+  const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  return hasTouch && (isMobileUA || window.innerWidth <= 1366);
+})();
 export let touchLookDelta = { x: 0, y: 0 };
 
 export const keys: { [key: string]: boolean } = {
@@ -146,18 +150,30 @@ function setupMobileInput() {
     const bindBtn = (id: string, action: (held: boolean) => void) => {
         const btn = document.getElementById(id);
         if (!btn) return;
-        btn.addEventListener('touchstart', (e) => { e.preventDefault(); action(true); });
-        btn.addEventListener('touchend', (e) => { e.preventDefault(); action(false); });
-        btn.addEventListener('touchcancel', (e) => { e.preventDefault(); action(false); });
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); action(true); }, { passive: false });
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
+        btn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
     };
 
     bindBtn('btn-mobile-jump', (h) => keys.jump = h);
     bindBtn('btn-mobile-sprint', (h) => keys.run = h);
+    bindBtn('btn-mobile-sneak', (h) => keys.shift = h);
     
+    // Mine button: hold to mine (long press mousedown)
     bindBtn('btn-mobile-hit', (h) => {
-        // We dispatch standard MouseEvents so the raycaster triggers normally in player.ts!
         if (h) document.dispatchEvent(new MouseEvent('mousedown', { button: 0 }));
         else document.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
+    });
+    
+    // Place button: short tap to place block
+    bindBtn('btn-mobile-place', (h) => {
+        if (h) {
+            // Simulate a quick click (mousedown + fast mouseup) to trigger place logic
+            document.dispatchEvent(new MouseEvent('mousedown', { button: 0 }));
+            setTimeout(() => {
+                document.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
+            }, 50);
+        }
     });
     
     bindBtn('btn-mobile-inv', (h) => {
@@ -170,4 +186,34 @@ function setupMobileInput() {
              if (btnShop) btnShop.click();
         }
     });
+    
+    // Menu button: toggle the main menu overlay
+    bindBtn('btn-mobile-menu', (h) => {
+        if (h) {
+            const mainMenu = document.getElementById('main-menu');
+            const menuScreen = document.getElementById('menu-screen-main');
+            if (mainMenu) {
+                if (mainMenu.style.display === 'none') {
+                    mainMenu.style.display = 'flex';
+                    if (menuScreen) menuScreen.style.display = 'flex';
+                } else {
+                    mainMenu.style.display = 'none';
+                }
+            }
+        }
+    });
+    
+    // Save button
+    bindBtn('btn-mobile-save', (h) => {
+        if (h) {
+            const btnSaveQuit = document.getElementById('btn-save-quit');
+            if (btnSaveQuit) btnSaveQuit.click();
+        }
+    });
+    
+    // Prevent default touch behaviors on the game canvas to avoid scrolling/zooming
+    document.body.addEventListener('touchmove', (e) => {
+        if ((e.target as HTMLElement)?.closest('#full-inventory-modal, #shop-screen, #main-menu')) return;
+        e.preventDefault();
+    }, { passive: false });
 }

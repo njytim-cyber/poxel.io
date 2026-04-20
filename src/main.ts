@@ -68,6 +68,8 @@ menuMainScreen?.addEventListener('click', (e) => {
     if (isMobile) {
         if (menuMainScreen) menuMainScreen.style.display = 'none';
         if (menuShopScreen) menuShopScreen.style.display = 'none';
+        const instr = document.getElementById('instructions');
+        if (instr) instr.style.display = 'none';
     } else {
         controls.lock();
     }
@@ -79,7 +81,9 @@ controls.addEventListener('lock', () => {
 });
 
 controls.addEventListener('unlock', () => {
-    if (menuMainScreen) menuMainScreen.style.display = 'flex';
+    if (!isMobile) {
+        if (menuMainScreen) menuMainScreen.style.display = 'flex';
+    }
 });
 
 const btnNewGame = document.getElementById('btn-new-game');
@@ -437,8 +441,22 @@ btnSaveQuit?.addEventListener('click', () => {
 function startGame() {
     if (mainMenu) mainMenu.style.display = 'none';
     const instr = document.getElementById('instructions');
-    if (instr) instr.style.display = 'flex';
-    controls.lock();
+    if (isMobile) {
+        if (instr) instr.style.display = 'none';
+        // Request fullscreen on mobile for immersive experience
+        try {
+            const el = document.documentElement as any;
+            if (el.requestFullscreen) el.requestFullscreen();
+            else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+        } catch(e) { /* ignore */ }
+        // Lock screen orientation to landscape if supported
+        try {
+            (screen.orientation as any).lock('landscape').catch(() => {});
+        } catch(e) { /* ignore */ }
+    } else {
+        if (instr) instr.style.display = 'flex';
+        controls.lock();
+    }
 }
 
 const debugEl = document.getElementById('debug');
