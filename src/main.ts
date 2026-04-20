@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { initWorld } from './world';
-import { setupInput } from './input';
+import { setupInput, isMobile } from './input';
 import { initPlayer, updatePlayer, controls, updateAvatarColors, applyHairGeometry } from './player';
 import { initInventory } from './inventory';
 import { loadGame, saveGame, getSaveMeta } from './saves';
@@ -61,6 +61,26 @@ const mainMenu = document.getElementById('main-menu');
 const menuMainScreen = document.getElementById('menu-screen-main');
 const menuLoadScreen = document.getElementById('save-slots-container');
 const menuShopScreen = document.getElementById('shop-screen');
+
+menuMainScreen?.addEventListener('click', (e) => {
+    if ((e.target as HTMLElement).tagName === 'BUTTON') return; // clicked menu btn
+    
+    if (isMobile) {
+        if (menuMainScreen) menuMainScreen.style.display = 'none';
+        if (menuShopScreen) menuShopScreen.style.display = 'none';
+    } else {
+        controls.lock();
+    }
+});
+
+controls.addEventListener('lock', () => {
+    if (menuMainScreen) menuMainScreen.style.display = 'none';
+    if (menuShopScreen) menuShopScreen.style.display = 'none';
+});
+
+controls.addEventListener('unlock', () => {
+    if (menuMainScreen) menuMainScreen.style.display = 'flex';
+});
 
 const btnNewGame = document.getElementById('btn-new-game');
 const btnOpenLoad = document.getElementById('btn-open-load');
@@ -421,6 +441,9 @@ function startGame() {
     controls.lock();
 }
 
+const debugEl = document.getElementById('debug');
+let frameCount = 0;
+
 function animate() {
   requestAnimationFrame(animate);
   updatePlayer();
@@ -436,12 +459,9 @@ function animate() {
       shopRenderer.render(shopScene, shopCamera);
   }
 
-  const debug = document.getElementById('debug');
-  if (debug) {
-    debug.innerHTML = `
-      Real Pos: ${controls.object.position.x.toFixed(2)}, ${controls.object.position.y.toFixed(2)}, ${controls.object.position.z.toFixed(2)}<br>
-      Chunks count: ${(window as any).chunkGroup?.children?.length ?? 0}<br>
-      Active Memory Size: ${(window as any).localStorage?.length ?? 0} keys
+  if (debugEl && ++frameCount % 30 === 0) {
+    debugEl.innerHTML = `
+      Pos: ${controls.object.position.x.toFixed(1)}, ${controls.object.position.y.toFixed(1)}, ${controls.object.position.z.toFixed(1)}
     `;
   }
 }

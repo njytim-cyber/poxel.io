@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { crackMaterials, materials } from './textures';
-import { keys } from './input';
+import { keys, isMobile, touchLookDelta } from './input';
 import { removeBlock, placeBlock, chunkGroup, blocks, worldData, updateRenderedBlocks, getSpawnY, getBlockType } from './world';
 import { inventory, selectedSlotIndex, addItem, removeItem, setCraftingMode } from './inventory';
 
@@ -259,7 +259,7 @@ export function initPlayer(camera: THREE.Camera, scene: THREE.Scene) {
 
   // Mining/Placing listener
   document.addEventListener('mousedown', (e) => {
-    if (!controls.isLocked) return;
+    if (!controls.isLocked && !isMobile) return;
     
     if (e.button !== 0) return; // Only left click for mining/placing/using
     isMouseDown = true;
@@ -269,7 +269,7 @@ export function initPlayer(camera: THREE.Camera, scene: THREE.Scene) {
   });
 
   document.addEventListener('mouseup', (e) => {
-    if (!controls.isLocked || !isMouseDown) return;
+    if ((!controls.isLocked && !isMobile) || !isMouseDown) return;
     isMouseDown = false;
     crackOverlay.visible = false;
     if (e.button !== 0) return;
@@ -503,7 +503,23 @@ export function updatePlayer() {
 
   updateArmorVisuals();
 
-  if (!controls.isLocked) return;
+  if (!controls.isLocked && !isMobile) return;
+  
+  if (isMobile) {
+      if (touchLookDelta.x !== 0 || touchLookDelta.y !== 0) {
+          const euler = new THREE.Euler(0, 0, 0, 'YXZ');
+          euler.setFromQuaternion(cameraRef.quaternion);
+          
+          euler.y -= touchLookDelta.x * 0.005;
+          euler.x -= touchLookDelta.y * 0.005;
+          euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, euler.x));
+          
+          cameraRef.quaternion.setFromEuler(euler);
+          
+          touchLookDelta.x = 0;
+          touchLookDelta.y = 0;
+      }
+  }
   
   playerAvatar.visible = cameraViewMode !== 0;
   
@@ -523,33 +539,27 @@ export function updatePlayer() {
   // Raycast logic
 
   if (isMouseDown) {
-      raycaster.setFromCamera(new THREE.Vector2(0, 0), cameraRef);
+      raycaster.setFromCamera(_center, cameraRef);
       const intersects = raycaster.intersectObjects(chunkGroup.children, false);
 
       if (intersects.length > 0) {
           const intersect = intersects[0];
           const mesh = intersect.object as THREE.Mesh | THREE.InstancedMesh;
           
-          let blockPos = new THREE.Vector3();
+          _blockPos.set(0, 0, 0);
           let isInstanced = false;
           let instanceId = -1;
-          
-          if (isMouseDown && intersects.length === 0) {
-              console.log("Raycast returned 0 intersects!");
-          }
 
           if (mesh instanceof THREE.InstancedMesh && intersect.instanceId !== undefined) {
               isInstanced = true;
               instanceId = intersect.instanceId;
-              const matrix = new THREE.Matrix4();
-              mesh.getMatrixAt(instanceId, matrix);
-              blockPos.setFromMatrixPosition(matrix);
+              mesh.getMatrixAt(instanceId, _rayMat);
+              _blockPos.setFromMatrixPosition(_rayMat);
           } else {
-              if (isMouseDown) console.log("Mesh is NOT an InstancedMesh OR instanceId undefined:", intersect);
-              blockPos.copy(mesh.position);
+              _blockPos.copy(mesh.position);
           }
           
-          const posKey = `${Math.round(blockPos.x)},${Math.round(blockPos.y)},${Math.round(blockPos.z)}`;
+          const posKey = `${Math.round(_blockPos.x)},${Math.round(_blockPos.y)},${Math.round(_blockPos.z)}`;
           const blockType = worldData.get(posKey);
           
           let canMine = true;
@@ -567,11 +577,6 @@ export function updatePlayer() {
              else if (blockType === 'stone') canMine = tier >= 0; // any pickaxe
           }
 
-          // Debug log if we hold mouse
-          if (isMouseDown) {
-              console.log(`Raycast hit! blockType: ${blockType}, canMine: ${canMine}, posKey: ${posKey}, intersects: ${intersects.length}, targetBlockPos: ${targetBlockPos}`);
-          }
-          
           if (!canMine) {
              crackOverlay.visible = false;
              targetBlockPos = null;
@@ -581,7 +586,7 @@ export function updatePlayer() {
              crackOverlay.visible = false;
           } else {
              crackOverlay.visible = true;
-             crackOverlay.position.copy(blockPos);
+             crackOverlay.position.copy(_blockPos);
              
              const progress = Math.min((time - mouseDownTime) / MINING_TIME, 1.0);
              const stage = Math.floor(progress * 10);

@@ -1,4 +1,8 @@
 import { setSelectedSlot } from './inventory';
+import nipplejs from 'nipplejs';
+
+export const isMobile = ('ontouchstart' in window || navigator.maxTouchPoints > 0) && window.innerWidth <= 1024;
+export let touchLookDelta = { x: 0, y: 0 };
 
 export const keys: { [key: string]: boolean } = {
   forward: false,
@@ -11,6 +15,11 @@ export const keys: { [key: string]: boolean } = {
 };
 
 export function setupInput() {
+  if (isMobile) {
+      setupMobileInput();
+      return;
+  }
+  
   document.addEventListener('keydown', (e) => {
     switch (e.code) {
       case 'ArrowUp':
@@ -81,4 +90,84 @@ export function setupInput() {
         break;
     }
   });
+}
+
+function setupMobileInput() {
+    const hud = document.getElementById('mobile-hud');
+    if (hud) hud.style.display = 'block';
+
+    const joystickZone = document.getElementById('joystick-zone');
+    if (joystickZone) {
+        const manager = nipplejs.create({
+            zone: joystickZone,
+            mode: 'static',
+            position: { left: '50%', top: '50%' },
+            color: 'white'
+        });
+        
+        manager.on('move', (evt, data) => {
+            const angle = data.angle.degree;
+            keys.forward = angle > 45 && angle < 135;
+            keys.backward = angle > 225 && angle < 315;
+            keys.right = angle <= 45 || angle >= 315;
+            keys.left = angle >= 135 && angle <= 225;
+        });
+
+        manager.on('end', () => {
+            keys.forward = false;
+            keys.backward = false;
+            keys.left = false;
+            keys.right = false;
+        });
+    }
+
+    const lookZone = document.getElementById('touch-look-zone');
+    let lastTouchX = 0;
+    let lastTouchY = 0;
+    
+    if (lookZone) {
+        lookZone.addEventListener('touchstart', (e) => {
+            lastTouchX = e.touches[0].clientX;
+            lastTouchY = e.touches[0].clientY;
+        });
+        lookZone.addEventListener('touchmove', (e) => {
+            const touch = e.touches[0];
+            touchLookDelta.x = touch.clientX - lastTouchX;
+            touchLookDelta.y = touch.clientY - lastTouchY;
+            lastTouchX = touch.clientX;
+            lastTouchY = touch.clientY;
+        });
+        lookZone.addEventListener('touchend', () => {
+            touchLookDelta.x = 0;
+            touchLookDelta.y = 0;
+        });
+    }
+    
+    const bindBtn = (id: string, action: (held: boolean) => void) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); action(true); });
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); action(false); });
+        btn.addEventListener('touchcancel', (e) => { e.preventDefault(); action(false); });
+    };
+
+    bindBtn('btn-mobile-jump', (h) => keys.jump = h);
+    bindBtn('btn-mobile-sprint', (h) => keys.run = h);
+    
+    bindBtn('btn-mobile-hit', (h) => {
+        // We dispatch standard MouseEvents so the raycaster triggers normally in player.ts!
+        if (h) document.dispatchEvent(new MouseEvent('mousedown', { button: 0 }));
+        else document.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
+    });
+    
+    bindBtn('btn-mobile-inv', (h) => {
+        if (h) document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI' }));
+    });
+    
+    bindBtn('btn-mobile-shop', (h) => {
+        if (h) {
+             const btnShop = document.getElementById('btn-shop');
+             if (btnShop) btnShop.click();
+        }
+    });
 }

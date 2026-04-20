@@ -17,5 +17,8 @@
     "three": "^0.183.2",
     "typescript": "^6.0.2",
     "vite": "^8.0.8"
+  },
+  "dependencies": {
+    "nipplejs": "^1.0.1"
   }
 }

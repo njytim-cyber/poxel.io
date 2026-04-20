@@ -14,7 +14,7 @@ export const blocks = new Map<string, THREE.Mesh>();
 
 // Render chunks only within radius (48 blocks)
 const maxBlocks = 150000; 
-const dummy = new THREE.Object3D();
+const _mat4 = new THREE.Matrix4();
 
 export const instancedMeshes = {
     grass: new THREE.InstancedMesh(boxGeometry, getGrassMaterials() as any, maxBlocks),
@@ -60,22 +60,12 @@ export function updateRenderedBlocks(pos: THREE.Vector3, force = false) {
     lastPlayerPos.copy(pos);
     const chunkX = Math.floor(pos.x / 16);
     const chunkZ = Math.floor(pos.z / 16);
-    const chunkKey = `${chunkX},${chunkZ}`;
-    if (!force && lastRenderedChunk === chunkKey) return;
-    lastRenderedChunk = chunkKey;
+    const ck = `${chunkX},${chunkZ}`;
+    if (!force && lastRenderedChunk === ck) return;
+    lastRenderedChunk = ck;
     
-    instanceCounts.grass = 0;
-    instanceCounts.stone = 0;
-    instanceCounts.wood = 0;
-    instanceCounts.leaves = 0;
-    instanceCounts.dirt = 0;
-    instanceCounts.bedrock = 0;
-    instanceCounts.crafting_table = 0;
-    instanceCounts.iron_ore = 0;
-    instanceCounts.diamond_ore = 0;
-    instanceCounts.gold_ore = 0;
-    instanceCounts.moonstone_ore = 0;
-    instanceCounts.etherite_ore = 0;
+    const types = Object.keys(instanceCounts) as (keyof typeof instanceCounts)[];
+    for (let t = 0; t < types.length; t++) instanceCounts[types[t]] = 0;
     
     const radius = 3; 
     
@@ -86,48 +76,23 @@ export function updateRenderedBlocks(pos: THREE.Vector3, force = false) {
                 generateChunkRegion(cx, cz);
             }
             const arr = chunkData.get(chunkKey);
-            if (arr) {
-                for (let i = 0; i < arr.length; i++) {
-                    const b = arr[i];
-                    const type = worldData.get(`${b.x},${b.y},${b.z}`);
-                    if (!type || type === 'air') continue;
-                    
-                    const count = instanceCounts[b.type];
-                    dummy.position.set(b.x, b.y, b.z);
-                    dummy.scale.set(1, 1, 1);
-                    dummy.updateMatrix();
-                    instancedMeshes[b.type].setMatrixAt(count, dummy.matrix);
-                    instanceCounts[b.type]++;
-                }
+            if (!arr) continue;
+            for (let i = 0, len = arr.length; i < len; i++) {
+                const b = arr[i];
+                const type = worldData.get(`${b.x},${b.y},${b.z}`);
+                if (!type || type === 'air') continue;
+                
+                _mat4.makeTranslation(b.x, b.y, b.z);
+                instancedMeshes[b.type].setMatrixAt(instanceCounts[b.type]++, _mat4);
             }
         }
     }
     
-    instancedMeshes.grass.count = instanceCounts.grass;
-    instancedMeshes.stone.count = instanceCounts.stone;
-    instancedMeshes.wood.count = instanceCounts.wood;
-    instancedMeshes.leaves.count = instanceCounts.leaves;
-    instancedMeshes.dirt.count = instanceCounts.dirt;
-    instancedMeshes.bedrock.count = instanceCounts.bedrock;
-    instancedMeshes.crafting_table.count = instanceCounts.crafting_table;
-    instancedMeshes.iron_ore.count = instanceCounts.iron_ore;
-    instancedMeshes.diamond_ore.count = instanceCounts.diamond_ore;
-    instancedMeshes.gold_ore.count = instanceCounts.gold_ore;
-    instancedMeshes.moonstone_ore.count = instanceCounts.moonstone_ore;
-    instancedMeshes.etherite_ore.count = instanceCounts.etherite_ore;
-    
-    instancedMeshes.grass.instanceMatrix.needsUpdate = true;
-    instancedMeshes.stone.instanceMatrix.needsUpdate = true;
-    instancedMeshes.wood.instanceMatrix.needsUpdate = true;
-    instancedMeshes.leaves.instanceMatrix.needsUpdate = true;
-    instancedMeshes.dirt.instanceMatrix.needsUpdate = true;
-    instancedMeshes.bedrock.instanceMatrix.needsUpdate = true;
-    instancedMeshes.crafting_table.instanceMatrix.needsUpdate = true;
-    instancedMeshes.iron_ore.instanceMatrix.needsUpdate = true;
-    instancedMeshes.diamond_ore.instanceMatrix.needsUpdate = true;
-    instancedMeshes.gold_ore.instanceMatrix.needsUpdate = true;
-    instancedMeshes.moonstone_ore.instanceMatrix.needsUpdate = true;
-    instancedMeshes.etherite_ore.instanceMatrix.needsUpdate = true;
+    for (let t = 0; t < types.length; t++) {
+        const key = types[t];
+        instancedMeshes[key].count = instanceCounts[key];
+        instancedMeshes[key].instanceMatrix.needsUpdate = true;
+    }
 }
 
 export function initWorld(scene: THREE.Scene) {
@@ -320,10 +285,8 @@ export function removeBlock(mesh: THREE.Mesh | THREE.InstancedMesh, instanceId?:
     }
 
     if (mesh instanceof THREE.InstancedMesh && instanceId !== undefined) {
-        dummy.position.set(0, -9999, 0); // Move far away completely out of Raycaster range
-        dummy.scale.set(0, 0, 0);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(instanceId, dummy.matrix);
+        const hideMat = new THREE.Matrix4().makeScale(0, 0, 0).setPosition(0, -9999, 0);
+        mesh.setMatrixAt(instanceId, hideMat);
         mesh.instanceMatrix.needsUpdate = true;
         if (key) {
             worldData.set(key, 'air');
