@@ -157,11 +157,11 @@ shopScene.add(shopAvatar);
 // Super Shop Avatar modifications
 let activeSuperCosmetic = localStorage.getItem('poxel_super') || 'none';
 
-let shopTopHat: THREE.Mesh;
-let shopBackpack: THREE.Mesh;
-let shopNinjaMask: THREE.Mesh;
+let _shopTopHat: THREE.Mesh;
+let _shopBackpack: THREE.Mesh;
+let _shopNinjaMask: THREE.Mesh;
 
-function buildCosmetics(parent: THREE.Group, headAnchor: THREE.Mesh, bodyAnchor: THREE.Mesh) {
+function buildCosmetics(_parent: THREE.Group, headAnchor: THREE.Mesh, bodyAnchor: THREE.Mesh) {
     const tophat = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.4), new THREE.MeshLambertMaterial({color: 0x111111}));
     const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.05), new THREE.MeshLambertMaterial({color: 0x111111}));
     brim.position.y = -0.2; tophat.add(brim);

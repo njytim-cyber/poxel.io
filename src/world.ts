@@ -312,7 +312,7 @@ export function removeBlock(mesh: THREE.Mesh | THREE.InstancedMesh, instanceId?:
     return blockType;
 }
 
-export function placeBlock(position: THREE.Vector3, type: 'grass' | 'dirt' | 'stone' | 'wood' | 'leaves' | 'bedrock' | 'crafting_table' | 'iron_ore' | 'diamond_ore' | 'gold_ore' | 'moonstone_ore' | 'entherite_ore' = 'wood') {
+export function placeBlock(position: THREE.Vector3, type: 'grass' | 'dirt' | 'stone' | 'wood' | 'leaves' | 'bedrock' | 'crafting_table' | 'iron_ore' | 'diamond_ore' | 'gold_ore' | 'moonstone_ore' | 'etherite_ore' = 'wood') {
   const key = `${Math.round(position.x)},${Math.round(position.y)},${Math.round(position.z)}`;
   const existingBlock = worldData.get(key);
   if ((!existingBlock || existingBlock === 'air') && !blocks.has(key)) {
@@ -327,7 +327,7 @@ export function placeBlock(position: THREE.Vector3, type: 'grass' | 'dirt' | 'st
     if (type === 'diamond_ore') mat = materials.diamond_ore;
     if (type === 'gold_ore') mat = materials.gold_ore;
     if (type === 'moonstone_ore') mat = materials.moonstone_ore;
-    if (type === 'entherite_ore') mat = materials.entherite_ore;
+    if (type === 'etherite_ore') mat = materials.etherite_ore;
     
     const mesh = new THREE.Mesh(boxGeometry, mat);
     mesh.position.copy(position);

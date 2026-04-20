@@ -105,7 +105,7 @@ function setupMobileInput() {
             color: 'white'
         });
         
-        manager.on('move', (evt, data) => {
+        manager.on('move', (evt: any, data: any) => {
             const angle = data.angle.degree;
             keys.forward = angle > 45 && angle < 135;
             keys.backward = angle > 225 && angle < 315;

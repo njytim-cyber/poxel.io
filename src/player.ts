@@ -23,6 +23,10 @@ let blockMined = false;
 let targetBlockPos: string | null = null;
 const MINING_TIME = 600;
 
+const _center = new THREE.Vector2(0, 0);
+const _blockPos = new THREE.Vector3();
+const _rayMat = new THREE.Matrix4();
+
 
 
 export const crackOverlay = new THREE.Mesh(
