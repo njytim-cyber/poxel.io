@@ -1,729 +1,803 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
-import { crackMaterials, materials } from './textures';
-import { keys, isMobile, touchLookDelta } from './input';
-import { removeBlock, placeBlock, chunkGroup, blocks, worldData, updateRenderedBlocks, getSpawnY, getBlockType } from './world';
-import { inventory, selectedSlotIndex, addItem, removeItem, setCraftingMode } from './inventory';
+import { crackMaterials, blockGeometry, blockEntityMaterial, getIconCanvas, isFlatItem } from './textures';
+import { keys, isMobile, touchLookDelta, actions } from './input';
+import { getBlock, setBlock, raycast, facing, loadAreaNow, type RayHit } from './world';
+import { BLOCKS, BLOCK_ID, WATER, LAVA, isFacingBlock, isPlant, itemDef, miningInfo } from './blocks';
+import { inventory, selectedSlotIndex, addItem, removeItem, getSelectedItem, clearInventory, setDropHandler, onInventoryChange } from './inventory';
+import { makeBody, moveBody, boxIntersectsSolid, hasGroundBelow, isHeadInWater } from './physics';
+import { spawnItem } from './entities';
+import { rayHitMob, damageMob, mobInBlock } from './mobs';
+import { furnaces } from './furnace';
+import * as ui from './ui';
 
-document.addEventListener('contextmenu', e => e.preventDefault());
+// Hitbox: 0.72 wide x 1.8 tall, same size as the visible model. Eyes 1.62 above the feet.
+export const EYE_HEIGHT = 1.62;
+const HALF_WIDTH = 0.36;
+const HEIGHT = 1.8;
+export const MAX_HEALTH = 20; // 10 hearts
+const WALK_SPEED = 5.0;
+const RUN_SPEED = 6.3;
+const SNEAK_SPEED = 1.7;
+const JUMP_VELOCITY = 9.2;
+const GRAVITY = 30;
+const REACH = 5;
 
 export let controls: PointerLockControls;
-let raycaster: THREE.Raycaster;
-const velocity = new THREE.Vector3();
-const direction = new THREE.Vector3();
-let prevTime = performance.now();
+let cameraRef: THREE.PerspectiveCamera;
+let pivot: THREE.Object3D;
+export const body = makeBody(HALF_WIDTH, HEIGHT);
 
-export const homes: {x: number, y: number, z: number, name: string}[] = [];
+export let health = MAX_HEALTH;
+let invulnerable = 0;
+let sinceDamage = 0;
+let regenTimer = 0;
+let lavaTimer = 0;
+let cactusTimer = 0;
+let fallStartY = 0;
+let wasOnGround = true;
+let dead = false;
+export let headInWater = false;
+export let headInLava = false;
+let spawnPoint = new THREE.Vector3(0.5, 20, 0.5);
+
+export const homes: { x: number; y: number; z: number; name: string }[] = [];
 export let equippedEtherite = 0;
 
-let isMouseDown = false;
-let mouseDownTime = 0;
-let canJump = false;
-let blockMined = false;
-let targetBlockPos: string | null = null;
-const MINING_TIME = 600;
+// ------------------------------------------------------------------ Avatar (bloxd.io style, big eyes)
 
-const _center = new THREE.Vector2(0, 0);
-const _blockPos = new THREE.Vector3();
-const _rayMat = new THREE.Matrix4();
-
-
-
-export const crackOverlay = new THREE.Mesh(
-  new THREE.BoxGeometry(1.002, 1.002, 1.002),
-  crackMaterials[0]
-);
-crackOverlay.visible = false;
-
-function checkCollision(pos: THREE.Vector3) {
-  const width = 0.6;
-  const depth = 0.6;
-  // visual legs end at -1.25, visual head center at 0.5 = 1.75 total from eyes to feet
-  const feetY = pos.y - 1.75;
-  const headY = pos.y + 0.25;
-
-  const minX = Math.floor(pos.x - width/2 + 0.5);
-  const maxX = Math.floor(pos.x + width/2 + 0.5);
-  const minY = Math.floor(feetY + 0.5);
-  const maxY = Math.floor(headY + 0.5);
-  const minZ = Math.floor(pos.z - depth/2 + 0.5);
-  const maxZ = Math.floor(pos.z + depth/2 + 0.5);
-
-  for (let x = minX; x <= maxX; x++) {
-    for (let y = minY; y <= maxY; y++) {
-      for (let z = minZ; z <= maxZ; z++) {
-        if (getBlockType(x,y,z) || blocks.has(`${x},${y},${z}`)) return true;
-      }
-    }
-  }
-  return false;
-}
-
-function isPlayerInBlock(placePos: THREE.Vector3) {
-  const pos = controls.object.position;
-  const width = 0.6;
-  const depth = 0.6;
-  const feetY = pos.y - 1.75;
-  const headY = pos.y + 0.25;
-
-  const playerMinX = pos.x - width/2;
-  const playerMaxX = pos.x + width/2;
-  const playerMinY = feetY;
-  const playerMaxY = headY;
-  const playerMinZ = pos.z - depth/2;
-  const playerMaxZ = pos.z + depth/2;
-
-  const blockMinX = placePos.x - 0.5;
-  const blockMaxX = placePos.x + 0.5;
-  const blockMinY = placePos.y - 0.5;
-  const blockMaxY = placePos.y + 0.5;
-  const blockMinZ = placePos.z - 0.5;
-  const blockMaxZ = placePos.z + 0.5;
-
-  return (playerMinX < blockMaxX && playerMaxX > blockMinX) &&
-         (playerMinY < blockMaxY && playerMaxY > blockMinY) &&
-         (playerMinZ < blockMaxZ && playerMaxZ > blockMinZ);
-}
-
-let cameraRef: THREE.Camera;
-let playerPivot: THREE.Object3D;
-export let playerAvatar: THREE.Group;
-let cameraViewMode = 0; // 0 = 1st, 1 = 3rd back, 2 = 3rd front
-
-let hairMesh: THREE.Mesh;
-let leftEye: THREE.Group;
-let rightEye: THREE.Group;
-
-
-
-// Avatar Materials
 const defaultSkin = localStorage.getItem('poxel_skin') || '#ffcc99';
 const defaultShirt = localStorage.getItem('poxel_shirt') || '#00aaff';
 const defaultPants = localStorage.getItem('poxel_pants') || '#0000aa';
-
 const matShirt = new THREE.MeshLambertMaterial({ color: defaultShirt });
 const matSkin = new THREE.MeshLambertMaterial({ color: defaultSkin });
 const matPants = new THREE.MeshLambertMaterial({ color: defaultPants });
+const matShoes = new THREE.MeshLambertMaterial({ color: 0x3a2a1a });
 const matHair = new THREE.MeshLambertMaterial({ color: localStorage.getItem('poxel_hair') || '#6b4423' });
-const currentEyeColor = localStorage.getItem('poxel_eye') || '#000000';
+const eyeMat = new THREE.MeshBasicMaterial({ color: localStorage.getItem('poxel_eye') || '#000000' });
+const eyeWhite = new THREE.MeshBasicMaterial({ color: 0xffffff });
 const currentHairStyleId = parseInt(localStorage.getItem('poxel_style') || '0');
 
-let leInnerMat = new THREE.MeshBasicMaterial({ color: currentEyeColor });
-let reInnerMat = new THREE.MeshBasicMaterial({ color: currentEyeColor });
-
 export function applyHairGeometry(styleId: number, hair: THREE.Mesh) {
-    if (styleId === 0) {
-        hair.geometry = new THREE.BoxGeometry(0.52, 0.1, 0.52);
-        hair.position.set(0, 0.22, 0);
-    } else if (styleId === 1) { // Spike
-        hair.geometry = new THREE.BoxGeometry(0.4, 0.25, 0.4);
-        hair.position.set(0, 0.35, 0);
-    } else if (styleId === 2) { // Tall
-        hair.geometry = new THREE.BoxGeometry(0.52, 0.3, 0.52);
-        hair.position.set(0, 0.35, 0);
-    }
+  if (styleId === 1) { hair.geometry = new THREE.BoxGeometry(0.4, 0.25, 0.4); hair.position.set(0, 0.35, 0); }
+  else if (styleId === 2) { hair.geometry = new THREE.BoxGeometry(0.52, 0.3, 0.52); hair.position.set(0, 0.35, 0.02); }
+  else { hair.geometry = new THREE.BoxGeometry(0.52, 0.12, 0.52); hair.position.set(0, 0.22, 0.01); }
 }
 
-let playerTopHat: THREE.Mesh;
-let playerBackpack: THREE.Mesh;
-let playerNinjaMask: THREE.Mesh;
-
-export function updateAvatarColors(skin: string, shirt: string, pants: string, hairColor?: string, eyeColor?: string, hairStyle?: number, superCosmetic?: string) {
-    if (skin) matSkin.color.set(skin);
-    if (shirt) matShirt.color.set(shirt);
-    if (pants) matPants.color.set(pants);
-    if (hairColor) matHair.color.set(hairColor);
-    if (eyeColor) {
-        leInnerMat.color.set(eyeColor);
-        reInnerMat.color.set(eyeColor);
-    }
-    if (hairStyle !== undefined && hairMesh) {
-        applyHairGeometry(hairStyle, hairMesh);
-    }
-    if (superCosmetic !== undefined && head && body) {
-        if (!playerTopHat) {
-           playerTopHat = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.4), new THREE.MeshLambertMaterial({color: 0x111111}));
-           const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.05), new THREE.MeshLambertMaterial({color: 0x111111}));
-           brim.position.y = -0.2; playerTopHat.add(brim);
-           playerTopHat.position.y = 0.45;
-           head.add(playerTopHat);
-
-           playerBackpack = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.15), new THREE.MeshLambertMaterial({color: 0xaa2222}));
-           playerBackpack.position.set(0, 0, 0.2);
-           body.add(playerBackpack);
-
-           playerNinjaMask = new THREE.Mesh(new THREE.BoxGeometry(0.51, 0.51, 0.51), new THREE.MeshLambertMaterial({color: 0x111111}));
-           const eyeSlit = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.52), new THREE.MeshLambertMaterial({color: 0xffcc99}));
-           eyeSlit.position.set(0, 0.1, 0);
-           playerNinjaMask.add(eyeSlit);
-           head.add(playerNinjaMask);
-        }
-        playerTopHat.visible = superCosmetic === 'tophat';
-        playerBackpack.visible = superCosmetic === 'backpack';
-        playerNinjaMask.visible = superCosmetic === 'ninja';
-    }
-    updateArmorVisuals();
+// Adds big bloxd-style eyes to a 0.5 head whose front faces -z
+export function addBigEyes(head: THREE.Object3D, pupilMat: THREE.Material) {
+  const group = new THREE.Group();
+  for (const sx of [-1, 1]) {
+    const white = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.16, 0.01), eyeWhite);
+    white.position.set(sx * 0.11, -0.01, -0.253);
+    const pupil = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.12, 0.012), pupilMat);
+    pupil.position.set(sx * 0.11 - sx * 0.025, -0.03, -0.255);
+    const shine = new THREE.Mesh(new THREE.BoxGeometry(0.025, 0.03, 0.013), eyeWhite);
+    shine.position.set(sx * 0.11 - sx * 0.04, 0.0, -0.256);
+    group.add(white, pupil, shine);
+  }
+  head.add(group);
+  return group;
 }
-const matIron = new THREE.MeshLambertMaterial({ color: 0xcccccc });
-const matDiamond = new THREE.MeshLambertMaterial({ color: 0x00ffff });
-const matGold = new THREE.MeshLambertMaterial({ color: 0xffd700 });
-const matMoonstone = new THREE.MeshLambertMaterial({ color: 0xe6e6fa });
-const matEtherite = new THREE.MeshLambertMaterial({ color: 0x2c2c38 });
 
-// Avatar Meshes
-let head: THREE.Mesh;
-let body: THREE.Mesh;
-let leftArm: THREE.Mesh;
-let rightArm: THREE.Mesh;
-let leftLeg: THREE.Mesh;
-let rightLeg: THREE.Mesh;
+export let playerAvatar: THREE.Group;
+let headPivot: THREE.Group, head: THREE.Mesh, hairMesh: THREE.Mesh, eyes: THREE.Group;
+let torso: THREE.Mesh, leftArm: THREE.Group, rightArm: THREE.Group, leftLeg: THREE.Group, rightLeg: THREE.Group;
+let armMeshes: THREE.Mesh[] = [], legMeshes: THREE.Mesh[] = [];
+let heldItem3p: THREE.Object3D | null = null;
+let playerTopHat: THREE.Mesh, playerBackpack: THREE.Mesh, playerNinjaMask: THREE.Mesh;
 
-export function initPlayer(camera: THREE.Camera, scene: THREE.Scene) {
-  cameraRef = camera;
-  playerPivot = new THREE.Object3D();
-  playerPivot.add(camera);
-  
-  controls = new PointerLockControls(playerPivot as unknown as THREE.Camera, document.body);
-  raycaster = new THREE.Raycaster();
-  raycaster.near = 0.1;
-  raycaster.far = 5; // Mining range limit
+function limb(w: number, h: number, d: number, mat: THREE.Material, x: number, y: number, extra?: THREE.Material): [THREE.Group, THREE.Mesh] {
+  const g = new THREE.Group();
+  g.position.set(x, y, 0);
+  const geo = new THREE.BoxGeometry(w, h, d);
+  geo.translate(0, -h / 2, 0);
+  const m = new THREE.Mesh(geo, mat);
+  g.add(m);
+  if (extra) { // shoes / sleeve cuff at the end of the limb
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(w + 0.01, 0.12, d + 0.01), extra);
+    cap.position.y = -h + 0.06;
+    g.add(cap);
+  }
+  return [g, m];
+}
 
-  const instructions = document.getElementById('instructions');
-  let isInventoryOpen = false;
-  
-  instructions?.addEventListener('click', () => {
-    if (!isInventoryOpen) controls.lock();
-  });
+function buildAvatar(): THREE.Group {
+  // Unscaled model is 2.0 tall and 0.8 wide; scaled by 0.9 it matches the 1.8 x 0.72 hitbox
+  const root = new THREE.Group();
+  const model = new THREE.Group();
+  model.scale.setScalar(0.9);
+  root.add(model);
 
-  controls.addEventListener('lock', () => {
-    if (instructions) instructions.style.display = 'none';
-  });
-
-  controls.addEventListener('unlock', () => {
-    if (instructions && !isInventoryOpen) instructions.style.display = 'flex';
-  });
-
-  scene.add(controls.object);
-  scene.add(crackOverlay);
-  
-  // Init Avatar
-  playerAvatar = new THREE.Group();
-  
+  headPivot = new THREE.Group();
+  headPivot.position.y = 1.5;
   head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), matSkin);
-  head.position.y = 0.5;
-  
-  // Standard bloxd.io 3D Arthur Face (Hair and Eyes)
-  hairMesh = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.1, 0.52), matHair);
+  head.position.y = 0.25;
+  headPivot.add(head);
+  hairMesh = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.12, 0.52), matHair);
   applyHairGeometry(currentHairStyleId, hairMesh);
   head.add(hairMesh);
+  eyes = addBigEyes(head, eyeMat);
+  model.add(headPivot);
 
-  leftEye = new THREE.Group();
-  leftEye.position.set(-0.1, 0, -0.252);
-  const leOuter = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.005), new THREE.MeshBasicMaterial({color: 0xffffff}));
-  const leInner = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.08, 0.006), leInnerMat);
-  leInner.position.set(0.015, 0, 0);
-  leftEye.add(leOuter, leInner);
-  head.add(leftEye);
+  torso = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.75, 0.25), matShirt);
+  torso.position.y = 1.125;
+  model.add(torso);
 
-  rightEye = new THREE.Group();
-  rightEye.position.set(0.1, 0, -0.252);
-  const reOuter = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.005), new THREE.MeshBasicMaterial({color: 0xffffff}));
-  const reInner = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.08, 0.006), reInnerMat);
-  reInner.position.set(-0.015, 0, 0);
-  rightEye.add(reOuter, reInner);
-  head.add(rightEye);
-  
-  playerAvatar.add(head);
-
-  body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.75, 0.25), matShirt);
-  body.position.y = -0.125;
-  playerAvatar.add(body);
-
-  leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.75, 0.25), matSkin);
-  leftArm.position.set(-0.375, -0.125, 0);
-  playerAvatar.add(leftArm);
-
-  rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.75, 0.25), matSkin);
-  rightArm.position.set(0.375, -0.125, 0);
-  playerAvatar.add(rightArm);
-
-  leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.75, 0.25), matPants);
-  leftLeg.position.set(-0.125, -0.875, 0);
-  playerAvatar.add(leftLeg);
-
-  rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.75, 0.25), matPants);
-  rightLeg.position.set(0.125, -0.875, 0);
-  playerAvatar.add(rightLeg);
-
-  scene.add(playerAvatar);
-  playerAvatar.visible = false;
-  
-  // Start position dynamically synced to fractal generation highest surface grass tile!
-  controls.object.position.set(0, getSpawnY(), 0);
-
-  // Mining/Placing listener
-  document.addEventListener('mousedown', (e) => {
-    if (!controls.isLocked && !isMobile) return;
-    
-    if (e.button !== 0) return; // Only left click for mining/placing/using
-    isMouseDown = true;
-    blockMined = false;
-    mouseDownTime = performance.now();
-    targetBlockPos = null;
-  });
-
-  document.addEventListener('mouseup', (e) => {
-    if ((!controls.isLocked && !isMobile) || !isMouseDown) return;
-    isMouseDown = false;
-    crackOverlay.visible = false;
-    if (e.button !== 0) return;
-
-    const duration = performance.now() - mouseDownTime;
-
-    // Center of screen raycast
-    raycaster.setFromCamera(new THREE.Vector2(0, 0), cameraRef);
-    const intersects = raycaster.intersectObjects(chunkGroup.children, false);
-
-    if (intersects.length > 0 && !blockMined && duration < 300) {
-      const intersect = intersects[0];
-      // Short Click -> Intercept Use OR Place Block
-      if (intersect.face) {
-        const mesh = intersect.object as THREE.Mesh | THREE.InstancedMesh;
-        let blockPos = new THREE.Vector3();
-        if (mesh instanceof THREE.InstancedMesh && intersect.instanceId !== undefined) {
-             const matrix = new THREE.Matrix4();
-             mesh.getMatrixAt(intersect.instanceId, matrix);
-             blockPos.setFromMatrixPosition(matrix);
-        } else {
-             blockPos.copy(mesh.position);
-        }
-        
-        const posKey = `${Math.round(blockPos.x)},${Math.round(blockPos.y)},${Math.round(blockPos.z)}`;
-        const blockType = worldData.get(posKey);
-        
-        // INTERACT
-        if (blockType === 'crafting_table') {
-           const modal = document.getElementById('full-inventory-modal');
-           if (modal) {
-               setCraftingMode('3x3');
-               isInventoryOpen = true;
-               modal.style.display = 'block';
-               controls.unlock();
-           }
-           return;
-        }
-
-        // PLACE BLOCK
-        const placePos = blockPos.clone().add(intersect.face.normal);
-        
-        if (!isPlayerInBlock(placePos)) {
-            const slot = inventory[selectedSlotIndex];
-            if (slot && slot.count > 0) {
-               const isToolOrArmor = slot.type === 'stick' || (slot.type.includes('_') && slot.type !== 'crafting_table');
-               if (!isToolOrArmor) {
-                   placeBlock(placePos, slot.type as any);
-                   removeItem(selectedSlotIndex, 1);
-               }
-            }
-        }
-      }
-    }
-  });
-
-  document.addEventListener('keydown', (e) => {
-    if (e.code === 'F7' || e.code === 'KeyV' || e.code === 'F5') {
-       e.preventDefault();
-       cameraViewMode = (cameraViewMode + 1) % 3;
-       playerAvatar.visible = cameraViewMode !== 0;
-       
-       if (cameraViewMode === 1) {
-           cameraRef.position.set(0, 0, 5); // Shift back
-           cameraRef.rotation.y = 0;
-           raycaster.far = 10;
-       } else if (cameraViewMode === 2) {
-           cameraRef.position.set(0, 0, -5); // Shift front
-           cameraRef.rotation.y = Math.PI; // Face the player
-           raycaster.far = 10;
-       } else {
-           cameraRef.position.set(0, 0, 0); // Restore 1st person
-           cameraRef.rotation.y = 0;
-           raycaster.far = 5;
-       }
-    }
-
-    if (e.code === 'KeyI') {
-       const modal = document.getElementById('full-inventory-modal');
-       if (modal) {
-           if (modal.style.display === 'none') {
-               setCraftingMode('2x2');
-               isInventoryOpen = true;
-               modal.style.display = 'block';
-               controls.unlock();
-           } else {
-               isInventoryOpen = false;
-               modal.style.display = 'none';
-               controls.lock();
-           }
-       }
-    }
-    
-    if (e.code === 'KeyH') {
-       if (equippedEtherite > 0) {
-           if (homes.length < equippedEtherite) {
-               homes.push({
-                   x: controls.object.position.x,
-                   y: controls.object.position.y,
-                   z: controls.object.position.z,
-                   name: `Home ${homes.length + 1}`
-               });
-           } else {
-               const idx = Math.max(0, homes.length - 1);
-               homes[idx] = {
-                   x: controls.object.position.x,
-                   y: controls.object.position.y,
-                   z: controls.object.position.z,
-                   name: `Home ${idx + 1}`
-               };
-           }
-           renderHomesSidebar();
-       }
-    }
-  });
-}
-
-function isOnSolidGround(pos: THREE.Vector3) {
-  const minX = Math.floor(pos.x - 0.3 + 0.5);
-  const maxX = Math.floor(pos.x + 0.3 + 0.5);
-  const minZ = Math.floor(pos.z - 0.3 + 0.5);
-  const maxZ = Math.floor(pos.z + 0.3 + 0.5);
-  
-  const y = Math.floor(pos.y - 1.75 - 0.1 + 0.5); 
-  
-  for (let x = minX; x <= maxX; x++) {
-    for (let z = minZ; z <= maxZ; z++) {
-        if (getBlockType(x,y,z) || blocks.has(`${x},${y},${z}`)) return true;
-    }
+  let m: THREE.Mesh;
+  // Arms carry a gauntlet cuff (children[1]) that shows when gauntlets are equipped
+  [leftArm, m] = limb(0.18, 0.75, 0.18, matSkin, -0.31, 1.5, matSkin); armMeshes.push(m);
+  [rightArm, m] = limb(0.18, 0.75, 0.18, matSkin, 0.31, 1.5, matSkin); armMeshes.push(m);
+  for (const g of [leftArm, rightArm]) {
+    const glove = g.children[1] as THREE.Mesh;
+    glove.geometry = new THREE.BoxGeometry(0.2, 0.26, 0.2);
+    glove.position.y = -0.75 + 0.13;
+    glove.visible = false;
   }
-  return false;
+  [leftLeg, m] = limb(0.22, 0.75, 0.22, matPants, -0.11, 0.75, matShoes); legMeshes.push(m);
+  [rightLeg, m] = limb(0.22, 0.75, 0.22, matPants, 0.11, 0.75, matShoes); legMeshes.push(m);
+  model.add(leftArm, rightArm, leftLeg, rightLeg);
+  return root;
 }
+
+export function updateAvatarColors(skin: string, shirt: string, pants: string, hairColor?: string, eyeColor?: string, hairStyle?: number, superCosmetic?: string) {
+  if (skin) matSkin.color.set(skin);
+  if (shirt) matShirt.color.set(shirt);
+  if (pants) matPants.color.set(pants);
+  if (hairColor) matHair.color.set(hairColor);
+  if (eyeColor) eyeMat.color.set(eyeColor);
+  if (hairStyle !== undefined && hairMesh) applyHairGeometry(hairStyle, hairMesh);
+  if (superCosmetic !== undefined && head && torso) {
+    if (!playerTopHat) {
+      playerTopHat = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.4), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+      const brim = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.05), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+      brim.position.y = -0.2; playerTopHat.add(brim);
+      playerTopHat.position.y = 0.45;
+      head.add(playerTopHat);
+      playerBackpack = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.15), new THREE.MeshLambertMaterial({ color: 0xaa2222 }));
+      playerBackpack.position.set(0, 0, 0.2);
+      torso.add(playerBackpack);
+      playerNinjaMask = new THREE.Mesh(new THREE.BoxGeometry(0.51, 0.51, 0.51), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+      const slit = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.52), new THREE.MeshLambertMaterial({ color: 0xffcc99 }));
+      slit.position.set(0, 0.1, 0);
+      playerNinjaMask.add(slit);
+      head.add(playerNinjaMask);
+    }
+    playerTopHat.visible = superCosmetic === 'tophat';
+    playerBackpack.visible = superCosmetic === 'backpack';
+    playerNinjaMask.visible = superCosmetic === 'ninja';
+  }
+  updateArmorVisuals();
+}
+
+const ARMOR_COLORS: Record<string, number> = { wood: 0xa07844, iron: 0xd8d8d8, gold: 0xfad64a, diamond: 0x33ebcb, moonstone: 0xd6d0f5, etherite: 0x3a3448 };
+const armorMats = new Map<string, THREE.MeshLambertMaterial>();
+const armorMat = (type: string | undefined): THREE.MeshLambertMaterial | null => {
+  if (!type) return null;
+  const tier = type.split('_')[0];
+  const col = ARMOR_COLORS[tier];
+  if (col === undefined) return null;
+  let m = armorMats.get(tier);
+  if (!m) { m = new THREE.MeshLambertMaterial({ color: col }); armorMats.set(tier, m); }
+  return m;
+};
 
 export function updateArmorVisuals() {
-  const helmetItem = inventory[55];
-  equippedEtherite = 0;
-  if (helmetItem && helmetItem.type === 'etherite_helmet') equippedEtherite++;
-  let isWearingHelmet = false;
-  if (helmetItem && helmetItem.type.startsWith('wood')) { head.material = materials.wood; isWearingHelmet = true; }
-  else if (helmetItem && helmetItem.type.startsWith('stone')) { head.material = materials.stone; isWearingHelmet = true; }
-  else if (helmetItem && helmetItem.type.startsWith('iron')) { head.material = matIron; isWearingHelmet = true; }
-  else if (helmetItem && helmetItem.type.startsWith('diamond')) { head.material = matDiamond; isWearingHelmet = true; }
-  else if (helmetItem && helmetItem.type.startsWith('gold')) { head.material = matGold; isWearingHelmet = true; }
-  else if (helmetItem && helmetItem.type.startsWith('moonstone')) { head.material = matMoonstone; isWearingHelmet = true; }
-  else if (helmetItem && helmetItem.type.startsWith('etherite')) { head.material = matEtherite; isWearingHelmet = true; }
-  else { head.material = matSkin; }
-  
-  if (hairMesh) hairMesh.visible = !isWearingHelmet;
-  if (leftEye) leftEye.visible = !isWearingHelmet;
-  if (rightEye) rightEye.visible = !isWearingHelmet;
-  
-  const chestItem = inventory[56];
-  if (chestItem && chestItem.type === 'etherite_chestplate') equippedEtherite++;
-  let chestMat = matShirt;
-  if (chestItem && chestItem.type.startsWith('wood')) chestMat = materials.wood as any;
-  else if (chestItem && chestItem.type.startsWith('stone')) chestMat = materials.stone as any;
-  else if (chestItem && chestItem.type.startsWith('iron')) chestMat = matIron as any;
-  else if (chestItem && chestItem.type.startsWith('diamond')) chestMat = matDiamond as any;
-  else if (chestItem && chestItem.type.startsWith('gold')) chestMat = matGold as any;
-  else if (chestItem && chestItem.type.startsWith('moonstone')) chestMat = matMoonstone as any;
-  else if (chestItem && chestItem.type.startsWith('etherite')) chestMat = matEtherite as any;
-  body.material = chestMat;
-  leftArm.material = chestMat !== matShirt ? chestMat : matSkin;
-  rightArm.material = chestMat !== matShirt ? chestMat : matSkin;
+  if (!head) return;
+  const prev = equippedEtherite;
+  equippedEtherite = [55, 56, 57, 58].filter(i => inventory[i]?.type.startsWith('etherite_')).length;
+  const helm = armorMat(inventory[55]?.type), chest = armorMat(inventory[56]?.type);
+  const legs = armorMat(inventory[57]?.type), boots = armorMat(inventory[58]?.type);
+  head.material = helm || matSkin;
+  if (hairMesh) hairMesh.visible = !helm;
+  if (eyes) eyes.visible = true;
+  torso.material = chest || matShirt;
+  for (const m of armMeshes) m.material = chest || matSkin;
+  for (const m of legMeshes) m.material = legs || matPants;
+  for (const g of [leftLeg, rightLeg]) (g.children[1] as THREE.Mesh).material = boots || matShoes;
+  const hands = armorMat(inventory[59]?.type);
+  for (const g of [leftArm, rightArm]) {
+    const glove = g.children[1] as THREE.Mesh;
+    glove.visible = !!hands;
+    if (hands) glove.material = hands;
+  }
+  handArm.material = hands || matSkin;
+  if (prev !== equippedEtherite) renderHomesSidebar();
+}
 
-  const legItem = inventory[57];
-  const bootsItem = inventory[58];
-  
-  if (legItem && legItem.type === 'etherite_leggings') equippedEtherite++;
-  if (bootsItem && bootsItem.type === 'etherite_boots') equippedEtherite++;
-  
-  let basePants = matPants;
-  if (legItem && legItem.type.startsWith('wood')) basePants = materials.wood as any;
-  else if (legItem && legItem.type.startsWith('stone')) basePants = materials.stone as any;
-  else if (legItem && legItem.type.startsWith('iron')) basePants = matIron as any;
-  else if (legItem && legItem.type.startsWith('diamond')) basePants = matDiamond as any;
-  else if (legItem && legItem.type.startsWith('gold')) basePants = matGold as any;
-  else if (legItem && legItem.type.startsWith('moonstone')) basePants = matMoonstone as any;
-  else if (legItem && legItem.type.startsWith('etherite')) basePants = matEtherite as any;
-  
-  let bootsMat = basePants;
-  if (bootsItem && bootsItem.type.startsWith('wood')) bootsMat = materials.wood as any;
-  else if (bootsItem && bootsItem.type.startsWith('stone')) bootsMat = materials.stone as any;
-  else if (bootsItem && bootsItem.type.startsWith('iron')) bootsMat = matIron as any;
-  else if (bootsItem && bootsItem.type.startsWith('diamond')) bootsMat = matDiamond as any;
-  else if (bootsItem && bootsItem.type.startsWith('gold')) bootsMat = matGold as any;
-  else if (bootsItem && bootsItem.type.startsWith('moonstone')) bootsMat = matMoonstone as any;
-  else if (bootsItem && bootsItem.type.startsWith('etherite')) bootsMat = matEtherite as any;
+function armorPoints(): number {
+  let pts = 0;
+  for (let i = 55; i <= 59; i++) { const it = inventory[i]; if (it) pts += itemDef(it.type).armor?.points || 0; }
+  return pts;
+}
 
-  leftLeg.material = bootsMat;
-  rightLeg.material = bootsMat;
-  
+// Extra damage from gauntlets
+function gauntletAttack(): number {
+  const g = inventory[59];
+  return g ? itemDef(g.type).armor?.attack || 0 : 0;
+}
+
+// ------------------------------------------------------------------ First-person hand
+
+export const handScene = new THREE.Scene();
+export const handCamera = new THREE.PerspectiveCamera(70, 1, 0.01, 10);
+const handLight = new THREE.AmbientLight(0xffffff, 1.6);
+handScene.add(handLight);
+const handDir = new THREE.DirectionalLight(0xffffff, 1.2);
+handDir.position.set(1, 2, 1);
+handScene.add(handDir);
+const handGroup = new THREE.Group();
+handScene.add(handGroup);
+const handArm = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.6), matSkin);
+let handItem: THREE.Object3D | null = null;
+let handItemType = '';
+let swingTime = 1;
+const itemPlaneMats = new Map<string, THREE.MeshLambertMaterial>();
+
+function itemPlaneMat(type: string) {
+  let mat = itemPlaneMats.get(type);
+  if (!mat) {
+    const tex = new THREE.CanvasTexture(getIconCanvas(type));
+    tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
+    mat = new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide });
+    itemPlaneMats.set(type, mat);
+  }
+  return mat;
+}
+
+function makeHeldMesh(type: string, blockSize: number, planeSize: number): THREE.Object3D {
+  if (!isFlatItem(type)) return new THREE.Mesh(blockGeometry(itemDef(type).block!, blockSize), blockEntityMaterial);
+  return new THREE.Mesh(new THREE.PlaneGeometry(planeSize, planeSize), itemPlaneMat(type));
+}
+
+function refreshHeldItem() {
+  const it = getSelectedItem();
+  const type = it?.type || '';
+  if (type === handItemType) return;
+  handItemType = type;
+  if (handItem) { handGroup.remove(handItem); handItem = null; }
+  if (heldItem3p) { rightArm.remove(heldItem3p); heldItem3p = null; }
+  if (!type) { handArm.visible = true; return; }
+  handArm.visible = false;
+  handItem = makeHeldMesh(type, 0.2, 0.34);
+  if (isFlatItem(type)) handItem.rotation.set(0, -Math.PI / 2.4, 0.2);
+  else handItem.rotation.set(0.2, 0.7, 0);
+  handGroup.add(handItem);
+  heldItem3p = makeHeldMesh(type, 0.25, 0.45);
+  heldItem3p.position.set(0, -0.78, -0.15);
+  if (isFlatItem(type)) heldItem3p.rotation.set(0, Math.PI / 2, -Math.PI / 4);
+  rightArm.add(heldItem3p);
+}
+
+function updateHand(dt: number, moving: number) {
+  swingTime = Math.min(1, swingTime + dt / 0.28);
+  const s = Math.sin(swingTime * Math.PI);
+  const bob = Math.sin(walkPhase * 2) * 0.02 * moving;
+  handGroup.position.set(0.5 - s * 0.12, -0.46 + bob - s * 0.05, -0.8 - s * 0.1);
+  handGroup.rotation.set(-s * 0.9, s * 0.3, 0);
+  handArm.position.set(0.05, -0.05, 0.1);
+  handArm.rotation.set(0.2, -0.3, 0);
+  if (handItem) handItem.position.set(-0.05, 0.05, -0.05);
+  handCamera.aspect = cameraRef.aspect;
+  handCamera.fov = cameraRef.fov;
+  handCamera.updateProjectionMatrix();
+  handGroup.visible = cameraViewMode === 0 && !dead;
+}
+
+function swing() { if (swingTime > 0.5) swingTime = 0; }
+
+// ------------------------------------------------------------------ Target highlight & crack
+
+const highlight = new THREE.Group();
+{
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)),
+    new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.7 }));
+  const glow = new THREE.Mesh(new THREE.BoxGeometry(1.006, 1.006, 1.006),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.16, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  highlight.add(edges, glow);
+  highlight.visible = false;
+}
+export const crackOverlay = new THREE.Mesh(new THREE.BoxGeometry(1.008, 1.008, 1.008), crackMaterials[0]);
+crackOverlay.visible = false;
+
+// ------------------------------------------------------------------ Camera
+
+let cameraViewMode = 0; // 0 first person, 1 behind, 2 in front
+const _dir = new THREE.Vector3();
+const _eye = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+
+function lookDir(out: THREE.Vector3) {
+  return out.set(0, 0, -1).applyQuaternion(pivot.quaternion);
+}
+
+function updateCamera() {
+  if (cameraViewMode === 0) { cameraRef.position.set(0, 0, 0); cameraRef.rotation.set(0, 0, 0); return; }
+  // Pull the third-person camera in when a wall is between it and the player
+  const back = cameraViewMode === 1 ? 1 : -1;
+  _dir.set(0, 0, back).applyQuaternion(pivot.quaternion);
+  const hit = raycast(pivot.position, _dir, 4.5);
+  const dist = hit ? Math.max(0.3, hit.dist - 0.3) : 4;
+  cameraRef.position.set(0, 0, back * Math.min(4, dist));
+  cameraRef.rotation.set(0, cameraViewMode === 2 ? Math.PI : 0, 0);
+}
+
+// ------------------------------------------------------------------ Init
+
+export function initPlayer(camera: THREE.PerspectiveCamera, scene: THREE.Scene) {
+  cameraRef = camera;
+  pivot = new THREE.Object3D();
+  pivot.add(camera);
+  controls = new PointerLockControls(pivot as unknown as THREE.Camera, document.body);
+  scene.add(pivot);
+  scene.add(crackOverlay);
+  scene.add(highlight);
+
+  playerAvatar = buildAvatar();
+  playerAvatar.visible = false;
+  scene.add(playerAvatar);
+  handGroup.add(handArm);
+  handCamera.position.set(0, 0, 0);
+
+  ui.initUI(controls);
+  ui.setRespawnHandler(respawn);
+  setDropHandler((type, count) => dropStack(type, count));
+  onInventoryChange(() => { refreshHeldItem(); updateArmorVisuals(); });
+  refreshHeldItem();
+
+  actions.primaryDown = () => { if (ui.isPlaying()) onPrimaryDown(); };
+  actions.primaryUp = () => { primaryHeld = false; };
+  actions.secondaryDown = () => { if (ui.isPlaying()) { secondaryHeld = true; useTimer = 0.25; useItem(); } };
+  actions.secondaryUp = () => { secondaryHeld = false; };
+  actions.inventory = () => {
+    if (ui.state === 'screen') ui.closeGameScreen();
+    else if (ui.state === 'playing') ui.toggleScreen('inventory');
+  };
+  actions.escape = () => {
+    if (ui.state === 'screen') ui.closeGameScreen();
+    else if (ui.state === 'playing' && isMobile) ui.pause();
+    else if (ui.state === 'paused' && isMobile) ui.resume();
+  };
+  actions.drop = (all) => {
+    if (!ui.isPlaying()) return;
+    const it = getSelectedItem();
+    if (!it) return;
+    const n = all ? it.count : 1;
+    const type = it.type;
+    removeItem(selectedSlotIndex, n);
+    dropStack(type, n);
+    swing();
+  };
+  actions.toggleView = () => { cameraViewMode = (cameraViewMode + 1) % 3; };
+  actions.setHome = setHome;
+
+  setPlayerFeet(spawnPoint);
+}
+
+export function setSpawnPoint(p: THREE.Vector3) { spawnPoint = p.clone(); }
+
+export function setPlayerFeet(p: THREE.Vector3) {
+  body.pos.copy(p);
+  body.vel.set(0, 0, 0);
+  fallStartY = p.y;
+  pivot.position.set(p.x, p.y + EYE_HEIGHT, p.z);
+}
+
+export function getYawPitch() {
+  const e = new THREE.Euler().setFromQuaternion(pivot.quaternion, 'YXZ');
+  return { yaw: e.y, pitch: e.x };
+}
+
+export function setYawPitch(yaw: number, pitch: number) {
+  pivot.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ'));
+}
+
+export function setHealth(h: number) {
+  health = Math.max(1, Math.min(MAX_HEALTH, Math.round(h)));
+  dead = false;
+  ui.renderHealth(health, MAX_HEALTH);
+}
+
+export function resetPlayer() {
+  homes.length = 0;
+  setHealth(MAX_HEALTH);
+  cameraViewMode = 0;
+  renderHomesSidebar();
+}
+
+// ------------------------------------------------------------------ Health
+
+export function damagePlayer(amount: number, from: THREE.Vector3 | null, cause: string) {
+  if (dead || invulnerable > 0 || amount <= 0) return;
+  let dmg = amount;
+  if (cause !== 'fall' && cause !== 'lava') dmg *= 1 - Math.min(20, armorPoints()) * 0.04;
+  dmg = Math.max(1, Math.round(dmg));
+  health = Math.max(0, health - dmg);
+  invulnerable = 0.5;
+  sinceDamage = 0;
+  ui.flashHurt();
+  ui.renderHealth(health, MAX_HEALTH);
+  hurtTilt = 1;
+  if (from) {
+    const dx = body.pos.x - from.x, dz = body.pos.z - from.z, d = Math.hypot(dx, dz) || 1;
+    body.vel.x += (dx / d) * 7; body.vel.z += (dz / d) * 7; body.vel.y = Math.max(body.vel.y, 5);
+  }
+  if (health <= 0) die(cause);
+}
+
+const DEATH_MESSAGES: Record<string, string> = {
+  fall: 'You hit the ground too hard', lava: 'You tried to swim in lava', zombie: 'You were slain by a Zombie',
+  cactus: 'You were pricked to death', void: 'You fell out of the world',
+};
+
+function die(cause: string) {
+  dead = true;
+  primaryHeld = secondaryHeld = false;
+  // Drop everything where you died
+  const at = body.pos.clone().setY(body.pos.y + 1);
+  for (let i = 0; i < inventory.length; i++) {
+    const it = inventory[i];
+    if (it && i !== 54) spawnItem(it.type, it.count, at, new THREE.Vector3((Math.random() - 0.5) * 6, 4, (Math.random() - 0.5) * 6), 1);
+  }
+  clearInventory();
+  ui.showDeath(DEATH_MESSAGES[cause] || 'You died!');
+}
+
+function respawn() {
+  loadAreaNow(spawnPoint.x, spawnPoint.z, 1);
+  setPlayerFeet(spawnPoint);
+  setHealth(MAX_HEALTH);
+  ui.resume();
+}
+
+function eat(type: string): boolean {
+  const food = itemDef(type).food;
+  if (!food || health >= MAX_HEALTH) return false;
+  health = Math.min(MAX_HEALTH, health + food);
+  ui.renderHealth(health, MAX_HEALTH);
+  removeItem(selectedSlotIndex, 1);
+  ui.toast(`Ate ${itemDef(type).name} (+${food / 2} ♥)`);
+  return true;
+}
+
+// ------------------------------------------------------------------ Mining, attacking, placing
+
+let primaryHeld = false;
+let secondaryHeld = false;
+let useTimer = 0;
+let attackCooldown = 0;
+let breakCooldown = 0;
+let mineKey = '';
+let mineProgress = 0;
+let target: RayHit | null = null;
+
+function eyePos() { return _eye.copy(pivot.position); }
+
+function onPrimaryDown() {
+  swing();
+  lookDir(_dir);
+  const eye = eyePos();
+  const mobHit = rayHitMob(eye, _dir, 3.5);
+  const blockHit = raycast(eye, _dir, REACH);
+  if (mobHit && (!blockHit || mobHit.dist < blockHit.dist)) {
+    if (attackCooldown <= 0) {
+      const held = getSelectedItem();
+      const dmg = (held ? itemDef(held.type).damage || 1 : 1) + gauntletAttack();
+      damageMob(mobHit.mob, dmg, body.pos);
+      attackCooldown = 0.35;
+    }
+    return;
+  }
+  primaryHeld = true;
+}
+
+function breakBlock(hit: RayHit) {
+  const held = getSelectedItem()?.type || null;
+  const info = miningInfo(hit.id, held);
+  const key = `${hit.x},${hit.y},${hit.z}`;
+  setBlock(hit.x, hit.y, hit.z, 0);
+  const center = new THREE.Vector3(hit.x + 0.5, hit.y + 0.3, hit.z + 0.5);
+
+  if (hit.id === BLOCK_ID.furnace) {
+    const f = furnaces.get(key);
+    if (f) for (const s of [f.input, f.fuel, f.output]) if (s) spawnItem(s.type, s.count, center);
+    furnaces.delete(key);
+  }
+  if (info.drops) {
+    let drop = BLOCKS[hit.id].drop;
+    if (hit.id === BLOCK_ID.gravel && Math.random() < 0.1) drop = 'flint';
+    if (hit.id === BLOCK_ID.leaves) drop = Math.random() < 0.05 ? 'apple' : Math.random() < 0.05 ? 'stick' : null;
+    if (drop) spawnItem(drop, 1, center);
+  } else if (BLOCKS[hit.id].harvestTier >= 0) {
+    ui.toast('You need a better pickaxe to get anything from this');
+  }
+
+  // Plants on top lose their support
+  const above = getBlock(hit.x, hit.y + 1, hit.z);
+  if (isPlant(above)) {
+    setBlock(hit.x, hit.y + 1, hit.z, 0);
+    const d = BLOCKS[above].drop;
+    if (d) spawnItem(d, 1, center.clone().setY(center.y + 1));
+  }
+
+  // Neighbouring water/lava flows into the hole (and keeps falling)
+  flowInto(hit.x, hit.y, hit.z);
+}
+
+function flowInto(x: number, y: number, z: number) {
+  const nbs = [getBlock(x, y + 1, z), getBlock(x + 1, y, z), getBlock(x - 1, y, z), getBlock(x, y, z + 1), getBlock(x, y, z - 1)];
+  const liquid = nbs.includes(LAVA) ? LAVA : nbs.includes(WATER) ? WATER : 0;
+  if (!liquid) return;
+  let yy = y;
+  for (let i = 0; i < 24 && getBlock(x, yy, z) === 0; i++, yy--) setBlock(x, yy, z, liquid);
+}
+
+function playerOverlapsBlock(x: number, y: number, z: number) {
+  const p = body.pos;
+  return p.x + HALF_WIDTH > x && p.x - HALF_WIDTH < x + 1 && p.z + HALF_WIDTH > z && p.z - HALF_WIDTH < z + 1 &&
+    p.y + HEIGHT > y && p.y < y + 1;
+}
+
+function useItem() {
+  swing();
+  lookDir(_dir);
+  const hit = raycast(eyePos(), _dir, REACH);
+  const held = getSelectedItem();
+
+  if (hit && !keys.shift) {
+    if (hit.id === BLOCK_ID.crafting_table) { secondaryHeld = false; ui.toggleScreen('table'); return; }
+    if (hit.id === BLOCK_ID.furnace) { secondaryHeld = false; ui.toggleScreen('furnace', `${hit.x},${hit.y},${hit.z}`); return; }
+  }
+  if (!held) return;
+  const def = itemDef(held.type);
+  if (def.food) { eat(held.type); return; }
+  if (def.block === undefined || !hit) return;
+
+  // Clicking a plant replaces it (like Minecraft) instead of stacking on its neighbour
+  const replacePlant = isPlant(hit.id);
+  const px = replacePlant ? hit.x : hit.x + hit.nx, py = replacePlant ? hit.y : hit.y + hit.ny, pz = replacePlant ? hit.z : hit.z + hit.nz;
+  const existing = getBlock(px, py, pz);
+  if (existing !== 0 && existing !== WATER && existing !== LAVA && !isPlant(existing)) return;
+  if (BLOCKS[def.block].plant) {
+    const below = getBlock(px, py - 1, pz);
+    if (below !== BLOCK_ID.grass && below !== BLOCK_ID.dirt && below !== BLOCK_ID.snowy_grass) return;
+  } else if (playerOverlapsBlock(px, py, pz) || mobInBlock(px, py, pz)) return;
+  if (isFacingBlock(def.block)) {
+    // Front faces the player
+    const { yaw } = getYawPitch();
+    const lx = -Math.sin(yaw), lz = -Math.cos(yaw);
+    const f = Math.abs(lx) > Math.abs(lz) ? (lx > 0 ? 3 : 1) : (lz > 0 ? 2 : 0);
+    facing.set(`${px},${py},${pz}`, f);
+  }
+  setBlock(px, py, pz, def.block);
+  removeItem(selectedSlotIndex, 1);
+}
+
+function dropStack(type: string, count: number) {
+  lookDir(_dir);
+  const from = eyePos().clone().addScaledVector(_dir, 0.4);
+  from.y -= 0.3;
+  spawnItem(type, count, from, _dir.clone().multiplyScalar(6).add(new THREE.Vector3(0, 2, 0)), 1.5);
+}
+
+function updateTargeting(dt: number) {
+  lookDir(_dir);
+  target = ui.isPlaying() ? raycast(eyePos(), _dir, REACH) : null;
+  if (target) {
+    highlight.visible = true;
+    highlight.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
+  } else highlight.visible = false;
+
+  breakCooldown = Math.max(0, breakCooldown - dt);
+  attackCooldown = Math.max(0, attackCooldown - dt);
+  if (!primaryHeld || !target || breakCooldown > 0) { crackOverlay.visible = false; if (!primaryHeld) mineKey = ''; return; }
+
+  const key = `${target.x},${target.y},${target.z}`;
+  if (key !== mineKey) { mineKey = key; mineProgress = 0; }
+  const info = miningInfo(target.id, getSelectedItem()?.type || null);
+  if (info.time === Infinity) { crackOverlay.visible = false; return; }
+  mineProgress += dt / info.time;
+  if (swingTime >= 1) swing();
+  crackOverlay.visible = true;
+  crackOverlay.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
+  crackOverlay.material = crackMaterials[Math.min(10, Math.floor(mineProgress * 10))];
+  if (mineProgress >= 1) {
+    breakBlock(target);
+    mineKey = '';
+    mineProgress = 0;
+    breakCooldown = 0.2;
+    crackOverlay.visible = false;
+  }
+}
+
+// ------------------------------------------------------------------ Homes (etherite armor)
+
+function setHome() {
+  if (!ui.isPlaying() || equippedEtherite <= 0) return;
+  const p = { x: body.pos.x, y: body.pos.y, z: body.pos.z };
+  if (homes.length < equippedEtherite) homes.push({ ...p, name: `Home ${homes.length + 1}` });
+  else homes[homes.length - 1] = { ...p, name: `Home ${homes.length}` };
+  ui.toast('Home set!');
   renderHomesSidebar();
 }
 
 export function renderHomesSidebar() {
-   const sidebar = document.getElementById('homes-sidebar');
-   const list = document.getElementById('homes-list');
-   if (!sidebar || !list) return;
-   
-   if (equippedEtherite > 0) {
-      sidebar.style.display = 'block';
-      list.innerHTML = '';
-      for (let i = 0; i < equippedEtherite; i++) {
-          const li = document.createElement('li');
-          const home = homes[i];
-          if (home) {
-              li.className = 'home-point';
-              li.innerText = home.name;
-              li.onclick = () => {
-                  controls.object.position.set(home.x, home.y, home.z);
-                  velocity.set(0, 0, 0); // Reset jump velocity to not fall through floor/ceiling wildly
-                  updateRenderedBlocks(controls.object.position, true);
-              };
-          } else {
-              li.className = 'home-point empty-home';
-              li.innerText = `[Empty Slot ${i + 1}]`;
-          }
-          list.appendChild(li);
-      }
-   } else {
-      sidebar.style.display = 'none';
-   }
+  const sidebar = document.getElementById('homes-sidebar');
+  const list = document.getElementById('homes-list');
+  if (!sidebar || !list) return;
+  if (equippedEtherite <= 0) { sidebar.style.display = 'none'; return; }
+  sidebar.style.display = 'block';
+  list.innerHTML = '';
+  for (let i = 0; i < equippedEtherite; i++) {
+    const li = document.createElement('li');
+    const home = homes[i];
+    if (home) {
+      li.className = 'home-point';
+      li.innerText = home.name;
+      li.onclick = () => {
+        loadAreaNow(home.x, home.z, 1);
+        setPlayerFeet(new THREE.Vector3(home.x, home.y, home.z));
+      };
+    } else {
+      li.className = 'home-point empty-home';
+      li.innerText = `[Empty Slot ${i + 1}]`;
+    }
+    list.appendChild(li);
+  }
 }
 
-export function updatePlayer() {
-  const time = performance.now();
-  let delta = (time - prevTime) / 1000;
-  if (delta > 0.1) delta = 0.1; // Prevent physics tunneling upon lag spikes
-  prevTime = time;
+// ------------------------------------------------------------------ Update
 
-  updateArmorVisuals();
+let walkPhase = 0;
+let hurtTilt = 0;
 
-  if (!controls.isLocked && !isMobile) return;
-  
-  if (isMobile) {
-      if (touchLookDelta.x !== 0 || touchLookDelta.y !== 0) {
-          const euler = new THREE.Euler(0, 0, 0, 'YXZ');
-          euler.setFromQuaternion(cameraRef.quaternion);
-          
-          euler.y -= touchLookDelta.x * 0.005;
-          euler.x -= touchLookDelta.y * 0.005;
-          euler.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, euler.x));
-          
-          cameraRef.quaternion.setFromEuler(euler);
-          
-          touchLookDelta.x = 0;
-          touchLookDelta.y = 0;
-      }
+function touchesBlock(id: number): boolean {
+  const p = body.pos, e = 0.05;
+  for (let x = Math.floor(p.x - HALF_WIDTH - e); x <= Math.floor(p.x + HALF_WIDTH + e); x++)
+    for (let y = Math.floor(p.y); y <= Math.floor(p.y + HEIGHT - 0.01); y++)
+      for (let z = Math.floor(p.z - HALF_WIDTH - e); z <= Math.floor(p.z + HALF_WIDTH + e); z++)
+        if (getBlock(x, y, z) === id) return true;
+  return false;
+}
+
+export function updatePlayer(dt: number) {
+  const playing = ui.isPlaying();
+
+  // Mobile look
+  if (isMobile && (touchLookDelta.x || touchLookDelta.y)) {
+    const e = new THREE.Euler(0, 0, 0, 'YXZ').setFromQuaternion(pivot.quaternion);
+    e.y -= touchLookDelta.x * 0.005;
+    e.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, e.x - touchLookDelta.y * 0.005));
+    pivot.quaternion.setFromEuler(e);
+    touchLookDelta.x = touchLookDelta.y = 0;
   }
-  
+
+  if (!playing) {
+    highlight.visible = false;
+    crackOverlay.visible = false;
+    updateVisuals(dt, 0);
+    return;
+  }
+
+  const { yaw } = getYawPitch();
+  const b = body;
+
+  // --- Horizontal movement
+  const fwd = Number(keys.forward) - Number(keys.backward);
+  const strafe = Number(keys.right) - Number(keys.left);
+  let speed = keys.shift ? SNEAK_SPEED : keys.run ? RUN_SPEED : WALK_SPEED;
+  if (b.inWater) speed *= 0.55;
+  if (b.inLava) speed *= 0.35;
+  let mx = 0, mz = 0;
+  if (fwd || strafe) {
+    const len = Math.hypot(fwd, strafe);
+    const f = fwd / len, s = strafe / len;
+    mx = (-Math.sin(yaw) * f + Math.cos(yaw) * s) * speed;
+    mz = (-Math.cos(yaw) * f - Math.sin(yaw) * s) * speed;
+  }
+  const accel = Math.min(1, dt * (b.onGround ? 14 : b.inWater || b.inLava ? 5 : 4));
+  b.vel.x += (mx - b.vel.x) * accel;
+  b.vel.z += (mz - b.vel.z) * accel;
+
+  // --- Vertical: gravity, jumping, swimming
+  if (b.inWater || b.inLava) {
+    const sink = b.inLava ? 2 : 3;
+    b.vel.y = Math.max(b.vel.y - 12 * dt, -sink);
+    if (keys.jump) b.vel.y = Math.min(b.vel.y + 30 * dt, b.inLava ? 2.5 : 4);
+    // Hop out onto a ledge when swimming into a wall
+    if (keys.jump && b.hitWall) b.vel.y = 6.5;
+    fallStartY = b.pos.y;
+  } else {
+    b.vel.y = Math.max(b.vel.y - GRAVITY * dt, -55);
+    if (keys.jump && b.onGround) b.vel.y = JUMP_VELOCITY;
+  }
+
+  // Sneaking keeps you from walking off edges
+  if (keys.shift && b.onGround) {
+    if (!hasGroundBelow(b, b.pos.x + b.vel.x * dt, b.pos.z)) b.vel.x = 0;
+    if (!hasGroundBelow(b, b.pos.x, b.pos.z + b.vel.z * dt)) b.vel.z = 0;
+  }
+
+  const beforeX = b.pos.x, beforeZ = b.pos.z;
+  const wantX = b.vel.x, wantZ = b.vel.z;
+  moveBody(b, dt);
+
+  // Auto step-up (bloxd style) when walking into a 1-block ledge
+  if (b.hitWall && b.onGround && !keys.shift && (fwd || strafe) &&
+      !boxIntersectsSolid(beforeX + wantX * dt * 3, b.pos.y + 1.05, beforeZ + wantZ * dt * 3, HALF_WIDTH, HEIGHT)) {
+    b.vel.y = JUMP_VELOCITY;
+  }
+
+  // --- Fall damage on landing
+  if (!b.onGround && !b.inWater) fallStartY = Math.max(fallStartY, b.pos.y);
+  if (b.onGround && !wasOnGround) {
+    const fell = fallStartY - b.pos.y;
+    if (fell > 3.5) damagePlayer(Math.floor(fell - 3), null, 'fall');
+  }
+  if (b.onGround || b.inWater) fallStartY = b.pos.y;
+  wasOnGround = b.onGround;
+
+  // --- Hazards
+  invulnerable = Math.max(0, invulnerable - dt);
+  sinceDamage += dt;
+  if (b.inLava) {
+    lavaTimer -= dt;
+    if (lavaTimer <= 0) { lavaTimer = 0.5; invulnerable = 0; damagePlayer(2, null, 'lava'); }
+  } else lavaTimer = 0;
+  cactusTimer -= dt;
+  if (cactusTimer <= 0 && touchesBlock(BLOCK_ID.cactus)) { cactusTimer = 0.5; damagePlayer(1, null, 'cactus'); }
+  if (b.pos.y < -140) { invulnerable = 0; damagePlayer(100, null, 'void'); }
+
+  // --- Natural regeneration (no hunger yet)
+  if (health < MAX_HEALTH && sinceDamage > 4 && !dead) {
+    regenTimer += dt;
+    if (regenTimer > 2.5) { regenTimer = 0; health++; ui.renderHealth(health, MAX_HEALTH); }
+  }
+
+  pivot.position.set(b.pos.x, b.pos.y + EYE_HEIGHT, b.pos.z);
+  headInWater = isHeadInWater(pivot.position);
+  headInLava = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z)) === LAVA;
+  ui.setUnderwater(headInLava ? 'lava' : headInWater ? 'water' : 'none');
+
+  // Hold right click to keep placing (for pillaring up while jumping)
+  if (secondaryHeld) {
+    useTimer -= dt;
+    if (useTimer <= 0) { useTimer = 0.22; useItem(); }
+  }
+
+  updateTargeting(dt);
+  const hs = Math.hypot(b.vel.x, b.vel.z);
+  updateVisuals(dt, hs);
+
+  // Sprint FOV
+  const targetFov = keys.run && hs > 5.5 ? 80 : 75;
+  if (Math.abs(cameraRef.fov - targetFov) > 0.1) { cameraRef.fov += (targetFov - cameraRef.fov) * Math.min(1, dt * 8); cameraRef.updateProjectionMatrix(); }
+}
+
+function updateVisuals(dt: number, hspeed: number) {
+  const { yaw, pitch } = getYawPitch();
+  walkPhase += dt * hspeed * 1.6;
   playerAvatar.visible = cameraViewMode !== 0;
-  
-  // Sync Avatar
-  playerAvatar.position.copy(controls.object.position);
-  playerAvatar.position.y -= 0.5; // Offset to shoulder level
-  
-  // Do NOT sync body facing if we are in front view mode, otherwise player spins out of view!
-  // Actually, sync body facing to controls.object (our input direction) so the avatar always faces outward forward.
-  const euler = new THREE.Euler(0, 0, 0, 'YXZ');
-  euler.setFromQuaternion(controls.object.quaternion);
-  playerAvatar.rotation.y = euler.y; // Sync body facing
-  
-  // Render updates
-  updateRenderedBlocks(controls.object.position);
-  
-  // Raycast logic
+  playerAvatar.position.copy(body.pos);
+  playerAvatar.rotation.y = yaw;
+  headPivot.rotation.x = pitch * 0.8;
+  const sw = Math.sin(walkPhase * 2) * Math.min(0.8, hspeed * 0.15);
+  leftLeg.rotation.x = sw; rightLeg.rotation.x = -sw;
+  leftArm.rotation.x = -sw;
+  const s = Math.sin(swingTime * Math.PI);
+  rightArm.rotation.x = sw - s * 1.4 - (heldItem3p ? 0.3 : 0);
+  torso.position.y = keys.shift && ui.isPlaying() ? 1.08 : 1.125;
 
-  if (isMouseDown) {
-      raycaster.setFromCamera(_center, cameraRef);
-      const intersects = raycaster.intersectObjects(chunkGroup.children, false);
-
-      if (intersects.length > 0) {
-          const intersect = intersects[0];
-          const mesh = intersect.object as THREE.Mesh | THREE.InstancedMesh;
-          
-          _blockPos.set(0, 0, 0);
-          let isInstanced = false;
-          let instanceId = -1;
-
-          if (mesh instanceof THREE.InstancedMesh && intersect.instanceId !== undefined) {
-              isInstanced = true;
-              instanceId = intersect.instanceId;
-              mesh.getMatrixAt(instanceId, _rayMat);
-              _blockPos.setFromMatrixPosition(_rayMat);
-          } else {
-              _blockPos.copy(mesh.position);
-          }
-          
-          const posKey = `${Math.round(_blockPos.x)},${Math.round(_blockPos.y)},${Math.round(_blockPos.z)}`;
-          const blockType = worldData.get(posKey);
-          
-          let canMine = true;
-          if (blockType === 'stone' || blockType === 'iron_ore' || blockType === 'bedrock' || blockType === 'diamond_ore' || blockType === 'gold_ore' || blockType === 'moonstone_ore' || blockType === 'etherite_ore') {
-             const tool = inventory[selectedSlotIndex];
-             const isPickaxe = tool && tool.type.endsWith('_pickaxe');
-             const tierStr = isPickaxe ? tool.type.replace('_pickaxe', '') : '';
-             const tier = ['wood', 'stone', 'iron', 'gold', 'diamond', 'moonstone', 'etherite'].indexOf(tierStr);
-             
-             if (blockType === 'bedrock') canMine = false;
-             else if (blockType === 'etherite_ore') canMine = tier >= 5; // moonstone or better
-             else if (blockType === 'moonstone_ore') canMine = tier >= 4; // diamond or better
-             else if (blockType === 'diamond_ore' || blockType === 'gold_ore') canMine = tier >= 2; // iron or better
-             else if (blockType === 'iron_ore') canMine = tier >= 1; // stone or better
-             else if (blockType === 'stone') canMine = tier >= 0; // any pickaxe
-          }
-
-          if (!canMine) {
-             crackOverlay.visible = false;
-             targetBlockPos = null;
-          } else if (targetBlockPos !== posKey) {
-             targetBlockPos = posKey;
-             mouseDownTime = time; // Restarts mining delay when pointing at a new block
-             crackOverlay.visible = false;
-          } else {
-             crackOverlay.visible = true;
-             crackOverlay.position.copy(_blockPos);
-             
-             const progress = Math.min((time - mouseDownTime) / MINING_TIME, 1.0);
-             const stage = Math.floor(progress * 10);
-             crackOverlay.material = crackMaterials[stage];
-             
-             if (progress >= 1.0) {
-                 let minedType = null;
-                 if (isInstanced) {
-                     minedType = removeBlock(mesh as THREE.InstancedMesh, instanceId, posKey);
-                 } else {
-                     minedType = removeBlock(mesh as THREE.Mesh, undefined, posKey);
-                 }
-                 if (minedType) {
-                     let dropType = minedType;
-                     if (minedType === 'iron_ore') dropType = 'iron_ingot';
-                     if (minedType === 'gold_ore') dropType = 'gold_ingot';
-                     if (minedType === 'diamond_ore') dropType = 'diamond';
-                     if (minedType === 'moonstone_ore') dropType = 'moonstone';
-                     if (minedType === 'etherite_ore') dropType = 'etherite';
-                     addItem(dropType, 1);
-                 }
-                 mouseDownTime = time;
-                 blockMined = true;
-                 crackOverlay.visible = false;
-                 targetBlockPos = null;
-             }
-          }
-      } else {
-          crackOverlay.visible = false;
-          targetBlockPos = null;
-      }
-  } else {
-      crackOverlay.visible = false;
-      targetBlockPos = null;
-  }
-
-  velocity.x -= velocity.x * 10.0 * delta;
-  velocity.z -= velocity.z * 10.0 * delta;
-  velocity.y -= 9.8 * 3.0 * delta; // 3.0 is a mass/ gravity scale
-
-  direction.z = Number(keys.forward) - Number(keys.backward);
-  direction.x = Number(keys.right) - Number(keys.left);
-  direction.normalize(); // consistent movement in all directions
-
-  let speed = keys.run ? 150.0 : 50.0;
-  if (keys.shift) speed *= 0.3; // Much slower when sneaking
-
-  // Calculate intended movement velocities based on direction
-  if (keys.forward || keys.backward) velocity.z -= direction.z * speed * delta;
-  if (keys.left || keys.right) velocity.x -= direction.x * speed * delta;
-
-  // Ledge prevention logic when shifting
-  if (keys.shift && canJump) {
-      if (velocity.x !== 0) {
-          const testX = controls.object.position.clone();
-          testX.x += velocity.x * delta;
-          if (!isOnSolidGround(testX)) velocity.x = 0;
-      }
-      if (velocity.z !== 0) {
-          const testZ = controls.object.position.clone();
-          testZ.z += velocity.z * delta;
-          if (!isOnSolidGround(testZ)) velocity.z = 0;
-      }
-  }
-
-  // Jump logic
-  if (keys.jump && canJump) { 
-      velocity.y = 10;
-      canJump = false;
-  }
-
-  const startPos = controls.object.position.clone();
-  
-  // Apply horizontal movement based on rotation
-  controls.moveRight(-velocity.x * delta);
-  controls.moveForward(-velocity.z * delta);
-  
-  const newX = controls.object.position.x;
-  const newZ = controls.object.position.z;
-
-  // Resolve X
-  controls.object.position.copy(startPos);
-  controls.object.position.x = newX;
-  if (checkCollision(controls.object.position)) {
-      controls.object.position.x = startPos.x; // Blocked
-      
-      // Auto-jump check
-      if (canJump) {
-         controls.object.position.y += 1.1; // check 1 block up
-         controls.object.position.x = newX;
-         if (!checkCollision(controls.object.position)) {
-             velocity.y = 10;
-             canJump = false;
-         }
-         controls.object.position.copy(startPos);
-      }
-      velocity.x = 0;
-  }
-
-  // Resolve Z
-  controls.object.position.z = newZ;
-  if (checkCollision(controls.object.position)) {
-      controls.object.position.z = startPos.z; // Blocked
-
-      // Auto-jump check
-      if (canJump) {
-         controls.object.position.y += 1.1; // check 1 block up
-         controls.object.position.z = newZ;
-         if (!checkCollision(controls.object.position)) {
-             velocity.y = 10;
-             canJump = false;
-         }
-         // X may have moved, so effectively we want to restore Y and Z only if it didn't work.
-         // Actually, if we jump, we just leave X and Z as startPos because we haven't cleared the block yet vertically.
-         controls.object.position.y = startPos.y;
-         controls.object.position.z = startPos.z;
-      }
-      velocity.z = 0;
-  }
-
-  // Resolve Y
-  controls.object.position.y += velocity.y * delta;
-  if (checkCollision(controls.object.position)) {
-      if (velocity.y < 0) { // hit ground
-          canJump = true;
-      } else { // hit ceiling
-          canJump = false;
-      }
-      controls.object.position.y = startPos.y;
-      velocity.y = 0;
-  } else {
-      canJump = false;
-  }
-
-  prevTime = time;
+  refreshHeldItem(); // cheap no-op unless the selected item type changed (slot switch, pickup, craft)
+  hurtTilt = Math.max(0, hurtTilt - dt * 4);
+  if (cameraViewMode === 0) {
+    updateCamera();
+    cameraRef.rotation.z = Math.sin(hurtTilt * Math.PI) * 0.08;
+  } else updateCamera();
+  updateHand(dt, Math.min(1, hspeed / 5));
+  void _q;
 }
+
+export function isDead() { return dead; }
+export { armorPoints };

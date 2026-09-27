@@ -1,4 +1,4 @@
-import { setSelectedSlot } from './inventory';
+import { setSelectedSlot, selectedSlotIndex } from './inventory';
 import nipplejs from 'nipplejs';
 
 export const isMobile = (() => {
@@ -6,214 +6,146 @@ export const isMobile = (() => {
   const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   return hasTouch && (isMobileUA || window.innerWidth <= 1366);
 })();
-export let touchLookDelta = { x: 0, y: 0 };
+export const touchLookDelta = { x: 0, y: 0 };
 
-export const keys: { [key: string]: boolean } = {
-  forward: false,
-  backward: false,
-  left: false,
-  right: false,
-  run: false,
-  jump: false,
-  shift: false
+export const keys = {
+  forward: false, backward: false, left: false, right: false,
+  run: false, jump: false, shift: false,
 };
 
+// Game actions, wired up by player.ts / main.ts
+export const actions = {
+  primaryDown: () => {},   // mine / attack
+  primaryUp: () => {},
+  secondaryDown: () => {}, // place / use / eat
+  secondaryUp: () => {},
+  inventory: () => {},
+  escape: () => {},
+  drop: (_all: boolean) => {},
+  toggleView: () => {},
+  toggleDebug: () => {},
+  setHome: () => {},
+};
+
+const MOVE_KEYS: Record<string, keyof typeof keys> = {
+  KeyW: 'forward', ArrowUp: 'forward', KeyS: 'backward', ArrowDown: 'backward',
+  KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
+  KeyR: 'run', ControlLeft: 'run', Space: 'jump', ShiftLeft: 'shift', ShiftRight: 'shift',
+};
+
+export function releaseAllKeys() {
+  for (const k of Object.keys(keys) as (keyof typeof keys)[]) keys[k] = false;
+}
+
 export function setupInput() {
-  if (isMobile) {
-      setupMobileInput();
-      return;
-  }
-  
-  document.addEventListener('keydown', (e) => {
+  document.addEventListener('contextmenu', e => e.preventDefault());
+
+  document.addEventListener('keydown', e => {
+    if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+    const k = MOVE_KEYS[e.code];
+    if (k) { keys[k] = true; if (e.code === 'Space') e.preventDefault(); }
+    if (e.repeat) return;
     switch (e.code) {
-      case 'ArrowUp':
-      case 'KeyW':
-        keys.forward = true;
-        break;
-      case 'ArrowLeft':
-      case 'KeyA':
-        keys.left = true;
-        break;
-      case 'ArrowDown':
-      case 'KeyS':
-        keys.backward = true;
-        break;
-      case 'ArrowRight':
-      case 'KeyD':
-        keys.right = true;
-        break;
-      case 'KeyR':
-        keys.run = true;
-        break;
-      case 'Space':
-        keys.jump = true;
-        break;
-      case 'ShiftLeft':
-      case 'ShiftRight':
-        keys.shift = true;
-        break;
-      case 'Digit1': setSelectedSlot(0); break;
-      case 'Digit2': setSelectedSlot(1); break;
-      case 'Digit3': setSelectedSlot(2); break;
-      case 'Digit4': setSelectedSlot(3); break;
-      case 'Digit5': setSelectedSlot(4); break;
-      case 'Digit6': setSelectedSlot(5); break;
-      case 'Digit7': setSelectedSlot(6); break;
-      case 'Digit8': setSelectedSlot(7); break;
-      case 'Digit9': setSelectedSlot(8); break;
+      case 'Tab': case 'KeyE': e.preventDefault(); actions.inventory(); break;
+      case 'Escape': actions.escape(); break;
+      case 'KeyQ': actions.drop(e.ctrlKey); break;
+      case 'F5': case 'F7': case 'KeyV': e.preventDefault(); actions.toggleView(); break;
+      case 'F3': e.preventDefault(); actions.toggleDebug(); break;
+      case 'KeyH': actions.setHome(); break;
+    }
+    if (e.code.startsWith('Digit')) {
+      const n = parseInt(e.code.slice(5));
+      if (n >= 1 && n <= 9) setSelectedSlot(n - 1);
     }
   });
 
-  document.addEventListener('keyup', (e) => {
-    switch (e.code) {
-      case 'ArrowUp':
-      case 'KeyW':
-        keys.forward = false;
-        break;
-      case 'ArrowLeft':
-      case 'KeyA':
-        keys.left = false;
-        break;
-      case 'ArrowDown':
-      case 'KeyS':
-        keys.backward = false;
-        break;
-      case 'ArrowRight':
-      case 'KeyD':
-        keys.right = false;
-        break;
-      case 'KeyR':
-        keys.run = false;
-        break;
-      case 'Space':
-        keys.jump = false;
-        break;
-      case 'ShiftLeft':
-      case 'ShiftRight':
-        keys.shift = false;
-        break;
-    }
+  document.addEventListener('keyup', e => {
+    const k = MOVE_KEYS[e.code];
+    if (k) keys[k] = false;
   });
+
+  // Losing focus (alt-tab) would otherwise leave keys "held"
+  window.addEventListener('blur', releaseAllKeys);
+
+  // Touch screens fire emulated mouse events after a tap; ignore those so taps don't mine
+  let lastTouch = 0;
+  document.addEventListener('touchstart', () => { lastTouch = performance.now(); }, { passive: true, capture: true });
+  const fromTouch = () => performance.now() - lastTouch < 800;
+
+  document.addEventListener('mousedown', e => {
+    if (fromTouch()) return;
+    if (e.button === 0) actions.primaryDown();
+    else if (e.button === 2) actions.secondaryDown();
+  });
+  document.addEventListener('mouseup', e => {
+    if (fromTouch()) return;
+    if (e.button === 0) actions.primaryUp();
+    else if (e.button === 2) actions.secondaryUp();
+  });
+
+  document.addEventListener('wheel', e => {
+    if (!document.pointerLockElement) return;
+    setSelectedSlot(selectedSlotIndex + (e.deltaY > 0 ? 1 : -1));
+  }, { passive: true });
+
+  if (isMobile) setupMobileInput();
 }
 
 function setupMobileInput() {
-    const hud = document.getElementById('mobile-hud');
-    if (hud) hud.style.display = 'block';
+  const hud = document.getElementById('mobile-hud');
+  if (hud) hud.style.display = 'block';
 
-    const joystickZone = document.getElementById('joystick-zone');
-    if (joystickZone) {
-        const manager = nipplejs.create({
-            zone: joystickZone,
-            mode: 'static',
-            position: { left: '50%', top: '50%' },
-            color: 'white'
-        });
-        
-        manager.on('move', (evt: any, data: any) => {
-            const angle = data.angle.degree;
-            keys.forward = angle > 45 && angle < 135;
-            keys.backward = angle > 225 && angle < 315;
-            keys.right = angle <= 45 || angle >= 315;
-            keys.left = angle >= 135 && angle <= 225;
-        });
+  const joystickZone = document.getElementById('joystick-zone');
+  if (joystickZone) {
+    const manager = nipplejs.create({ zone: joystickZone, mode: 'static', position: { left: '50%', top: '50%' }, color: 'white' });
+    manager.on('move', (_evt: any, data: any) => {
+      if (!data || !data.vector) return;
+      keys.forward = data.vector.y > 0.2;
+      keys.backward = data.vector.y < -0.2;
+      keys.right = data.vector.x > 0.2;
+      keys.left = data.vector.x < -0.2;
+    });
+    manager.on('end', () => { keys.forward = keys.backward = keys.left = keys.right = false; });
+  }
 
-        manager.on('end', () => {
-            keys.forward = false;
-            keys.backward = false;
-            keys.left = false;
-            keys.right = false;
-        });
-    }
+  const lookZone = document.getElementById('touch-look-zone');
+  let lastX = 0, lastY = 0, lookId: number | null = null;
+  if (lookZone) {
+    lookZone.addEventListener('touchstart', e => {
+      const t = e.changedTouches[0];
+      lookId = t.identifier; lastX = t.clientX; lastY = t.clientY;
+    });
+    lookZone.addEventListener('touchmove', e => {
+      for (const t of Array.from(e.changedTouches)) {
+        if (t.identifier !== lookId) continue;
+        touchLookDelta.x += t.clientX - lastX;
+        touchLookDelta.y += t.clientY - lastY;
+        lastX = t.clientX; lastY = t.clientY;
+      }
+    });
+    lookZone.addEventListener('touchend', () => { lookId = null; });
+  }
 
-    const lookZone = document.getElementById('touch-look-zone');
-    let lastTouchX = 0;
-    let lastTouchY = 0;
-    
-    if (lookZone) {
-        lookZone.addEventListener('touchstart', (e) => {
-            lastTouchX = e.touches[0].clientX;
-            lastTouchY = e.touches[0].clientY;
-        });
-        lookZone.addEventListener('touchmove', (e) => {
-            const touch = e.touches[0];
-            touchLookDelta.x = touch.clientX - lastTouchX;
-            touchLookDelta.y = touch.clientY - lastTouchY;
-            lastTouchX = touch.clientX;
-            lastTouchY = touch.clientY;
-        });
-        lookZone.addEventListener('touchend', () => {
-            touchLookDelta.x = 0;
-            touchLookDelta.y = 0;
-        });
-    }
-    
-    const bindBtn = (id: string, action: (held: boolean) => void) => {
-        const btn = document.getElementById(id);
-        if (!btn) return;
-        btn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); action(true); }, { passive: false });
-        btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
-        btn.addEventListener('touchcancel', (e) => { e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
-    };
+  const bindBtn = (id: string, action: (held: boolean) => void) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); action(true); }, { passive: false });
+    btn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
+    btn.addEventListener('touchcancel', e => { e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
+  };
 
-    bindBtn('btn-mobile-jump', (h) => keys.jump = h);
-    bindBtn('btn-mobile-sprint', (h) => keys.run = h);
-    bindBtn('btn-mobile-sneak', (h) => keys.shift = h);
-    
-    // Mine button: hold to mine (long press mousedown)
-    bindBtn('btn-mobile-hit', (h) => {
-        if (h) document.dispatchEvent(new MouseEvent('mousedown', { button: 0 }));
-        else document.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
-    });
-    
-    // Place button: short tap to place block
-    bindBtn('btn-mobile-place', (h) => {
-        if (h) {
-            // Simulate a quick click (mousedown + fast mouseup) to trigger place logic
-            document.dispatchEvent(new MouseEvent('mousedown', { button: 0 }));
-            setTimeout(() => {
-                document.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
-            }, 50);
-        }
-    });
-    
-    bindBtn('btn-mobile-inv', (h) => {
-        if (h) document.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyI' }));
-    });
-    
-    bindBtn('btn-mobile-shop', (h) => {
-        if (h) {
-             const btnShop = document.getElementById('btn-shop');
-             if (btnShop) btnShop.click();
-        }
-    });
-    
-    // Menu button: toggle the main menu overlay
-    bindBtn('btn-mobile-menu', (h) => {
-        if (h) {
-            const mainMenu = document.getElementById('main-menu');
-            const menuScreen = document.getElementById('menu-screen-main');
-            if (mainMenu) {
-                if (mainMenu.style.display === 'none') {
-                    mainMenu.style.display = 'flex';
-                    if (menuScreen) menuScreen.style.display = 'flex';
-                } else {
-                    mainMenu.style.display = 'none';
-                }
-            }
-        }
-    });
-    
-    // Save button
-    bindBtn('btn-mobile-save', (h) => {
-        if (h) {
-            const btnSaveQuit = document.getElementById('btn-save-quit');
-            if (btnSaveQuit) btnSaveQuit.click();
-        }
-    });
-    
-    // Prevent default touch behaviors on the game canvas to avoid scrolling/zooming
-    document.body.addEventListener('touchmove', (e) => {
-        if ((e.target as HTMLElement)?.closest('#full-inventory-modal, #shop-screen, #main-menu')) return;
-        e.preventDefault();
-    }, { passive: false });
+  bindBtn('btn-mobile-jump', h => { keys.jump = h; });
+  bindBtn('btn-mobile-sprint', h => { keys.run = h; });
+  bindBtn('btn-mobile-sneak', h => { keys.shift = h; });
+  bindBtn('btn-mobile-hit', h => (h ? actions.primaryDown() : actions.primaryUp()));
+  bindBtn('btn-mobile-place', h => (h ? actions.secondaryDown() : actions.secondaryUp()));
+  bindBtn('btn-mobile-inv', h => { if (h) actions.inventory(); });
+  bindBtn('btn-mobile-drop', h => { if (h) actions.drop(false); });
+  bindBtn('btn-mobile-view', h => { if (h) actions.toggleView(); });
+  bindBtn('btn-mobile-menu', h => { if (h) actions.escape(); });
+
+  document.body.addEventListener('touchmove', e => {
+    if ((e.target as HTMLElement)?.closest('#full-inventory-modal, #shop-screen, #main-menu, #pause-menu')) return;
+    e.preventDefault();
+  }, { passive: false });
 }
