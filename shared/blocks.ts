@@ -19,6 +19,17 @@ export const TILE = {
   spruce_side: 48, spruce_top: 49,
 } as const;
 export const TILE_COUNT = 50;
+export const ATLAS_COLS = 16;
+export const ATLAS_ROWS = Math.ceil(TILE_COUNT / ATLAS_COLS);
+
+// UV rect of an atlas tile: [u0, v0, u1, v1] (v measured bottom-up, as three.js expects with flipY)
+export function tileUV(tile: number): [number, number, number, number] {
+  const e = 0.0005;
+  const col = tile % ATLAS_COLS, row = Math.floor(tile / ATLAS_COLS);
+  const u0 = col / ATLAS_COLS + e, u1 = (col + 1) / ATLAS_COLS - e;
+  const v1 = 1 - row / ATLAS_ROWS - e, v0 = 1 - (row + 1) / ATLAS_ROWS + e;
+  return [u0, v0, u1, v1];
+}
 
 export interface BlockDef {
   id: number;

@@ -6,7 +6,7 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>Poxel.io - Minecraft Web Clone</title>
+    <title>Poxel.io</title>
     <link rel="stylesheet" href="./style.css">
   </head>
   <body>
@@ -35,6 +35,11 @@
       <div id="hurt-overlay"></div>
       <div id="crosshair">+</div>
       <div id="debug"></div>
+      <div id="net-banner"></div>
+      <div id="chat-box" style="display: none;">
+        <div id="chat-log"></div>
+        <input id="chat-input" maxlength="200" autocomplete="off" placeholder="Say something... (Enter to send, Esc to cancel)" style="display: none;" />
+      </div>
       <div id="toast"></div>
       <div id="error-banner"></div>
 
@@ -60,9 +65,11 @@
             <div><kbd>Q</kbd> Drop item (<kbd>Ctrl+Q</kbd> whole stack)</div>
             <div><kbd>1-9</kbd> / <kbd>Scroll</kbd> Pick hotbar slot</div>
             <div><kbd>V</kbd> / <kbd>F5</kbd> Change camera view</div>
+            <div><kbd>T</kbd> / <kbd>Enter</kbd> Chat (<kbd>/</kbd> for commands)</div>
             <div><kbd>F3</kbd> Debug info</div>
             <div><kbd>Esc</kbd> Pause</div>
           </div>
+          <div id="online-list" style="display: none;"></div>
           <button id="btn-save-quit" class="menu-btn">Save &amp; Quit</button>
         </div>
       </div>
@@ -143,11 +150,18 @@
         <button id="btn-shop" class="menu-btn">
           <span>Shop</span>
         </button>
-        <button id="btn-multiplayer" class="menu-btn disabled" disabled style="overflow: hidden;">
-          Multiplayer
-          <span class="coming-soon">Coming Soon</span>
-          <div class="red-cross"></div>
+        <button id="btn-multiplayer" class="menu-btn">
+          <span>Multiplayer</span>
         </button>
+      </div>
+
+      <div class="menu-content" id="mp-screen" style="display: none;">
+        <h2>Multiplayer</h2>
+        <label class="mp-label">Your name<input id="mp-name" class="mp-input" maxlength="16" autocomplete="off" /></label>
+        <label class="mp-label">Server address<input id="mp-url" class="mp-input" placeholder="wss://your-server.trycloudflare.com" autocomplete="off" /></label>
+        <button id="btn-connect" class="menu-btn primary">Join Server</button>
+        <p id="mp-status" class="mp-status"></p>
+        <button id="btn-back-mp" class="menu-btn">Back</button>
       </div>
 
       <div class="menu-content" id="save-slots-container" style="display: none;">
@@ -206,6 +220,6 @@
       <p class="home-hint">Press 'H' to set home</p>
     </div>
 
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/client/main.ts"></script>
   </body>
 </html>

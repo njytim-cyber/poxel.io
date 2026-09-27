@@ -1109,3 +1109,57 @@ kbd {
   #recipe-book { width: 180px; }
   #recipe-grid { grid-template-columns: repeat(4, 34px); grid-auto-rows: 34px; }
 }
+
+/* Multiplayer menu */
+.mp-label { display: flex; flex-direction: column; gap: 6px; text-align: left; font-size: 16px; }
+.mp-input { padding: 10px 12px; font-family: inherit; font-size: 18px; background: #111; color: #fff; border: 3px solid #888; outline: none; }
+.mp-input:focus { border-color: #fff; }
+.mp-status { min-height: 20px; color: #ffd060; font-size: 14px; }
+
+/* Chat */
+#chat-box {
+  position: absolute; left: 10px; bottom: 90px; width: min(460px, 70vw);
+  flex-direction: column; gap: 4px; pointer-events: none;
+}
+#chat-log { max-height: 40vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.chat-line { background: rgba(0,0,0,0.45); color: #fff; padding: 2px 6px; font-size: 14px; text-shadow: 1px 1px 0 #000; transition: opacity 1s; word-wrap: break-word; }
+.chat-line.system { color: #ffe066; }
+.chat-line.faded { opacity: 0; }
+#chat-box.open .chat-line.faded { opacity: 1; }
+#chat-box.open #chat-log { pointer-events: auto; }
+#chat-input { pointer-events: auto; padding: 6px 8px; font-family: inherit; font-size: 15px; background: rgba(0,0,0,0.7); color: #fff; border: 2px solid #aaa; outline: none; }
+
+/* Connection banner + online list */
+#net-banner { display: none; position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(160, 110, 0, 0.9); color: #fff; padding: 6px 14px; border: 2px solid #fff; font-size: 14px; z-index: 300; }
+#online-list { background: rgba(0,0,0,0.5); border: 2px solid #555; padding: 8px 12px; font-size: 14px; line-height: 1.6; }
+#online-list .online-title { font-weight: bold; color: #ffe066; }
+
+/* Touch controls only while actually playing: menus, inventory, chat, pause and death screens must get the taps */
+body:not([data-state="playing"]) #mobile-hud { display: none !important; }
+
+/* Short screens (landscape phones): fit the whole inventory on screen — crafting/armor beside the grid, smaller slots */
+@media (max-height: 520px) {
+  #full-inventory-modal { gap: 4px; }
+  #modal-container { flex-direction: row; align-items: flex-start; padding: 6px 44px 6px 6px; gap: 10px; max-height: 98vh; }
+  #modal-top { flex-direction: column; gap: 6px; flex-wrap: nowrap; }
+  #modal-container h3 { font-size: 12px; margin-bottom: 3px; }
+  #armor-area { flex-direction: row; align-items: center; gap: 4px; }
+  #armor-area h3 { display: none; }
+  #armor-grid { flex-direction: row; }
+  .slot, #full-inventory-grid .slot, #crafting-grid .slot, #armor-grid .slot, #furnace-area .slot { width: 30px; height: 30px; }
+  .result-slot { width: 36px !important; height: 36px !important; }
+  .slot .item-img { width: 22px; height: 22px; }
+  .slot .count { font-size: 10px; }
+  #full-inventory-grid { grid-template-columns: repeat(9, 30px); gap: 1px; }
+  #full-inventory-grid .slot.hotbar-start, #full-inventory-grid .slot.hotbar-start ~ .slot { margin-top: 4px; }
+  #crafting-grid.grid-2x2 { grid-template-columns: repeat(2, 30px); }
+  #crafting-grid.grid-3x3 { grid-template-columns: repeat(3, 30px); }
+  #crafting-grid { gap: 1px; }
+  #crafting-arrow { font-size: 18px; }
+  .armor-slot-ui[data-label]::after { font-size: 7px; }
+  #recipe-book { width: 150px; height: 96vh; padding: 4px; }
+  #recipe-grid { grid-template-columns: repeat(4, 30px); grid-auto-rows: 30px; gap: 2px; }
+  .recipe-btn img { width: 22px; height: 22px; }
+  #recipe-hint { display: none; }
+  #recipe-book-toggle { top: 4px; right: 4px; width: 30px; height: 30px; font-size: 16px; }
+}

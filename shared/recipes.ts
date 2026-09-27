@@ -1,5 +1,5 @@
 type Cell = string | null;
-interface Recipe {
+export interface Recipe {
   shape: Cell[][];
   result: { type: string; count: number };
 }

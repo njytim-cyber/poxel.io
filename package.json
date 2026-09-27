@@ -5,21 +5,30 @@
   "main": "index.js",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && tsc -p tsconfig.server.json && vite build",
     "preview": "vite preview",
-    "deploy": "npm run build && npx gh-pages -d dist"
+    "deploy": "npm run build && npx gh-pages -d dist",
+    "server": "node server/node.ts",
+    "host": "npm run build && node server/node.ts",
+    "tunnel": "\"%USERPROFILE%\\.cloudflared-bin\\cloudflared.exe\" tunnel --no-autoupdate --url http://localhost:8080"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "devDependencies": {
+    "@types/node": "^26.6.3",
     "@types/three": "^0.183.1",
+    "@types/ws": "^8.18.1",
     "three": "^0.183.2",
     "typescript": "^6.0.2",
     "vite": "^8.0.8"
   },
   "dependencies": {
-    "nipplejs": "^1.0.1"
+    "nipplejs": "^1.0.1",
+    "ws": "^8.22.0"
+  },
+  "engines": {
+    "node": ">=23.6"
   }
 }

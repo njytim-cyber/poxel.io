@@ -1,10 +1,13 @@
 import { setSelectedSlot, selectedSlotIndex } from './inventory';
 import nipplejs from 'nipplejs';
 
+// Touch controls for phones/tablets. A touchscreen laptop also has a mouse/trackpad ("fine" pointer),
+// so it gets the normal mouse + keyboard controls.
 export const isMobile = (() => {
   const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  return hasTouch && (isMobileUA || window.innerWidth <= 1366);
+  const hasFinePointer = typeof matchMedia === 'function' && matchMedia('(any-pointer: fine)').matches;
+  return hasTouch && (isMobileUA || !hasFinePointer);
 })();
 export const touchLookDelta = { x: 0, y: 0 };
 
@@ -25,6 +28,7 @@ export const actions = {
   toggleView: () => {},
   toggleDebug: () => {},
   setHome: () => {},
+  chat: (_prefill: string) => {},
 };
 
 const MOVE_KEYS: Record<string, keyof typeof keys> = {
@@ -52,6 +56,8 @@ export function setupInput() {
       case 'F5': case 'F7': case 'KeyV': e.preventDefault(); actions.toggleView(); break;
       case 'F3': e.preventDefault(); actions.toggleDebug(); break;
       case 'KeyH': actions.setHome(); break;
+      case 'KeyT': case 'Enter': e.preventDefault(); actions.chat(''); break;
+      case 'Slash': e.preventDefault(); actions.chat('/'); break;
     }
     if (e.code.startsWith('Digit')) {
       const n = parseInt(e.code.slice(5));
@@ -98,14 +104,19 @@ function setupMobileInput() {
   const joystickZone = document.getElementById('joystick-zone');
   if (joystickZone) {
     const manager = nipplejs.create({ zone: joystickZone, mode: 'static', position: { left: '50%', top: '50%' }, color: 'white' });
-    manager.on('move', (_evt: any, data: any) => {
-      if (!data || !data.vector) return;
-      keys.forward = data.vector.y > 0.2;
-      keys.backward = data.vector.y < -0.2;
-      keys.right = data.vector.x > 0.2;
-      keys.left = data.vector.x < -0.2;
+    // nipplejs 1.x passes one event object with the joystick data in evt.data (0.x passed it as a 2nd argument)
+    manager.on('move', (evt: any, legacy?: any) => {
+      const data = evt?.data ?? legacy;
+      const v = data?.vector;
+      if (!v) return;
+      keys.forward = v.y > 0.3;
+      keys.backward = v.y < -0.3;
+      keys.right = v.x > 0.3;
+      keys.left = v.x < -0.3;
+      // Push the stick all the way out to run
+      keys.run = (data.force ?? 0) > 1.2 && v.y > 0.5;
     });
-    manager.on('end', () => { keys.forward = keys.backward = keys.left = keys.right = false; });
+    manager.on('end', () => { keys.forward = keys.backward = keys.left = keys.right = keys.run = false; });
   }
 
   const lookZone = document.getElementById('touch-look-zone');
@@ -129,9 +140,9 @@ function setupMobileInput() {
   const bindBtn = (id: string, action: (held: boolean) => void) => {
     const btn = document.getElementById(id);
     if (!btn) return;
-    btn.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); action(true); }, { passive: false });
-    btn.addEventListener('touchend', e => { e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
-    btn.addEventListener('touchcancel', e => { e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
+    btn.addEventListener('touchstart', e => { if (e.cancelable) e.preventDefault(); e.stopPropagation(); action(true); }, { passive: false });
+    btn.addEventListener('touchend', e => { if (e.cancelable) e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
+    btn.addEventListener('touchcancel', e => { if (e.cancelable) e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
   };
 
   bindBtn('btn-mobile-jump', h => { keys.jump = h; });
@@ -146,6 +157,6 @@ function setupMobileInput() {
 
   document.body.addEventListener('touchmove', e => {
     if ((e.target as HTMLElement)?.closest('#full-inventory-modal, #shop-screen, #main-menu, #pause-menu')) return;
-    e.preventDefault();
+    if (e.cancelable) e.preventDefault();
   }, { passive: false });
 }

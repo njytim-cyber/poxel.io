@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TILE, TILE_COUNT, BLOCKS, ITEMS, TIERS, itemDef } from './blocks';
+import { TILE, BLOCKS, ITEMS, TIERS, itemDef, ATLAS_COLS, ATLAS_ROWS, tileUV } from '../shared/blocks.ts';
 
 // ------------------------------------------------------------------ Pixel helpers
 
@@ -266,8 +266,7 @@ function buildTiles(): Tile[] {
 
 // ------------------------------------------------------------------ Atlas
 
-export const ATLAS_COLS = 16;
-const ATLAS_ROWS = Math.ceil(TILE_COUNT / ATLAS_COLS);
+export { ATLAS_COLS, tileUV };
 export const atlasCanvas = document.createElement('canvas');
 atlasCanvas.width = ATLAS_COLS * 16;
 atlasCanvas.height = ATLAS_ROWS * 16;
@@ -284,15 +283,6 @@ atlasTexture.magFilter = THREE.NearestFilter;
 atlasTexture.minFilter = THREE.NearestFilter;
 atlasTexture.generateMipmaps = false;
 atlasTexture.colorSpace = THREE.SRGBColorSpace;
-
-// UV rect of a tile: [u0, v0, u1, v1] (v measured bottom-up, as three.js expects with flipY)
-export function tileUV(tile: number): [number, number, number, number] {
-  const e = 0.0005;
-  const col = tile % ATLAS_COLS, row = Math.floor(tile / ATLAS_COLS);
-  const u0 = col / ATLAS_COLS + e, u1 = (col + 1) / ATLAS_COLS - e;
-  const v1 = 1 - row / ATLAS_ROWS - e, v0 = 1 - (row + 1) / ATLAS_ROWS + e;
-  return [u0, v0, u1, v1];
-}
 
 // Material for small standalone block meshes (dropped items)
 export const blockEntityMaterial = new THREE.MeshLambertMaterial({ map: atlasTexture, alphaTest: 0.5 });
@@ -313,6 +303,7 @@ export function blockGeometry(blockId: number, size = 1): THREE.BoxGeometry {
       uv.setXY(i, uv.getX(i) ? u1 : u0, uv.getY(i) ? v1 : v0);
     }
   }
+  (geo as any).__shared = true; // cached: never dispose
   blockGeoCache.set(key, geo);
   return geo;
 }
