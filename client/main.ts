@@ -1,11 +1,13 @@
 import * as THREE from 'three';
-import { worldGroup, updateWorld, chunkCount, biomeAt, getBlock, setBlock, loadAreaNow, surfaceHeight, benchmarkWorld, resetWorld, workerStatus, raycast } from './world';
+import { worldMaterials, worldGroup, updateWorld, chunkCount, biomeAt, getBlock, setBlock, loadAreaNow, surfaceHeight, benchmarkWorld, resetWorld, workerStatus, raycast, setRenderDistance, RENDER_DIST } from './world';
 import { setupInput, isMobile, actions, releaseAllKeys, keys } from './input';
 import { initPlayer, updatePlayer, controls, updateLocalLook, body, handScene, handCamera, headInWater, headInLava,
   isDead, health, MAX_HEALTH, setYawPitch, setPlayerFeet, getYawPitch } from './player';
 import { applyHairGeometry, addBigEyes, savedLook } from './avatar';
 import { initInventory, inventory, setSelectedSlot } from './inventory';
-import { getSaveMeta, readSave, writeSave, SP_NAME } from './saves';
+import { getSaveMeta, readSave, writeSave, deleteSave, initSaves, savesSettled, storageUsage } from './saves';
+import { store } from './store';
+import { profileName, cleanName, previousNameOn, rememberNameOn, carryFrom, startCarry, stopCarry, onCarryMessage, flushCarry, carryDebug } from './character';
 import { initRemote, updateRemote, entityCounts } from './remote';
 import { initSky, updateSky, getDaylight, getTimeOfDay } from './sky';
 import { preloadIcons } from './textures';
@@ -13,12 +15,6 @@ import { onServerMessage, onNetStatus, startLocal, startRemote, send, disconnect
 import { handleServerMessage, onReady, resetSession, markPingSent, pingMs, onlinePlayers } from './session';
 import * as ui from './ui';
 
-// ------------------------------------------------------------------ Storage (blocked/full storage must not break the game)
-const store = {
-  get(k: string): string | null { try { return store.get(k); } catch { return null; } },
-  set(k: string, v: string) { try { store.set(k, v); } catch { /* full or blocked: settings just aren't remembered */ } },
-  remove(k: string) { try { store.remove(k); } catch { /* ignore */ } },
-};
 
 // ------------------------------------------------------------------ Crash protection
 let lastErrorShown = 0;
@@ -58,6 +54,38 @@ preloadIcons();
 // Background world behind the main menu (no server needed just to look at it)
 resetWorld(1337);
 loadAreaNow(0, 0, 1);
+warmUpShaders();
+
+// Compiles every kind of material the game draws (terrain, water, mobs, players, name tags, items, hand)
+// while the menu is up. Otherwise each is compiled the first time it appears on screen, e.g. the first mob,
+// and that froze a frame for 50-150 ms mid-game.
+function warmUpShaders() {
+  const tex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  tex.needsUpdate = true;
+  const box = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+  const mats: THREE.Material[] = [
+    ...worldMaterials,
+    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.5, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: 0xffffff }),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false }),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, depthWrite: false }),
+  ];
+  const warm = new THREE.Group();
+  for (const m of mats) warm.add(new THREE.Mesh(box, m));
+  warm.add(new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true })));
+  warm.add(new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, alphaTest: 0.5 })));
+  warm.add(new THREE.LineSegments(new THREE.EdgesGeometry(box), new THREE.LineBasicMaterial({ color: 0, transparent: true, opacity: 0.7 })));
+  const handWarm = new THREE.Group();
+  handWarm.add(new THREE.Mesh(box, mats[2]), new THREE.Mesh(box, mats[3]));
+  try {
+    scene.add(warm); handScene.add(handWarm);
+    renderer.compile(scene, perspectiveCamera);
+    renderer.compile(handScene, handCamera);
+  } catch (e) { console.warn('Shader warm-up failed (the game still works):', e); }
+  scene.remove(warm); handScene.remove(handWarm);
+  box.dispose();
+}
 setPlayerFeet({ x: 0.5, y: surfaceHeight(0, 0) + 1, z: 0.5 });
 ui.renderHealth(MAX_HEALTH, MAX_HEALTH);
 
@@ -309,8 +337,7 @@ function refreshSaveLabels() {
           setTimeout(() => { d.classList.remove('armed'); d.textContent = '🗑'; }, 3000);
           return;
         }
-        store.remove(`poxel_save_${slot}`);
-        store.remove(`poxel_meta_${slot}`);
+        deleteSave(slot);
         refreshSaveLabels();
       });
     }
@@ -318,16 +345,45 @@ function refreshSaveLabels() {
     del.classList.remove('armed');
     del.style.visibility = meta ? 'visible' : 'hidden';
   });
+  storageUsage().then(u => { const el = document.getElementById('storage-usage'); if (el) el.textContent = u ? `Browser storage: ${u}` : ''; });
 }
+await initSaves(); // before anything can read a slot, so an existing save is never mistaken for an empty one
 refreshSaveLabels();
 
-function showMenuScreen(which: 'main' | 'load' | 'shop' | 'mp') {
+function showMenuScreen(which: 'main' | 'load' | 'shop' | 'mp' | 'difficulty') {
   if (menuMainScreen) menuMainScreen.style.display = which === 'main' ? 'flex' : 'none';
   if (menuLoadScreen) menuLoadScreen.style.display = which === 'load' ? 'flex' : 'none';
   if (menuShopScreen) menuShopScreen.style.display = which === 'shop' ? 'flex' : 'none';
   const mp = document.getElementById('mp-screen');
   if (mp) mp.style.display = which === 'mp' ? 'flex' : 'none';
+  const diff = document.getElementById('difficulty-screen');
+  if (diff) diff.style.display = which === 'difficulty' ? 'flex' : 'none';
+  if (which === 'mp') refreshCharacterChoices();
 }
+
+// Multiplayer "Character": this server's own character, or the character of a single-player save
+const mpCharacter = document.getElementById('mp-character') as HTMLSelectElement | null;
+const mpCharacterHint = document.getElementById('mp-character-hint');
+function refreshCharacterChoices() {
+  if (!mpCharacter) return;
+  const wanted = store.get('poxel_mp_character') || '-1';
+  mpCharacter.innerHTML = '';
+  mpCharacter.add(new Option("This server's character", '-1'));
+  saveButtons.forEach(btn => {
+    const slot = parseInt((btn as HTMLElement).dataset.slot!);
+    const meta = getSaveMeta(slot);
+    if (meta) mpCharacter.add(new Option(`Save ${slot + 1} (${meta})`, String(slot)));
+  });
+  mpCharacter.value = [...mpCharacter.options].some(o => o.value === wanted) ? wanted : '-1';
+  updateCharacterHint();
+}
+function updateCharacterHint() {
+  if (!mpCharacterHint || !mpCharacter) return;
+  mpCharacterHint.textContent = mpCharacter.value === '-1'
+    ? 'Your inventory on this server is kept by the server.'
+    : 'You bring this save’s items and health. What happens on the server (new items, losing everything when you die) is saved back into it.';
+}
+mpCharacter?.addEventListener('change', updateCharacterHint);
 
 function firstFreeSlot(): number {
   for (let i = 0; i < 5; i++) if (!getSaveMeta(i)) return i;
@@ -359,7 +415,12 @@ let currentSaveSlot = -1;
 let mode: 'none' | 'single' | 'multi' = 'none';
 let lastSaveOk = true;
 
-onServerMessage(handleServerMessage);
+onServerMessage(m => {
+  handleServerMessage(m);
+  if (mode !== 'multi') return;
+  onCarryMessage(m);
+  if (m.t === 'welcome' && mpServer) rememberNameOn(mpServer, mpJoinName);
+});
 onReady(() => {
   const mainMenu = document.getElementById('main-menu');
   if (mainMenu) mainMenu.style.display = 'none';
@@ -375,17 +436,37 @@ onReady(() => {
   ui.startPlaying();
 });
 
+// View distance (pause menu), remembered per browser. Lower it on slow devices.
+{
+  const saved = Number(store.get('poxel_view_distance'));
+  if (saved) setRenderDistance(saved);
+  const slider = document.getElementById('view-distance') as HTMLInputElement | null;
+  const label = document.getElementById('view-distance-value');
+  const showValue = () => { if (label) label.textContent = `${RENDER_DIST} chunks`; };
+  if (slider) {
+    slider.value = String(RENDER_DIST);
+    slider.addEventListener('input', () => {
+      setRenderDistance(Number(slider.value));
+      store.set('poxel_view_distance', String(RENDER_DIST));
+      showValue();
+    });
+  }
+  showValue();
+}
+
 ui.setPauseHandler(paused => { if (mode === 'single') setLocalPaused(paused); });
 
-function startSingle(slot: number, save: LocalSave | null, fixedSeed?: number) {
+function startSingle(slot: number, save: LocalSave | null, fixedSeed?: number, difficulty?: string) {
   currentSaveSlot = slot;
   mode = 'single';
   resetSession();
   const seed = save?.world ? undefined : fixedSeed ?? (Math.random() * 2 ** 31) | 0;
-  startLocal(save || { world: null, players: {} }, seed, SP_NAME, savedLook(), s => {
-    lastSaveOk = writeSave(slot, s);
-    ui.setConnectionBanner(lastSaveOk ? '' : 'Could not save: browser storage is full. Delete an old save from the Load menu.');
-  });
+  startLocal(save || { world: null, players: {} }, seed, profileName(), savedLook(), s => {
+    writeSave(slot, s).then(ok => {
+      lastSaveOk = ok;
+      ui.setConnectionBanner(ok ? '' : 'Could not save: browser storage is full. Delete an old save from the Load menu.');
+    });
+  }, difficulty);
 }
 
 document.getElementById('btn-new-game')?.addEventListener('click', () => {
@@ -398,8 +479,19 @@ document.getElementById('btn-new-game')?.addEventListener('click', () => {
     if (title) title.textContent = 'All save slots are full. Delete one (🗑) or pick a save to continue.';
     return;
   }
-  startSingle(slot, null);
+  // New worlds start with a difficulty choice
+  pendingNewSlot = slot;
+  showMenuScreen('difficulty');
 });
+let pendingNewSlot = -1;
+document.querySelectorAll('.difficulty-btn').forEach(btn => btn.addEventListener('click', () => {
+  if (pendingNewSlot < 0) return;
+  const d = (btn as HTMLElement).dataset.difficulty || 'medium';
+  store.set('poxel_difficulty', d);
+  startSingle(pendingNewSlot, null, undefined, d);
+  pendingNewSlot = -1;
+}));
+document.getElementById('btn-back-difficulty')?.addEventListener('click', () => { pendingNewSlot = -1; showMenuScreen('main'); });
 
 saveButtons.forEach(btn => {
   btn.addEventListener('click', e => {
@@ -425,7 +517,7 @@ const mpStatus = document.getElementById('mp-status');
 const servedByGameServer = location.port !== '5173' && !location.hostname.endsWith('github.io');
 const defaultServer = servedByGameServer ? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
   : (import.meta as any).env?.VITE_SERVER_URL || (location.hostname === 'localhost' ? 'ws://localhost:8080' : '');
-if (mpName) mpName.value = store.get('poxel_name') || `Player${Math.floor(Math.random() * 900 + 100)}`;
+if (mpName) mpName.value = profileName();
 if (mpUrl) mpUrl.value = servedByGameServer ? defaultServer : store.get('poxel_server') || defaultServer;
 
 const mpButton = document.getElementById('btn-multiplayer') as HTMLButtonElement | null;
@@ -433,7 +525,7 @@ mpButton?.addEventListener('click', () => showMenuScreen('mp'));
 document.getElementById('btn-back-mp')?.addEventListener('click', () => showMenuScreen('main'));
 document.getElementById('btn-connect')?.addEventListener('click', () => {
   let url = (mpUrl?.value || '').trim();
-  const name = (mpName?.value || '').trim().replace(/[^A-Za-z0-9_]/g, '').slice(0, 16) || 'Player';
+  const name = cleanName(mpName?.value || '') || profileName();
   if (!url) { if (mpStatus) mpStatus.textContent = 'Enter the server address your host gave you.'; return; }
   // Accept pasted https:// tunnel links and bare hosts
   url = url.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://');
@@ -445,8 +537,21 @@ document.getElementById('btn-connect')?.addEventListener('click', () => {
   mode = 'multi';
   currentSaveSlot = -1;
   resetSession();
-  startRemote(url, name, savedLook(), playerToken());
+  const slot = mpCharacter ? Number(mpCharacter.value) : -1;
+  store.set('poxel_mp_character', String(slot));
+  if (slot >= 0) startCarry(slot); else stopCarry();
+  // Renamed since the last visit to this server? Ask it to move our character and name lock over
+  const prev = previousNameOn(url);
+  const server = url;
+  mpServer = server; mpJoinName = name;
+  startRemote(url, name, savedLook(), playerToken(), () => ({
+    prevName: prev && prev.toLowerCase() !== name.toLowerCase() ? prev : undefined,
+    carry: slot >= 0 ? carryFrom(slot) : undefined,
+  }));
 });
+let mpServer = '', mpJoinName = '';
+// A character carried from a save must reach the save before the page goes away
+window.addEventListener('pagehide', flushCarry);
 
 onNetStatus((status, detail) => {
   if (status === 'online') ui.setConnectionBanner('');
@@ -461,7 +566,7 @@ onNetStatus((status, detail) => {
 async function saveNow(): Promise<boolean> {
   if (mode !== 'single' || currentSaveSlot === -1) return true;
   const s = await requestLocalSave();
-  return !!s && lastSaveOk;
+  return !!s && (lastSaveOk = await savesSettled());
 }
 
 let quitAnyway = false;
@@ -498,26 +603,37 @@ let debugVisible = false;
 actions.toggleDebug = () => { debugVisible = !debugVisible; if (debugEl) debugEl.style.display = debugVisible ? 'block' : 'none'; };
 if (debugEl) debugEl.style.display = 'none';
 
+const DEV = !!(import.meta as any).env?.DEV;
+const slowFrames: { player: number; world: number; remote: number; render: number; at: number; programs: number }[] = [];
+
 // Test/debug hooks (dev server only)
 if ((import.meta as any).env?.DEV) {
   (window as any).__keys = keys;
   (window as any).poxel = {
     scene, body, ui, setYawPitch, getBlock, setBlock, inv: inventory, bench: benchmarkWorld, send,
     select: setSelectedSlot, tp: (x: number, y: number, z: number) => { loadAreaNow(x, z, 1); setPlayerFeet({ x, y, z }); },
-    health: () => health, counts: entityCounts, startSingle: (seed?: number) => startSingle(4, null, seed),
+    health: () => health, counts: entityCounts, startSingle: (seed?: number, difficulty?: string) => startSingle(4, null, seed, difficulty),
     connect: (url: string, name: string) => { mode = 'multi'; resetSession(); startRemote(url, name, savedLook(), playerToken()); },
     online: () => onlinePlayers,
-    saveNow,
+    saveNow, readSave, deleteSave, savesSettled,
+    drawCalls: () => worldDrawCalls,
+    carry: carryDebug,
+    mode: () => mode,
+    slowFrames,
     // Block under the crosshair (what Mine/Use act on)
     lookTarget: () => { const d = new THREE.Vector3(0, 0, -1).applyQuaternion(controls.object.quaternion); return raycast(controls.object.position, d, 5); },
     yaw: () => getYawPitch().yaw,
     // Moves the player smoothly (like fast walking/flying) so the server's movement checks accept it
+    // Time-based (blocks per second at any frame rate), under the server's movement limit
     glide: (x: number, y: number, z: number, speed = 8) => new Promise<void>(res => {
       const started = performance.now();
+      let last = started;
       const step = () => {
+        const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000);
+        last = now;
         const p = body.pos, dx = x - p.x, dy = y - p.y, dz = z - p.z, d = Math.hypot(dx, dy, dz);
-        if (d < 0.2 || performance.now() - started > 6000) { body.vel.set(0, 0, 0); res(); return; }
-        const k = Math.min(1, (speed / 60) / d);
+        if (d < 0.2 || now - started > 8000) { body.vel.set(0, 0, 0); res(); return; }
+        const k = Math.min(1, (speed * dt) / d);
         setPlayerFeet({ x: p.x + dx * k, y: p.y + dy * k, z: p.z + dz * k });
         requestAnimationFrame(step);
       };
@@ -529,6 +645,7 @@ if ((import.meta as any).env?.DEV) {
 // ------------------------------------------------------------------ Main loop
 let prev = performance.now();
 let frames = 0, fpsTime = 0, fps = 0;
+let worldDrawCalls = 0; // draw calls of the world pass alone (the hand pass resets renderer.info)
 const menuSpin = new THREE.Euler(0, 0, 0, 'YXZ');
 
 function frame() {
@@ -545,9 +662,13 @@ function frame() {
       controls.object.quaternion.setFromEuler(menuSpin);
     }
 
+    const t0 = performance.now();
     updatePlayer(dt);
+    const t1 = performance.now();
     updateWorld(body.pos);
+    const t2 = performance.now();
     updateRemote(dt);
+    const t3 = performance.now();
 
     const liquid = headInLava ? 'lava' : headInWater ? 'water' : 'none';
     const eye = controls.object.position;
@@ -558,6 +679,9 @@ function frame() {
 
     renderer.autoClear = true;
     renderer.render(scene, perspectiveCamera);
+    worldDrawCalls = renderer.info.render.calls;
+    // Where the time of slow frames goes (dev builds; read by the perf test)
+    if (DEV) { const t4 = performance.now(); if (t4 - t0 > 30) slowFrames.push({ player: t1 - t0, world: t2 - t1, remote: t3 - t2, render: t4 - t3, at: t0, programs: renderer.info.programs?.length ?? 0 }); if (slowFrames.length > 50) slowFrames.shift(); }
     if (!inMenu) {
       renderer.autoClear = false;
       renderer.clearDepth();

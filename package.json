@@ -10,7 +10,12 @@
     "deploy": "npm run build && npx gh-pages -d dist",
     "server": "node server/node.ts",
     "host": "npm run build && node server/node.ts",
-    "tunnel": "\"%USERPROFILE%\\.cloudflared-bin\\cloudflared.exe\" tunnel --no-autoupdate --url http://localhost:8080"
+    "tunnel": "\"%USERPROFILE%\\.cloudflared-bin\\cloudflared.exe\" tunnel --no-autoupdate --url http://localhost:8080",
+    "test:e2e": "node tests/e2e/run.mjs",
+    "test:soak": "node tests/e2e/run.mjs soak",
+    "test:perf": "node tests/e2e/run.mjs perf",
+    "test:unit": "node --test \"tests/unit/*.test.ts\"",
+    "test": "npm run test:unit && npm run test:e2e"
   },
   "keywords": [],
   "author": "",
@@ -20,6 +25,7 @@
     "@types/node": "^26.6.3",
     "@types/three": "^0.183.1",
     "@types/ws": "^8.18.1",
+    "puppeteer-core": "^23.11.1",
     "three": "^0.183.2",
     "typescript": "^6.0.2",
     "vite": "^8.0.8"

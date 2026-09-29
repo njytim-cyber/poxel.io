@@ -261,7 +261,219 @@ function buildTiles(): Tile[] {
   for (let x = 0; x < 16; x++) { const base = pick(SPRUCE_BARK); for (let y = 0; y < 16; y++) spruceSide[at(x, y)] = rand() < 0.7 ? base : pick(SPRUCE_BARK); }
   set(TILE.spruce_side, spruceSide);
   set(TILE.spruce_top, logTop(SPRUCE_BARK, '#8a6a42', '#6e5232'));
+  buildNewTiles(set, SNOW, stoneBase);
   return tiles;
+}
+
+// ------------------------------------------------------------------ More blocks
+
+// Streaks/cracks in a direction, for ice
+function streaked(palette: string[], streak: string, n: number): Tile {
+  const t = blotchTile(palette, 0.5);
+  for (let i = 0; i < n; i++) {
+    let x = Math.floor(rand() * 16), y = Math.floor(rand() * 16);
+    const len = 3 + Math.floor(rand() * 6);
+    for (let k = 0; k < len; k++) { t[at(x, y)] = streak; x++; if (rand() < 0.5) y--; }
+  }
+  return t;
+}
+
+// Brick pattern over any palette (rows of 4 high, bricks 8 wide, offset every other row)
+function brickTile(palette: string[], mortar: string, highlight?: string, h = 4, w = 8): Tile {
+  const t = newTile();
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const row = Math.floor(y / h), off = row % 2 ? w / 2 : 0;
+    const isMortar = y % h === h - 1 || (x + off) % w === w - 1;
+    t[at(x, y)] = isMortar ? mortar : (highlight && y % h === 0 ? highlight : pick(palette));
+  }
+  return t;
+}
+
+// Smooth slab with a bevelled border (polished stone, metal blocks)
+function polished(palette: string[], light: string, dark: string): Tile {
+  const t = blotchTile(palette, 0.7);
+  for (let i = 0; i < 16; i++) { t[at(i, 0)] = light; t[at(0, i)] = light; t[at(i, 15)] = dark; t[at(15, i)] = dark; }
+  return t;
+}
+
+// Metal/gem storage block: plated with rivets and a shine
+function storageBlock(l: string, m: string, d: string): Tile {
+  const t = newTile();
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const edge = x === 0 || y === 0 || x === 15 || y === 15;
+    t[at(x, y)] = edge ? d : (x + y < 10 && rand() < 0.5 ? l : m);
+  }
+  for (const [x, y] of [[2, 2], [13, 2], [2, 13], [13, 13]]) t[at(x, y)] = l;
+  for (let i = 3; i < 7; i++) t[at(i, 10 - i)] = l;
+  return t;
+}
+
+function wool(base: string[], shade: string): Tile {
+  const t = noiseTile(base);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if ((x + y * 3) % 5 === 0 && rand() < 0.5) t[at(x, y)] = shade;
+  return t;
+}
+
+function bush(leaf: string[], berry: string[], berries: number): Tile {
+  const t = newTile();
+  for (let y = 4; y < 16; y++) for (let x = 1; x < 15; x++) {
+    const d = Math.hypot(x - 7.5, (y - 10) * 1.3);
+    if (d < 6.5 && rand() < 0.85) t[at(x, y)] = pick(leaf);
+  }
+  for (let i = 0; i < berries; i++) { const x = 3 + Math.floor(rand() * 10), y = 6 + Math.floor(rand() * 8); t[at(x, y)] = pick(berry); }
+  return t;
+}
+
+function mushroom(cap: string[], spots: string | null): Tile {
+  const t = newTile();
+  for (let y = 10; y < 16; y++) { t[at(7, y)] = '#e8e0d0'; t[at(8, y)] = '#d8d0c0'; }
+  for (let y = 5; y < 10; y++) for (let x = 3; x < 13; x++) {
+    if (Math.hypot(x - 7.5, (y - 9.5) * 1.6) < 5.5) t[at(x, y)] = pick(cap);
+  }
+  if (spots) for (const [x, y] of [[5, 7], [9, 6], [10, 8], [7, 8]]) t[at(x, y)] = spots;
+  return t;
+}
+
+// Crop rows: stalks of a given height with optional tops (wheat heads, leafy tops)
+function crop(stalk: string[], height: number, top: string[] | null, density = 0.55): Tile {
+  const t = newTile();
+  for (let x = 1; x < 15; x++) {
+    if (rand() > density) continue;
+    const h = Math.max(2, height - Math.floor(rand() * 3));
+    for (let y = 15; y > 15 - h; y--) t[at(x, y)] = pick(stalk);
+    if (top) { t[at(x, 15 - h)] = pick(top); if (rand() < 0.5) t[at(x, 16 - h)] = pick(top); }
+  }
+  return t;
+}
+
+function fern(palette: string[]): Tile {
+  const t = newTile();
+  for (let i = 0; i < 5; i++) {
+    let x = 3 + i * 2.5, y = 15;
+    const lean = (i - 2) * 0.35;
+    for (let k = 0; k < 11 - Math.abs(i - 2) * 2; k++) {
+      t[at(Math.round(x), y)] = pick(palette);
+      if (k % 2 === 0 && k > 2) { t[at(Math.round(x) - 1, y)] = pick(palette); t[at(Math.round(x) + 1, y)] = pick(palette); }
+      y--; x += lean;
+    }
+  }
+  return t;
+}
+
+function chestFace(kind: 'front' | 'side' | 'top'): Tile {
+  const t = planks();
+  const band = '#4a3418', trim = '#3a2810';
+  for (let i = 0; i < 16; i++) { t[at(i, 0)] = trim; t[at(i, 15)] = trim; t[at(0, i)] = trim; t[at(15, i)] = trim; }
+  if (kind !== 'top') for (let x = 0; x < 16; x++) t[at(x, 5)] = band;
+  if (kind === 'front') { for (let y = 4; y < 9; y++) for (let x = 6; x < 10; x++) t[at(x, y)] = y === 4 || y === 8 || x === 6 || x === 9 ? '#6a6a6a' : '#c8c8c8'; t[at(7, 7)] = t[at(8, 7)] = '#2a2a2a'; }
+  return t;
+}
+
+function buildNewTiles(set: (i: number, t: Tile) => void, SNOW: string[], stoneBase: Tile) {
+  // Snow and ice
+  set(TILE.ice, streaked(['#9cc8f0', '#a8d0f5', '#90bee8', '#b4d8f8'], '#dcecfc', 5));
+  set(TILE.packed_ice, streaked(['#8cb4e8', '#7fa8e0', '#98bcec'], '#c0d8f4', 3));
+  set(TILE.blue_ice, streaked(['#5a8ee0', '#4f84d8', '#6a9ae8', '#4478d0'], '#a8c8f4', 4));
+  const powder = noiseTile(['#f8fbfd', '#ffffff', '#eef4f8', '#f4f8fb']);
+  for (let i = 0; i < 18; i++) powder[at(Math.floor(rand() * 16), Math.floor(rand() * 16))] = '#dfe9f2';
+  set(TILE.powder_snow, powder);
+  set(TILE.snow_bricks, brickTile(SNOW, '#c8d6e2', '#ffffff'));
+  set(TILE.frost_crystal_ore, sprinkleOre(stoneBase, ['#e8fbff', '#9ee8ff', '#5ac4f0'], 5));
+  // Stone family
+  const GRANITE = ['#9a6a58', '#a8765f', '#8a5c4a', '#b4826c', '#7e5444'];
+  const DIORITE = ['#c8c8c4', '#dcdcd8', '#b0b0ac', '#ececea', '#9c9c98'];
+  const ANDESITE = ['#8a8a88', '#7c7c7a', '#969694', '#6e6e6c'];
+  set(TILE.granite, blotchTile(GRANITE, 0.35));
+  set(TILE.diorite, blotchTile(DIORITE, 0.3));
+  set(TILE.andesite, blotchTile(ANDESITE, 0.5));
+  set(TILE.polished_granite, polished(GRANITE.slice(0, 3), '#c49480', '#6e4a3c'));
+  set(TILE.polished_diorite, polished(DIORITE.slice(0, 3), '#f4f4f2', '#8c8c88'));
+  set(TILE.polished_andesite, polished(ANDESITE.slice(0, 3), '#a4a4a2', '#5e5e5c'));
+  const SLATE = ['#4a4a52', '#40404a', '#54545c', '#3a3a42'];
+  const slate = blotchTile(SLATE, 0.6);
+  for (let y = 0; y < 16; y += 4) for (let x = 0; x < 16; x++) if (rand() < 0.6) slate[at(x, y)] = '#34343c';
+  set(TILE.slate, slate);
+  const cs = cobblestone();
+  for (let i = 0; i < 256; i++) cs[i] = cs[i] === '#454545' ? '#26262c' : pick(SLATE);
+  set(TILE.cobbled_slate, cs);
+  set(TILE.slate_bricks, brickTile(SLATE, '#26262c', '#5e5e66', 4, 8));
+  const basalt = newTile();
+  for (let x = 0; x < 16; x++) { const c = pick(['#4a4a4e', '#3e3e42', '#56565a']); for (let y = 0; y < 16; y++) basalt[at(x, y)] = rand() < 0.8 ? c : '#2e2e32'; }
+  set(TILE.basalt_side, basalt);
+  set(TILE.basalt_top, logTop(['#3a3a3e'], '#56565a', '#4a4a4e'));
+  set(TILE.obsidian, blotchTile(['#140c20', '#1e1230', '#2a1a40', '#0c0814', '#3a2458'], 0.4));
+  set(TILE.copper_ore, sprinkleOre(stoneBase, ['#f0a070', '#d87a48', '#3aa088'], 5));
+  // Storage and decoration
+  set(TILE.copper_block, storageBlock('#f4a878', '#d0784a', '#8a4a28'));
+  set(TILE.iron_block, storageBlock('#ffffff', '#dadada', '#9a9a9a'));
+  set(TILE.gold_block, storageBlock('#fffcb0', '#f6d23a', '#b8860e'));
+  set(TILE.diamond_block, storageBlock('#d8fff8', '#56e8d0', '#1a9a86'));
+  set(TILE.coal_block, storageBlock('#3a3a3a', '#1e1e1e', '#0a0a0a'));
+  const shelf = planks();
+  for (const row of [2, 9]) {
+    for (let x = 1; x < 15; x++) shelf[at(x, row + 5)] = '#4a3418';
+    let x = 1;
+    while (x < 15) {
+      const w = 1 + (rand() < 0.3 ? 1 : 0), h = 3 + Math.floor(rand() * 2), c = pick(['#8a2a2a', '#2a4a8a', '#2a6a3a', '#8a6a2a', '#5a2a6a']);
+      for (let k = 0; k < w && x < 15; k++, x++) for (let y = row + 5 - h; y < row + 5; y++) shelf[at(x, y)] = c;
+      x++;
+    }
+  }
+  set(TILE.bookshelf, shelf);
+  set(TILE.wool, wool(['#ececec', '#f4f4f4', '#e0e0e0'], '#d4d4d4'));
+  set(TILE.red_wool, wool(['#b83030', '#c43a3a', '#a82828'], '#962020'));
+  set(TILE.yellow_wool, wool(['#e8c830', '#f0d23a', '#dcbc28'], '#c8a820'));
+  set(TILE.blue_wool, wool(['#3446a8', '#3c50b8', '#2c3c98'], '#243288'));
+  set(TILE.green_wool, wool(['#4a7a24', '#54862c', '#40701e'], '#365e18'));
+  set(TILE.black_wool, wool(['#1e1e22', '#26262a', '#18181c'], '#101014'));
+  set(TILE.terracotta, blotchTile(['#9a5a42', '#a4624a', '#8e523c'], 0.7));
+  const lantern = newTile();
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const frame = x < 2 || x > 13 || y < 2 || y > 13 || x === 7 || x === 8;
+    lantern[at(x, y)] = frame ? pick(['#3a3a3e', '#4a4a4e']) : pick(['#ffd060', '#ffe080', '#ffc040', '#fff0a0']);
+  }
+  set(TILE.lantern, lantern);
+  const torch = newTile();
+  for (let y = 6; y < 16; y++) { torch[at(7, y)] = '#8a6232'; torch[at(8, y)] = '#5c3f1c'; }
+  for (const [x, y, c] of [[7, 5, '#ffd040'], [8, 5, '#ffb020'], [7, 4, '#fff0a0'], [8, 4, '#ffd040'], [7, 3, '#ffe060'], [8, 6, '#ff8020']] as [number, number, string][]) torch[at(x, y)] = c;
+  set(TILE.torch, torch);
+  // Plants
+  set(TILE.red_mushroom, mushroom(['#c82020', '#d83030', '#b01818'], '#f4f0e8'));
+  set(TILE.brown_mushroom, mushroom(['#9a7050', '#8a6444', '#a67c5a'], null));
+  set(TILE.berry_bush, bush(['#2e5a2a', '#3a6a32', '#285024'], ['#d02040', '#e83050', '#b01830'], 9));
+  set(TILE.snowberry_bush, bush(['#4a6a5a', '#5a7a6a', '#3e5e4e', '#e8f0f0'], ['#f0f4ff', '#c8d8ff', '#a0b8f0'], 10));
+  set(TILE.frost_fern, fern(['#8ab0b8', '#a8c8d0', '#6e98a4', '#d0e4ea']));
+  const melonSide = newTile();
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) melonSide[at(x, y)] = x % 4 < 2 ? pick(['#6a9a2a', '#5e8e24']) : pick(['#4a7a1a', '#3e6e14']);
+  set(TILE.melon_side, melonSide);
+  set(TILE.melon_top, logTop(['#4a7a1a'], '#6a9a2a', '#5a8a22'));
+  set(TILE.wild_carrots, crop(['#3a8a2a', '#4a9a34', '#2e7a22'], 7, ['#e87a1a', '#f08a2a']));
+  set(TILE.wild_potatoes, crop(['#4a8a3a', '#3a7a2e', '#5a9a44'], 6, ['#e8e0a0', '#c8b870']));
+  const jack = newTile();
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) jack[at(x, y)] = (x % 4 === 0) ? '#b8660f' : pick(['#e3861a', '#d67a12', '#eb9224']);
+  drawPixels(jack, ['.kk....kk.', '.kk....kk.', '..........', 'k........k', 'kkk.kk.kkk', '.kkkkkkkk.'], 3, 4, { k: '#ffe040' });
+  set(TILE.jack_o_lantern, jack);
+  const msb = brickTile(STONE, '#5a5a5a', '#909090', 8, 16);
+  for (let i = 0; i < 256; i++) if (msb[i] !== '#5a5a5a' && rand() < 0.3) msb[i] = pick(['#5a7a3a', '#4a6a2e', '#6a8a44']);
+  set(TILE.mossy_stone_bricks, msb);
+  const csb = brickTile(STONE, '#5a5a5a', '#909090', 8, 16);
+  let cx = 3, cy = 1;
+  for (let k = 0; k < 14; k++) { csb[at(cx, cy)] = '#3a3a3a'; cy++; cx += rand() < 0.5 ? 1 : 0; }
+  set(TILE.cracked_stone_bricks, csb);
+  set(TILE.smooth_stone, polished(['#a4a4a4', '#9c9c9c', '#aaaaaa'], '#bcbcbc', '#7c7c7c'));
+  const farm = newTile();
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) farm[at(x, y)] = y % 4 === 0 ? '#3e2a18' : pick(['#5a3e26', '#4e3620', '#664830']);
+  set(TILE.farmland, farm);
+  // Crops
+  set(TILE.wheat_0, crop(['#5aa83a', '#6ab844'], 4, null, 0.5));
+  set(TILE.wheat_1, crop(['#7ab83a', '#8ac444', '#6aa834'], 9, null, 0.6));
+  set(TILE.wheat_2, crop(['#c8a840', '#b89830', '#d8b850'], 13, ['#e8c860', '#a88020'], 0.7));
+  set(TILE.carrot_crop, crop(['#3a8a2a', '#4a9a34'], 4, null, 0.45));
+  set(TILE.potato_crop, crop(['#4a8a3a', '#5a9a44'], 4, null, 0.45));
+  // Chest
+  set(TILE.chest_front, chestFace('front'));
+  set(TILE.chest_side, chestFace('side'));
+  set(TILE.chest_top, chestFace('top'));
 }
 
 // ------------------------------------------------------------------ Atlas
@@ -415,6 +627,50 @@ const ITEM_ART: Record<string, [string, Record<string, string>]> = {
 SHAPES.bone = ['', '', '...........dd...', '..........dlld..', '...........dmd..', '..........dmd...', '.........dmd....', '........dmd.....', '.......dmd......',
   '......dmd.......', '.....dmd........', '..dddmd.........', '.dlld...........', '..dd............'];
 SHAPES.pie = ['', '', '', '', '', '.....dddddd.....', '...ddwwwwwwdd...', '..dwllmmmmmmwd..', '..dwmmmmmmmmwd..', '..ddwwwwwwwwdd..', '..dmddddddddmd..', '...dmmmmmmmmd...', '....dddddddd....'];
+SHAPES.ball = ['', '', '', '', '......dddd......', '....ddllmmdd....', '...dllmmmmmmd...', '...dlmmmmmmmd...', '...dmmmmmmmmd...', '...dmmmmmmmmd...', '....ddmmmmdd....', '......dddd......'];
+SHAPES.crystal = ['', '.......d........', '......dld.......', '.....dllmd......', '.....dlmmd..d...', '....dllmmmddld..', '....dlmmmmdlmd..', '..d.dlmmmmdmmd..', '.dld.dlmmd.dmd..', '.dlmddlmmd.dd...', '.dmmmddmmd......', '..dmmmmmd.......', '...dddddd.......'];
+SHAPES.string = ['', '', '...ddd..........', '..d...d.........', '..d....dd.......', '...d.....d......', '....dd....d.....', '......d...d.....', '......d....d....', '.......dd...d...', '.........d..d...', '..........dd....'];
+SHAPES.dye = ['', '', '', '.......dd.......', '......dwwd......', '......dwwd......', '.....dmmmmd.....', '....dmllmmmd....', '....dlmmmmmd....', '....dmmmmmmd....', '....dmmmmmmd....', '.....dmmmmd.....', '......dddd......'];
+SHAPES.berries = ['', '', '', '........h.......', '.......hh.......', '......h..h......', '.....dd..dd.....', '....dlmd.dlmd...', '....dmmd.dmmd...', '.....dd.dd.dd...', '.......dlmd.....', '.......dmmd.....', '........dd......'];
+SHAPES.carrot = ['', '..........hh.h..', '...........hhh..', '..........dddh..', '.........dlmd...', '........dlmmd...', '.......dlmmd....', '......dlmmd.....', '.....dlmmd......', '....dlmmd.......', '...dmmmd........', '..dmmd..........', '..dd............'];
+SHAPES.potato = ['', '', '', '', '.....dddddd.....', '....dllmmmmd....', '...dlmmwmmmmd...', '...dmmmmmmwmd...', '...dmwmmmmmmd...', '....dmmmmwmd....', '.....dddddd.....'];
+SHAPES.seeds = ['', '', '', '', '....d.....d.....', '...dl...d..d....', '...dm..dl.......', '.......dm...d...', '..d........dl...', '.dl...d.....dm..', '.dm..dl.........', '.....dm...d.....', '..........dm....'];
+SHAPES.wheat = ['', '...l.l.l........', '..lml.lml.......', '...m.m.m.l......', '..lml.lml.lm....', '...m..m.m.m.....', '....m..m.m......', '.....m.m.m......', '......mmm.......', '.......m........', '......hhh.......', '.......m........', '.......m........'];
+SHAPES.bread = ['', '', '', '', '', '....dddddddd....', '..ddllllmmmmdd..', '.dlmmwmmwmmwmmd.', '.dmmmmmmmmmmmmd.', '.ddmmmmmmmmmmdd.', '..dddddddddddd..'];
+SHAPES.bowl = ['', '', '', '', '', '', '', '..dddddddddddd..', '..dllmmmmmmmmd..', '...dlmmmmmmmd...', '....dmmmmmmd....', '.....dddddd.....'];
+SHAPES.stew = ['', '', '', '', '', '', '...wwhwwhwwhw...', '..dddddddddddd..', '..dllmmmmmmmmd..', '...dlmmmmmmmd...', '....dmmmmmmd....', '.....dddddd.....'];
+SHAPES.slice = ['', '', '', '', '..d.............', '..dd............', '..dwd...........', '..dwmd..........', '..dwmkd.........', '..dwmmmd........', '..dwmkmmd.......', '..dwmmmkmd......', '..dddddddddd....'];
+SHAPES.cookie = ['', '', '', '', '.....dddddd.....', '....dmmkmmmd....', '...dmmmmmkmmd...', '...dmkmmmmmmd...', '...dmmmmkmmmd...', '....dmmmmmkd....', '.....dddddd.....'];
+SHAPES.eye = ['', '', '', '', '.....dddddd.....', '....dmmmmmmd....', '...dmmwwwwmmd...', '...dmwkkkkwmd...', '...dmwkkkkwmd...', '...dmmwwwwmmd...', '....dmmmmmmd....', '.....dddddd.....'];
+SHAPES.arrow = ['', '............ddd.', '...........dlld.', '............dld.', '...........h.d..', '..........h.....', '.........h......', '........h.......', '.......h........', '......h.........', '..ww.h..........', '..wwh...........', '...ww...........'];
+Object.assign(ITEM_ART, {
+  snowball: ['ball', { l: '#ffffff', m: '#eef4f8', d: '#a8b8c8' }],
+  slime_ball: ['ball', { l: '#b8f0a0', m: '#78d060', d: '#3a8a2a' }],
+  frost_crystal: ['crystal', { l: '#f0fcff', m: '#8ee0ff', d: '#2a88c0' }],
+  copper_ingot: ['ingot', { l: '#f8b888', m: '#d87a48', d: '#8a4a28' }],
+  string: ['string', { d: '#e8e8e8' }],
+  red_dye: ['dye', { l: '#f05050', m: '#c82828', d: '#6a1010', w: '#8a6a4a' }],
+  yellow_dye: ['dye', { l: '#fff070', m: '#f0c828', d: '#8a6a10', w: '#8a6a4a' }],
+  blue_dye: ['dye', { l: '#7090ff', m: '#3450d0', d: '#1a2468', w: '#8a6a4a' }],
+  green_dye: ['dye', { l: '#80c050', m: '#4a8a24', d: '#244a10', w: '#8a6a4a' }],
+  black_dye: ['dye', { l: '#4a4a4a', m: '#222222', d: '#0a0a0a', w: '#8a6a4a' }],
+  sweet_berries: ['berries', { l: '#ff7080', m: '#d02040', d: '#6a0a1a', h: '#3a6a2a' }],
+  snowberries: ['berries', { l: '#ffffff', m: '#c8d8ff', d: '#5a70b0', h: '#4a6a5a' }],
+  melon_slice: ['slice', { d: '#2a5a14', w: '#8ac44a', m: '#e84848', k: '#1a1a1a' }],
+  carrot: ['carrot', { l: '#ffb060', m: '#f07a1a', d: '#8a3a08', h: '#3a8a2a' }],
+  golden_carrot: ['carrot', { l: '#fffcb0', m: '#f6d23a', d: '#a67c10', h: '#c8a820' }],
+  potato: ['potato', { l: '#f0e0a0', m: '#d8c080', d: '#7a6030', w: '#a88850' }],
+  baked_potato: ['potato', { l: '#f8d890', m: '#d8a050', d: '#6a4018', w: '#8a5020' }],
+  seeds: ['seeds', { l: '#9ad060', m: '#5a9a2a', d: '#2a5a14' }],
+  wheat: ['wheat', { l: '#f0d870', m: '#c8a840', h: '#8a6a20' }],
+  bread: ['bread', { l: '#e8b870', m: '#c08040', d: '#6a3a14', w: '#f0d8a0' }],
+  bowl: ['bowl', { l: '#b08a55', m: '#8a6232', d: '#4a3418' }],
+  mushroom_stew: ['stew', { l: '#b08a55', m: '#8a6232', d: '#4a3418', w: '#c89868', h: '#c82020' }],
+  golden_apple: ['apple', { l: '#fffcb0', m: '#f6d23a', d: '#a67c10', h: '#5c3f1c' }],
+  cookie: ['cookie', { m: '#c88840', d: '#6a4018', k: '#3a2010' }],
+  spider_eye: ['eye', { m: '#8a2040', d: '#3a0a18', w: '#e04060', k: '#1a0a10' }],
+  arrow: ['arrow', { l: '#e0e0e0', d: '#6a6a6a', h: '#8a6232', w: '#f0f0f0' }],
+} as Record<string, [string, Record<string, string>]>);
 
 function itemPixels(type: string): Tile | null {
   const t = newTile();

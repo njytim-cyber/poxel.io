@@ -1,7 +1,7 @@
 import type { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { isMobile, releaseAllKeys } from './input';
 import { openScreen, closeScreen, setCloseHandler, type ScreenMode } from './inventory';
-import type { FurnaceState } from '../shared/furnace.ts';
+import type { FurnaceState, Stack } from '../shared/furnace.ts';
 import { send } from './net';
 
 // One place that decides what the player is doing, so overlays never fight each other.
@@ -92,13 +92,13 @@ export function pause() {
 
 // Opens an inventory-style screen. The plain inventory tells the server; tables/furnaces were
 // already opened by the server (it validated the block) before this is called.
-export function openGameScreen(mode: ScreenMode, furnace?: FurnaceState) {
+export function openGameScreen(mode: ScreenMode, furnace?: FurnaceState, chest?: Stack[]) {
   if (state === 'screen') closeScreen();
   if (state !== 'playing' && state !== 'screen') return;
   if (mode === 'inventory') send({ t: 'screen', mode: 'inventory' });
   setState('screen');
   releaseAllKeys();
-  openScreen(mode, furnace);
+  openScreen(mode, furnace, chest);
   if (!isMobile) controls.unlock();
 }
 
@@ -162,7 +162,49 @@ export function addChatLine(from: string | null, text: string) {
   setTimeout(() => line.classList.add('faded'), 10000);
 }
 
+// Multiplayer downed state: overlay with a bleed-out countdown; a tap (or the button) gives up
+let downedUntil = 0, downedTimer = 0;
+export function showDowned(seconds: number, onGiveUp: () => void) {
+  if (state === 'screen') closeScreen();
+  const el = $('downed-screen');
+  if (!el) return;
+  el.style.display = 'flex';
+  downedUntil = performance.now() + seconds * 1000;
+  const tick = () => {
+    const left = Math.max(0, Math.ceil((downedUntil - performance.now()) / 1000));
+    const t = $('downed-timer');
+    if (t) t.textContent = `Bleeding out in ${left}s`;
+  };
+  tick();
+  clearInterval(downedTimer);
+  downedTimer = window.setInterval(tick, 250);
+  el.onclick = () => onGiveUp();
+  const b = $('btn-giveup');
+  if (b) b.onclick = e => { e.stopPropagation(); onGiveUp(); };
+  setReviveProgress(0, '');
+}
+export function hideDowned() {
+  clearInterval(downedTimer);
+  const el = $('downed-screen');
+  if (el) el.style.display = 'none';
+  setReviveProgress(0, '');
+}
+// Shown to both the downed player (in their overlay) and the reviver (under the crosshair)
+export function setReviveProgress(progress: number, name: string, reviving = false) {
+  const fill = $('revive-bar-fill');
+  if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
+  const box = $('revive-progress');
+  if (box) {
+    box.style.display = reviving && progress > 0 ? 'block' : 'none';
+    const label = $('revive-label');
+    if (label) label.textContent = `Reviving ${name}...`;
+    const f2 = $('revive-bar-fill-2');
+    if (f2) f2.style.width = `${Math.round(progress * 100)}%`;
+  }
+}
+
 export function showDeath(message: string) {
+  hideDowned();
   if (state === 'screen') closeScreen();
   if (state === 'chat') hideChatInput();
   setState('dead');
@@ -224,6 +266,37 @@ export function renderHealth(hp: number, max: number) {
   lastHealth = hp;
 }
 
+const DRUM = (meat: string, bone: string) => 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 9" shape-rendering="crispEdges"><path d="M4 0h3v1h1v1h1v3H8v1H7v1H5v1H4v1H1V8H0V5h1V4h1V3h1V1h1z" fill="#1a0e00"/><path d="M4 1h3v1h1v3H7v1H5v1H4V6H3V5H2V4h1V3h1z" fill="${meat}"/><path d="M1 5h1v1h1v1h1v1H1z" fill="${bone}"/><path d="M5 2h1v1H5z" fill="#f0c890"/></svg>`);
+const FOOD_FULL = DRUM('#b86a2a', '#f0ece0');
+const FOOD_HALF = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 9" shape-rendering="crispEdges"><path d="M4 0h3v1h1v1h1v3H8v1H7v1H5v1H4v1H1V8H0V5h1V4h1V3h1V1h1z" fill="#1a0e00"/><path d="M4 1h3v1h1v3H7v1H5v1H4V6H3V5H2V4h1V3h1z" fill="#3a2a1a"/><path d="M6 1h1v1h1v3H7v1H6z" fill="#b86a2a"/><path d="M1 5h1v1h1v1h1v1H1z" fill="#f0ece0"/></svg>');
+const FOOD_EMPTY = DRUM('#3a2a1a', '#5a5048');
+
+// Creative mode hides the health and hunger bars (you can't be hurt or get hungry)
+export function setCreativeHud(on: boolean) {
+  const bars = $('status-bars');
+  if (bars) bars.style.visibility = on ? 'hidden' : 'visible';
+}
+
+// Hunger bar: drumsticks filling from the right (like hearts from the left). food < 0 hides it (Easy)
+let lastFood = -2;
+export function renderFood(food: number) {
+  if (food === lastFood) return;
+  const el = $('food-bar');
+  if (!el) return;
+  el.style.visibility = food < 0 ? 'hidden' : 'visible';
+  if (el.children.length !== 10) { el.innerHTML = ''; for (let i = 0; i < 10; i++) el.appendChild(document.createElement('img')); }
+  for (let i = 0; i < 10; i++) {
+    const img = el.children[9 - i] as HTMLImageElement;
+    const v = food - i * 2;
+    const src = v >= 2 ? FOOD_FULL : v === 1 ? FOOD_HALF : FOOD_EMPTY;
+    if (img.getAttribute('src') !== src) img.src = src;
+  }
+  el.classList.toggle('low', food >= 0 && food <= 6);
+  lastFood = food;
+}
+
 export function flashHurt() {
   const el = $('hurt-overlay');
   if (!el) return;
@@ -232,7 +305,7 @@ export function flashHurt() {
   el.classList.add('flash');
 }
 
-export function setUnderwater(level: 'none' | 'water' | 'lava') {
+export function setUnderwater(level: 'none' | 'water' | 'lava' | 'snow') {
   const el = $('liquid-overlay');
   if (!el) return;
   el.className = level;

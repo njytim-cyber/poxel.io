@@ -27,7 +27,7 @@ varying float vLight;
 #include <fog_pars_vertex>
 void main() {
   float d = aData.x;
-  float tile = mod(d, 64.0); d = floor(d / 64.0);
+  float tile = mod(d, 256.0); d = floor(d / 256.0);
   float light = mod(d, 8.0); d = floor(d / 8.0);
   float face = mod(d, 8.0);
   float ao = floor(d / 8.0);
@@ -75,6 +75,7 @@ function makeMaterial(opacity: number, transparent: boolean) {
 }
 const opaqueMaterial = makeMaterial(1, false);
 const liquidMaterial = makeMaterial(0.72, true);
+export const worldMaterials: THREE.Material[] = [opaqueMaterial, liquidMaterial];
 
 // ------------------------------------------------------------------ Chunk storage
 
@@ -94,12 +95,21 @@ class Chunk {
 
 const chunks = new Map<string, Chunk>();
 const pendingGen = new Set<string>();
+const MAX_UPLOADS_PER_FRAME = 2;
 const ckey = (cx: number, cz: number) => cx + ',' + cz;
 
 // Player edits: chunkKey -> (local index -> block id). Kept for chunks even while unloaded.
 const mods = new Map<string, Map<number, number>>();
-// Facing of furnaces/pumpkins: "x,y,z" -> 0..3
-export const facing = new Map<string, number>();
+// Facing of furnaces/pumpkins, per chunk: chunkKey -> (local index -> 0..3)
+const facingByChunk = new Map<string, Map<number, number>>();
+
+export function setFacing(x: number, y: number, z: number, f: number) {
+  if (y < MIN_Y || y > MAX_Y) return;
+  const key = ckey(x >> 4, z >> 4);
+  let m = facingByChunk.get(key);
+  if (!m) { m = new Map(); facingByChunk.set(key, m); }
+  m.set(idx(x & 15, y, z & 15), f & 3);
+}
 
 let seed = 1337;
 let epoch = 0; // bumps on reset; results from an older world are dropped
@@ -111,7 +121,7 @@ export function resetWorld(newSeed: number) {
   chunks.clear();
   pendingGen.clear();
   mods.clear();
-  facing.clear();
+  facingByChunk.clear();
   seed = newSeed | 0;
   epoch++;
   lastCenter = '';
@@ -152,7 +162,7 @@ export function setBlock(x: number, y: number, z: number, id: number, fromNetwor
   let m = mods.get(key);
   if (!m) { m = new Map(); mods.set(key, m); }
   m.set(i, id);
-  if (!BLOCKS[id].name.match(/furnace|pumpkin/)) facing.delete(`${x},${y},${z}`);
+  if (!BLOCKS[id].name.match(/furnace|pumpkin/)) facingByChunk.get(key)?.delete(i);
   void fromNetwork;
 
   const c = chunks.get(key);
@@ -377,11 +387,11 @@ function buildSectionInput(c: Chunk, sec: number): SectionInput {
     heights[(z + 3) * PAD_H + (x + 3)] = pick(x, z).heights[((z & 15) << 4) | (x & 15)];
   }
   const fac: number[] = [];
-  if (facing.size) {
-    const x0 = c.cx * CHUNK, z0 = c.cz * CHUNK;
-    for (const [k, f] of facing) {
-      const [x, y, z] = k.split(',').map(Number);
-      if (x >= x0 && x < x0 + 16 && z >= z0 && z < z0 + 16 && y >= y0 && y < y0 + 16) fac.push(x - x0, y - y0, z - z0, f);
+  const cf = facingByChunk.get(ckey(c.cx, c.cz));
+  if (cf) {
+    for (const [i, f] of cf) {
+      const y = (i >> 8) + MIN_Y;
+      if (y >= y0 && y < y0 + 16) fac.push(i & 15, y - y0, (i >> 4) & 15, f);
     }
   }
   return { y0, blocks, heights, facing: fac };
@@ -528,8 +538,13 @@ export function updateWorld(pos: THREE.Vector3) {
     requestChunkMesh(c);
   }
 
-  // Re-upload each changed chunk once per frame, however many of its sections changed
-  for (const c of chunks.values()) if (c.geometryDirty) rebuildChunkGeometry(c);
+  // Re-upload each changed chunk once per frame, however many of its sections changed. Capped per
+  // frame (nearest first, so your own digging stays instant): crossing a chunk border finishes a whole
+  // row of chunks at once, and uploading them all in one frame stalled the GPU for 50-150 ms.
+  const dirty: Chunk[] = [];
+  for (const c of chunks.values()) if (c.geometryDirty) dirty.push(c);
+  if (dirty.length > MAX_UPLOADS_PER_FRAME) dirty.sort((a, b) => ((a.cx - pcx) ** 2 + (a.cz - pcz) ** 2) - ((b.cx - pcx) ** 2 + (b.cz - pcz) ** 2));
+  for (let i = 0; i < dirty.length && i < MAX_UPLOADS_PER_FRAME; i++) rebuildChunkGeometry(dirty[i]);
 }
 
 // Generate + mesh the area around a point synchronously (spawn, teleport, load) so there's ground immediately
@@ -621,7 +636,7 @@ export function importEditsFlat(flat: number[]) {
 }
 
 export function importFacingFlat(flat: number[]) {
-  for (let i = 0; i + 3 < flat.length; i += 4) facing.set(`${flat[i]},${flat[i + 1]},${flat[i + 2]}`, flat[i + 3] & 3);
+  for (let i = 0; i + 3 < flat.length; i += 4) setFacing(flat[i], flat[i + 1], flat[i + 2], flat[i + 3]);
 }
 
 export function chunkCount() { return chunks.size; }

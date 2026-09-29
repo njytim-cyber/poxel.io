@@ -1,0 +1,18 @@
+{
+  "_note": "Performance budgets. perf.mjs and soak.mjs fail when a run is worse than these. Baselines were measured on the owner's PC (real GPU, headless --use-angle=d3d11); raise a limit only on purpose.",
+  "client": {
+    "medianFrameMs": 17.5,
+    "p99FrameMs": 22,
+    "maxFramesOver50ms": 0,
+    "maxDrawCalls": 140,
+    "genMs": 8,
+    "meshMs": 12
+  },
+  "server": {
+    "avgTickMs": 5,
+    "maxTickMs": 25,
+    "maxRssMB": 320,
+    "maxRssGrowthMBPerMin": 3,
+    "maxHealthFailures": 0
+  }
+}

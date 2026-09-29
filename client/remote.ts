@@ -5,7 +5,7 @@ import { blockGeometry, blockEntityMaterial, getIconCanvas, isFlatItem } from '.
 import { itemDef } from '../shared/blocks.ts';
 import { MOB_SPECS } from '../shared/mobs.ts';
 import { PLAYER_HALF_WIDTH, PLAYER_HEIGHT, rayHitsBox, type Vec3 } from '../shared/physics.ts';
-import { EF_SNEAK, EF_HURT, EF_DYING, EF_SWING, type SpawnInfo, type EntityKind, type MobKind } from '../shared/protocol.ts';
+import { EF_SNEAK, EF_HURT, EF_DYING, EF_SWING, EF_DOWNED, type SpawnInfo, type EntityKind, type MobKind } from '../shared/protocol.ts';
 
 const INTERP_DELAY = 110; // ms behind the newest snapshot, smooths out network jitter
 
@@ -109,11 +109,46 @@ function buildMob(kind: MobKind): MobModel {
     eyes(head, -0.13, 0.06, 0.09, 0.06);
     box(0.06, 0.25, 0.3, w, -0.22, 0.42, 0.05, model); box(0.06, 0.25, 0.3, w, 0.22, 0.42, 0.05, model);
     for (const [x, s] of [[-0.1, 1], [0.1, -1]]) parts.push({ mesh: box(0.06, 0.22, 0.06, legC, x, 0.22, 0.05, model, true), swing: s });
-  } else {
-    // Zombie: same proportions as the player (0.72 wide, 1.8 tall), arms held out in front
-    const skin = mat(0x5a9a4a), shirt = mat(0x2a8a9a), pants = mat(0x2a3a8a);
-    const head = box(0.45, 0.45, 0.45, skin, 0, 1.575, 0, model);
+  } else if (kind === 'spider') {
+    // Wide and low: body, head with red eyes, four legs a side
+    const dark = mat(0x2a2420), mid = mat(0x3a322c);
+    box(0.7, 0.45, 0.8, dark, 0, 0.5, 0.25, model);
+    const head = box(0.5, 0.4, 0.45, mid, 0, 0.5, -0.35, model);
+    eyes(head, -0.23, 0.05, 0.12, 0.08, 0xd01010);
+    for (let i = 0; i < 4; i++) for (const side of [-1, 1]) {
+      const leg = box(0.7, 0.08, 0.08, dark, side * 0.6, 0.55, -0.25 + i * 0.2, model);
+      leg.rotation.z = side * -0.5;
+      parts.push({ mesh: leg, swing: (i % 2 ? 0.25 : -0.25) * side });
+    }
+  } else if (kind === 'skeleton') {
+    const bone = mat(0xd8d8cc), shade = mat(0x9a9a8e), bow = mat(0x6a4a24);
+    const head = box(0.45, 0.45, 0.45, bone, 0, 1.675, 0, model);
     eyes(head, -0.23, 0.02, 0.1, 0.11, 0x000000);
+    box(0.36, 0.7, 0.16, shade, 0, 1.1, 0, model);
+    for (const y of [1.3, 1.1, 0.9]) box(0.4, 0.05, 0.18, bone, 0, y, 0, model);
+    for (const [x, s] of [[-0.25, 0.3], [0.25, -0.3]]) {
+      const arm = box(0.1, 0.7, 0.1, bone, x, 1.42, 0, model, true);
+      arm.rotation.x = Math.PI / 2;
+      parts.push({ mesh: arm, swing: s });
+    }
+    box(0.06, 0.6, 0.06, bow, -0.25, 1.42, -0.72, model);
+    for (const [x, s] of [[-0.1, -1], [0.1, 1]]) parts.push({ mesh: box(0.1, 0.75, 0.1, bone, x, 0.75, 0, model, true), swing: s });
+  } else if (kind === 'slime' || kind === 'slimelet') {
+    // A translucent jelly cube with a darker core and eyes
+    const s = kind === 'slime' ? 1 : 0.5;
+    const jelly = mat(0x70c850); jelly.transparent = true; jelly.opacity = 0.7;
+    const core = mat(0x3a8a2a);
+    const body = box(s, s, s, jelly, 0, s / 2, 0, model);
+    box(s * 0.5, s * 0.5, s * 0.5, core, 0, 0, 0, body);
+    eyes(body, -s / 2 - 0.01, s * 0.12, s * 0.2, s * 0.14, 0x1a3a10);
+    parts.push({ mesh: body, swing: 0 });
+  } else {
+    // Zombie family: same proportions as the player (0.72 wide, 1.8 tall), arms held out in front
+    const [skinC, shirtC, pantsC] = kind === 'husk' ? [0xa89868, 0x8a6a3a, 0x5a4a2a]
+      : kind === 'frostbitten' ? [0x8ab8d0, 0x4a6a8a, 0x2a3a5a] : [0x5a9a4a, 0x2a8a9a, 0x2a3a8a];
+    const skin = mat(skinC), shirt = mat(shirtC), pants = mat(pantsC);
+    const head = box(0.45, 0.45, 0.45, skin, 0, 1.575, 0, model);
+    eyes(head, -0.23, 0.02, 0.1, 0.11, kind === 'frostbitten' ? 0x2060ff : 0x000000);
     box(0.4, 0.675, 0.22, shirt, 0, 1.0125, 0, model);
     for (const [x, s] of [[-0.29, 0.3], [0.29, -0.3]]) {
       const arm = box(0.16, 0.675, 0.16, skin, x, 1.35, 0, model, true);
@@ -237,6 +272,11 @@ export function updateRemote(dt: number) {
     const hurt = !!(v.flags & EF_HURT);
 
     if (v.avatar) {
+      // Downed players lie face down (crawling)
+      const downed = !!(v.flags & EF_DOWNED);
+      v.obj.rotation.order = 'YXZ';
+      v.obj.rotation.x = downed ? -Math.PI / 2 : 0;
+      if (downed) v.obj.position.y += 0.25;
       v.avatar.animate(dt, v.hspeed, v.pitch, !!(v.flags & EF_SNEAK), v.swing);
       v.avatar.hurtFlash(hurt);
     } else if (v.mob) {
@@ -282,6 +322,15 @@ export function entityInBlock(x: number, y: number, z: number): boolean {
     if (p.x + b.halfW > x && p.x - b.halfW < x + 1 && p.z + b.halfW > z && p.z - b.halfW < z + 1 && p.y + b.height > y && p.y < y + 1) return true;
   }
   return false;
+}
+
+// Is this entity a downed player (who can be revived)?
+export function isDownedPlayer(eid: number): boolean {
+  const v = views.get(eid);
+  return !!v && v.kind === 'player' && !!(v.flags & EF_DOWNED);
+}
+export function entityName(eid: number): string {
+  return (views.get(eid) as any)?.name || '';
 }
 
 export function entityCounts() {

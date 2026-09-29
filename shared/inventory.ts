@@ -13,8 +13,11 @@ export const GRID_2 = [45, 46, 48, 49];
 export const GRID_3 = [45, 46, 47, 48, 49, 50, 51, 52, 53];
 // Furnace slots are addressed as 100 (input), 101 (fuel), 102 (output)
 export const FURNACE_INPUT = 100, FURNACE_FUEL = 101, FURNACE_OUTPUT = 102;
+// Chest slots are addressed as 200..226
+export const CHEST_START = 200, CHEST_SIZE = 27;
+export const newChest = (): Stack[] => new Array(CHEST_SIZE).fill(null);
 
-export type ScreenMode = 'inventory' | 'table' | 'furnace';
+export type ScreenMode = 'inventory' | 'table' | 'furnace' | 'chest';
 
 export interface Inv {
   slots: Stack[];
@@ -25,7 +28,10 @@ export interface Inv {
 export interface Screen {
   mode: ScreenMode;
   furnace: FurnaceState | null;
+  chest?: Stack[] | null;
 }
+// Screens without a crafting grid
+const noGrid = (s: Screen) => s.mode === 'furnace' || s.mode === 'chest';
 
 export type InvAction =
   | { a: 'click'; slot: number; button: 0 | 2; shift: boolean }
@@ -113,7 +119,7 @@ export function currentRecipe(inv: Inv, screen: Screen) {
 }
 
 export function refreshCrafting(inv: Inv, screen: Screen) {
-  const r = screen.mode === 'furnace' ? null : currentRecipe(inv, screen);
+  const r = noGrid(screen) ? null : currentRecipe(inv, screen);
   inv.slots[RESULT] = r ? { type: r.type, count: r.count } : null;
 }
 
@@ -182,7 +188,7 @@ function returnGrid(inv: Inv, drop: DropFn) {
 // Picks a recipe from the book: lays out ingredients in the grid if you have them. Returns the recipe to
 // show as a ghost when you don't.
 function bookClick(inv: Inv, screen: Screen, result: string, shift: boolean, drop: DropFn): Recipe | null {
-  if (inv.cursor || screen.mode === 'furnace') return null;
+  if (inv.cursor || noGrid(screen)) return null;
   const group = recipeGroups.find(g => g[0] === result)?.[1];
   if (!group) return null;
   const have = available(inv);
@@ -212,6 +218,7 @@ function bookClick(inv: Inv, screen: Screen, result: string, shift: boolean, dro
 // ------------------------------------------------------------------ Slots
 
 function getSlot(inv: Inv, screen: Screen, slot: number): Stack {
+  if (slot >= CHEST_START) return screen.mode === 'chest' && screen.chest ? screen.chest[slot - CHEST_START] ?? null : null;
   if (slot >= 100) {
     const f = screen.furnace;
     if (!f || screen.mode !== 'furnace') return null;
@@ -221,6 +228,7 @@ function getSlot(inv: Inv, screen: Screen, slot: number): Stack {
 }
 
 function setSlot(inv: Inv, screen: Screen, slot: number, v: Stack) {
+  if (slot >= CHEST_START) { if (screen.chest) screen.chest[slot - CHEST_START] = v; return; }
   if (slot >= 100) {
     const f = screen.furnace;
     if (!f) return;
@@ -239,9 +247,10 @@ function slotAccepts(slot: number, type: string): boolean {
 
 function validSlot(screen: Screen, slot: number): boolean {
   if (!Number.isInteger(slot)) return false;
+  if (slot >= CHEST_START) return screen.mode === 'chest' && !!screen.chest && slot < CHEST_START + CHEST_SIZE;
   if (slot >= 100) return screen.mode === 'furnace' && slot <= FURNACE_OUTPUT;
   if (!Number.isInteger(slot) || slot < 0 || slot >= INV_SIZE) return false;
-  if (slot >= 45 && slot <= 53) return gridOf(screen).includes(slot) && screen.mode !== 'furnace';
+  if (slot >= 45 && slot <= 53) return gridOf(screen).includes(slot) && !noGrid(screen);
   return true;
 }
 
@@ -253,6 +262,22 @@ function quickMove(inv: Inv, screen: Screen, slot: number) {
     inv.slots[ARMOR_START + armorSlot] = it; setSlot(inv, screen, slot, null); return;
   }
   let targets: number[];
+  if (screen.mode === 'chest' && screen.chest) {
+    // Shift-click moves between the chest and your inventory
+    targets = slot >= CHEST_START ? [...range(HOTBAR, MAIN_END), ...range(0, HOTBAR)] : range(CHEST_START, CHEST_START + CHEST_SIZE);
+    const max = maxStack(it.type);
+    for (const t of targets) {
+      const d = getSlot(inv, screen, t);
+      if (d && d.type === it.type && d.count < max) { const n = Math.min(max - d.count, it.count); d.count += n; it.count -= n; }
+      if (it.count <= 0) break;
+    }
+    for (const t of targets) {
+      if (it.count <= 0) break;
+      if (!getSlot(inv, screen, t)) { setSlot(inv, screen, t, { type: it.type, count: it.count }); it.count = 0; }
+    }
+    if (it.count <= 0) setSlot(inv, screen, slot, null);
+    return;
+  }
   if (screen.mode === 'furnace' && screen.furnace && slot < MAIN_END) {
     // Smeltables go to the input, fuel to the fuel slot
     const def = itemDef(it.type);

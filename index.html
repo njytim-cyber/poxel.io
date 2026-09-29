@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -14,14 +14,13 @@
         <div id="joystick-zone"></div>
         <div id="touch-look-zone"></div>
         <button class="mobile-btn mobile-btn-menu" id="btn-mobile-menu">☰</button>
-        <div id="action-buttons-left">
-            <button class="mobile-btn mobile-btn-lg" id="btn-mobile-jump">⬆<br><span>Jump</span></button>
-            <button class="mobile-btn" id="btn-mobile-sprint">🏃<br><span>Run</span></button>
-            <button class="mobile-btn" id="btn-mobile-sneak">🐾<br><span>Snk</span></button>
-        </div>
+        <!-- Bottom right: Run to the left of the Sneak/Jump column. Tap the view to use, long-press to mine. -->
         <div id="action-buttons-right">
-            <button class="mobile-btn mobile-btn-lg mobile-btn-action" id="btn-mobile-hit">⛏<br><span>Mine</span></button>
-            <button class="mobile-btn mobile-btn-lg mobile-btn-place" id="btn-mobile-place">🧱<br><span>Use</span></button>
+            <button class="mobile-btn" id="btn-mobile-sprint">🏃<br><span>Run</span></button>
+            <div class="mobile-btn-col">
+                <button class="mobile-btn" id="btn-mobile-sneak">🐾<br><span>Sneak</span></button>
+                <button class="mobile-btn mobile-btn-lg" id="btn-mobile-jump">⬆<br><span>Jump</span></button>
+            </div>
         </div>
         <div id="mobile-toolbar">
             <button class="mobile-btn mobile-btn-sm" id="btn-mobile-inv">📦</button>
@@ -45,7 +44,7 @@
 
       <div id="game-hud" style="display: none;">
         <div id="item-name-popup"></div>
-        <div id="health-bar"></div>
+        <div id="status-bars"><div id="health-bar"></div><div id="food-bar"></div></div>
         <div id="inventory-bar"></div>
       </div>
 
@@ -54,6 +53,7 @@
         <div class="pause-panel">
           <h2>Game Paused</h2>
           <button id="btn-resume" class="menu-btn primary">Back to Game</button>
+          <label class="setting-row">View distance <input id="view-distance" type="range" min="2" max="10" step="1" /> <span id="view-distance-value"></span></label>
           <div class="controls-list">
             <div><kbd>W A S D</kbd> Move</div>
             <div><kbd>Space</kbd> Jump / swim up</div>
@@ -74,6 +74,15 @@
         </div>
       </div>
 
+      <div id="downed-screen" style="display: none;">
+        <h2>You're down!</h2>
+        <p>A friend can revive you by holding <b>Use</b> on you.</p>
+        <p id="downed-timer"></p>
+        <div id="revive-bar"><div id="revive-bar-fill"></div></div>
+        <button id="btn-giveup" class="menu-btn">Give up (respawn)</button>
+        <p class="downed-hint">Tap anywhere to give up</p>
+      </div>
+      <div id="revive-progress" style="display: none;"><span id="revive-label"></span><div id="revive-bar-2"><div id="revive-bar-fill-2"></div></div></div>
       <div id="death-screen" style="display: none;">
         <h1>You Died!</h1>
         <p id="death-message"></p>
@@ -103,6 +112,10 @@
                         <div id="crafting-arrow">➜</div>
                         <div id="crafting-result"></div>
                     </div>
+                </div>
+                <div id="chest-area" style="display: none;">
+                    <h3>Chest</h3>
+                    <div id="chest-grid"></div>
                 </div>
                 <div id="furnace-area" style="display: none;">
                     <h3>Furnace</h3>
@@ -155,9 +168,20 @@
         </button>
       </div>
 
+      <div class="menu-content" id="difficulty-screen" style="display: none;">
+        <h2>Choose difficulty</h2>
+        <button class="menu-btn difficulty-btn" data-difficulty="easy"><span>Easy</span><small>No hunger. Mobs hit softly.</small></button>
+        <button class="menu-btn primary difficulty-btn" data-difficulty="medium"><span>Medium</span><small>Hunger bar: eat to heal and sprint.</small></button>
+        <button class="menu-btn difficulty-btn" data-difficulty="hard"><span>Hard</span><small>Starving can kill. More, tougher mobs.</small></button>
+        <button id="btn-back-difficulty" class="menu-btn">Back</button>
+      </div>
+
       <div class="menu-content" id="mp-screen" style="display: none;">
         <h2>Multiplayer</h2>
         <label class="mp-label">Your name<input id="mp-name" class="mp-input" maxlength="16" autocomplete="off" /></label>
+        <p class="mp-hint">Used in every save and server. On a server, a name belongs to whoever took it first.</p>
+        <label class="mp-label">Character<select id="mp-character" class="mp-input"></select></label>
+        <p class="mp-hint" id="mp-character-hint"></p>
         <label class="mp-label">Server address<input id="mp-url" class="mp-input" placeholder="wss://your-server.trycloudflare.com" autocomplete="off" /></label>
         <button id="btn-connect" class="menu-btn primary">Join Server</button>
         <p id="mp-status" class="mp-status"></p>
@@ -173,6 +197,7 @@
             <button class="save-slot load-btn menu-btn" data-slot="3">Empty Slot 4</button>
             <button class="save-slot load-btn menu-btn" data-slot="4">Empty Slot 5</button>
         </div>
+        <p id="storage-usage" style="font-size: 12px; color: #aaa; margin: 10px 0 0;"></p>
         <button id="btn-back-load" class="menu-btn" style="margin-top: 20px;">Back</button>
       </div>
 

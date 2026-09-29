@@ -1,8 +1,8 @@
 // Applies messages from the server to the client-side game state.
 import type { ServerMsg } from '../shared/protocol.ts';
-import { resetWorld, importEditsFlat, importFacingFlat, loadAreaNow, setBlock, facing, getSeed } from './world';
+import { resetWorld, importEditsFlat, importFacingFlat, loadAreaNow, setBlock, setFacing, getSeed } from './world';
 import * as player from './player';
-import { setInvState, resetInventory, setFurnaceState, setSelectedFromServer } from './inventory';
+import { setInvState, resetInventory, setFurnaceState, setChestState, setSelectedFromServer } from './inventory';
 import { clearRemote, onSpawn, onDespawn, onSnap, onEquip, onAnim } from './remote';
 import { setTimeOfDay } from './sky';
 import * as ui from './ui';
@@ -42,6 +42,8 @@ export function handleServerMessage(m: ServerMsg) {
       resetInventory();
       myEid = m.eid;
       player.resetPlayerState(m.you.health);
+      player.onDifficulty(m.difficulty || 'medium', m.you.food ?? 20);
+      player.onGamemode(m.you.gamemode || 'survival');
       setSelectedFromServer(m.you.inv.selected);
       setInvState({ ...m.you.inv, ack: Number.MAX_SAFE_INTEGER });
       setTimeOfDay(m.time);
@@ -53,11 +55,12 @@ export function handleServerMessage(m: ServerMsg) {
     case 'despawn': onDespawn(m.eids); return;
     case 'equip': onEquip(m.eid, m.held, m.armor); return;
     case 'anim': onAnim(m.eid, m.a); return;
+    case 'edits': importEditsFlat(m.list); return;
     case 'blocks': {
       const l = m.list;
       for (let i = 0; i + 4 < l.length; i += 5) {
         const [x, y, z, id, f] = [l[i], l[i + 1], l[i + 2], l[i + 3], l[i + 4]];
-        if (f >= 0) facing.set(`${x},${y},${z}`, f);
+        if (f >= 0) setFacing(x, y, z, f);
         setBlock(x, y, z, id, true);
       }
       return;
@@ -66,14 +69,20 @@ export function handleServerMessage(m: ServerMsg) {
     case 'screen':
       if (m.mode === null) { if (ui.state === 'screen') ui.closeGameScreen(); }
       else if (m.mode !== 'inventory') {
-        if (ui.takeExpectedScreen()) ui.openGameScreen(m.mode, m.furnace);
+        if (ui.takeExpectedScreen()) ui.openGameScreen(m.mode, m.furnace, m.chest);
         else send({ t: 'screen', mode: null }); // we no longer want it: tell the server to close it
       }
       return;
     case 'furnace': setFurnaceState(m.state); return;
+    case 'chest': setChestState(m.slots); return;
     case 'health': player.onHealth(m.hp); return;
+    case 'food': player.onFood(m.food); return;
+    case 'gamemode': player.onGamemode(m.mode); return;
     case 'hurt': player.onHurt(m.from, m.knock); return;
     case 'death': player.onDeath(m.msg); return;
+    case 'downed': player.onDowned(m.seconds); return;
+    case 'revived': player.onRevived(); return;
+    case 'revive_progress': player.onReviveProgress(m.progress, m.name); return;
     case 'pos': player.setPlayerFeet(m); return;
     case 'chat': ui.addChatLine(m.from, m.text); return;
     case 'time': setTimeOfDay(m.time); return;

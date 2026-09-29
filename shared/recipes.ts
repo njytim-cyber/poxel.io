@@ -23,6 +23,63 @@ add([['sand', 'sand'], ['sand', 'sand']], 'sandstone');
 add([['cobblestone', 'leaves']], 'mossy_cobblestone');
 add([['pumpkin']], 'pumpkin_pie');
 
+// Snow and ice
+const square = (m: string): Cell[][] => [[m, m], [m, m]];
+add(square('snowball'), 'snow_block');
+add(square('snow_block'), 'snow_bricks', 4);
+add(square('ice'), 'packed_ice');
+add(square('packed_ice'), 'blue_ice');
+add([['frost_crystal']], 'blue_ice', 2);
+
+// Stone family
+add(square('granite'), 'polished_granite', 4);
+add(square('diorite'), 'polished_diorite', 4);
+add(square('andesite'), 'polished_andesite', 4);
+add([['cobblestone', 'flint']], 'granite', 2);
+add([['cobblestone', 'bone']], 'diorite', 2);
+add([['cobblestone', 'gravel']], 'andesite', 2);
+add(square('slate'), 'slate_bricks', 4);
+add([['stone_bricks', 'leaves']], 'mossy_stone_bricks');
+
+// Storage blocks (and back)
+for (const [item, block] of [['copper_ingot', 'copper_block'], ['iron_ingot', 'iron_block'], ['gold_ingot', 'gold_block'], ['diamond', 'diamond_block'], ['coal', 'coal_block']]) {
+  add([[item, item, item], [item, item, item], [item, item, item]], block);
+  add([[block]], item, 9);
+}
+
+// Light
+add([['coal'], ['stick']], 'torch', 4);
+add([['charcoal'], ['stick']], 'torch', 4);
+add([[_, 'iron_ingot', _], ['iron_ingot', 'torch', 'iron_ingot'], [_, 'iron_ingot', _]], 'lantern', 2);
+add([[_, 'copper_ingot', _], ['copper_ingot', 'torch', 'copper_ingot'], [_, 'copper_ingot', _]], 'lantern', 2);
+add([['pumpkin'], ['torch']], 'jack_o_lantern');
+
+// Wool and dyes
+add(square('string'), 'wool');
+add([['poppy']], 'red_dye', 2);
+add([['dandelion']], 'yellow_dye', 2);
+add([['cornflower']], 'blue_dye', 2);
+add([['coal', 'coal']], 'black_dye', 2);
+for (const c of ['red', 'yellow', 'blue', 'green', 'black']) add([['wool', `${c}_dye`]], `${c}_wool`);
+
+// Furniture
+add(ring('planks'), 'chest');
+add([['planks', 'planks', 'planks'], ['stick', 'stick', 'stick'], ['planks', 'planks', 'planks']], 'bookshelf');
+
+// Food
+add([['planks', _, 'planks'], [_, 'planks', _]], 'bowl', 4);
+add([['red_mushroom'], ['brown_mushroom'], ['bowl']], 'mushroom_stew');
+add([['brown_mushroom'], ['red_mushroom'], ['bowl']], 'mushroom_stew');
+add([['wheat', 'wheat', 'wheat']], 'bread');
+add([['wheat', 'sweet_berries', 'wheat']], 'cookie', 8);
+add([['gold_ingot', 'gold_ingot', 'gold_ingot'], ['gold_ingot', 'apple', 'gold_ingot'], ['gold_ingot', 'gold_ingot', 'gold_ingot']], 'golden_apple');
+add([['gold_ingot', 'gold_ingot', 'gold_ingot'], ['gold_ingot', 'carrot', 'gold_ingot'], ['gold_ingot', 'gold_ingot', 'gold_ingot']], 'golden_carrot');
+add([['melon_slice', 'melon_slice', 'melon_slice'], ['melon_slice', 'melon_slice', 'melon_slice'], ['melon_slice', 'melon_slice', 'melon_slice']], 'melon');
+add([['wheat']], 'seeds', 2);
+
+// Arrows
+add([['flint'], ['stick'], ['feather']], 'arrow', 4);
+
 // Tools & armor for every material
 const MATERIALS: { item: string; tier: string; armor?: string }[] = [
   { item: 'planks', tier: 'wooden', armor: 'wood' },

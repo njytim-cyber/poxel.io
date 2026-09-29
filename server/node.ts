@@ -1,7 +1,7 @@
 // Poxel multiplayer server (Node.js). Run: node server/node.ts
 //   PORT=8080  DATA_DIR=./data  MAX_PLAYERS=16  SEED=<number>
 import { createServer } from 'node:http';
-import { mkdirSync, readFileSync, renameSync, existsSync, openSync, writeSync, fsyncSync, closeSync, copyFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, existsSync, openSync, writeSync, fsyncSync, closeSync, copyFileSync, appendFileSync, statSync, rmSync } from 'node:fs';
 import { join, normalize, extname, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { Game, type Storage, type WorldSave, type PlayerSave, type Player } from './core/game.ts';
@@ -65,9 +65,13 @@ const storage: Storage = {
   saveWorld: s => writeJson(join(DATA_DIR, 'world.json'), s),
   loadPlayer: name => readJson<PlayerSave>(playerFile(name)),
   savePlayer: (name, s) => writeJson(playerFile(name), s),
+  deletePlayer: name => { for (const f of [playerFile(name), `${playerFile(name)}.bak`]) rmSync(f, { force: true }); },
 };
 
-const game = new Game(storage, { seed: process.env.SEED ? Number(process.env.SEED) : undefined, log, maxPlayers: MAX_PLAYERS });
+const game = new Game(storage, { seed: process.env.SEED ? Number(process.env.SEED) : undefined, log, maxPlayers: MAX_PLAYERS,
+  allowCarry: process.env.ALLOW_CARRY !== '0',
+  difficulty: (['easy', 'medium', 'hard'].includes(process.env.DIFFICULTY || '') ? process.env.DIFFICULTY : 'medium') as 'easy' | 'medium' | 'hard', // DIFFICULTY for a new world
+  ops: process.env.OPS ? process.env.OPS.split(',').map(s => s.trim()).filter(Boolean) : undefined }); // OPS=name1,name2 (default player9989) // ALLOW_CARRY=0: players can't bring characters from single-player saves
 
 // ------------------------------------------------------------------ HTTP (health check) + WebSocket
 
@@ -196,22 +200,64 @@ setInterval(() => {
 
 // ------------------------------------------------------------------ Game loop
 
+// Per-minute health window (see the health log below)
+const win = { ticks: 0, tickMsSum: 0, tickMsMax: 0, slowTicks: 0, lagMsMax: 0, saves: 0, saveMsMax: 0 };
+const SLOW_TICK_MS = 25;
+
 let last = performance.now();
 setInterval(() => {
   const now = performance.now();
   const dt = (now - last) / 1000;
   last = now;
+  // Event loop lag: how late this tick started (a blocking save or GC pause shows up here)
+  win.lagMsMax = Math.max(win.lagMsMax, dt * 1000 - 1000 / TICK_RATE);
   try {
     game.tick(dt);
   } catch (e) {
     log(`Tick error (server keeps running): ${(e as Error).stack || e}`);
   }
+  const ms = performance.now() - now;
+  win.ticks++; win.tickMsSum += ms; win.tickMsMax = Math.max(win.tickMsMax, ms);
+  if (ms > SLOW_TICK_MS) win.slowTicks++;
 }, 1000 / TICK_RATE);
 
 // Save changes every 10s (only writes the world when something changed) so a crash loses very little
 setInterval(() => {
+  const t0 = performance.now();
   try { game.saveAll(); } catch (e) { log(`Autosave failed: ${e}`); }
+  const ms = performance.now() - t0;
+  win.saves++; win.saveMsMax = Math.max(win.saveMsMax, ms);
 }, 10_000);
+
+// ------------------------------------------------------------------ Health log
+// One JSON line per minute in DATA_DIR/health.log (rotated at 5 MB), plus warnings in the main log
+// when ticks run slow or memory keeps climbing. Read it with: tail -f data/health.log
+const HEALTH_LOG = join(DATA_DIR, 'health.log');
+const HEALTH_MAX_BYTES = 5 * 1024 * 1024;
+const rssHistory: number[] = []; // one sample per minute, last hour
+setInterval(() => {
+  const rssMB = Math.round(process.memoryUsage().rss / 1e6);
+  const heapMB = Math.round(process.memoryUsage().heapUsed / 1e6);
+  const entry = {
+    at: new Date().toISOString(), uptimeMin: Math.round(process.uptime() / 60), ...game.stats(),
+    tickAvgMs: +(win.tickMsSum / Math.max(1, win.ticks)).toFixed(2), tickMaxMs: +win.tickMsMax.toFixed(1), slowTicks: win.slowTicks,
+    lagMaxMs: Math.round(win.lagMsMax), saveMaxMs: Math.round(win.saveMsMax), rssMB, heapMB, sockets: clients.size,
+  };
+  try {
+    if (existsSync(HEALTH_LOG) && statSync(HEALTH_LOG).size > HEALTH_MAX_BYTES) renameSync(HEALTH_LOG, `${HEALTH_LOG}.1`);
+    appendFileSync(HEALTH_LOG, JSON.stringify(entry) + '\n');
+  } catch (e) { log(`Could not write the health log: ${(e as Error).message}`); }
+  if (win.tickMsMax > SLOW_TICK_MS) log(`WARNING: slow ticks in the last minute: worst ${entry.tickMaxMs}ms, ${win.slowTicks} over ${SLOW_TICK_MS}ms (players=${entry.players} mobs=${entry.mobs} items=${entry.items})`);
+  if (win.saveMsMax > 100) log(`WARNING: autosave took ${entry.saveMaxMs}ms (the server pauses while saving)`);
+  rssHistory.push(rssMB);
+  if (rssHistory.length > 60) rssHistory.shift();
+  // Memory warning: grew more than 100 MB over the last 30 minutes and is still at its peak
+  if (rssHistory.length >= 30) {
+    const old = rssHistory[rssHistory.length - 30];
+    if (rssMB - old > 100 && rssMB >= Math.max(...rssHistory)) log(`WARNING: memory keeps growing: ${old} MB -> ${rssMB} MB over 30 minutes`);
+  }
+  Object.assign(win, { ticks: 0, tickMsSum: 0, tickMsMax: 0, slowTicks: 0, lagMsMax: 0, saves: 0, saveMsMax: 0 });
+}, 60_000);
 
 function shutdown(signal: string) {
   log(`${signal} received, saving and shutting down`);
@@ -228,9 +274,13 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('uncaughtException', e => log(`Uncaught exception (server keeps running): ${e.stack || e}`));
 process.on('unhandledRejection', e => log(`Unhandled rejection: ${e}`));
 
-// If the port is taken (e.g. the server is already running), stop instead of lingering as a zombie
-http.on('error', e => {
-  log(`Could not start: ${(e as Error).message}${(e as any).code === 'EADDRINUSE' ? ` (is another Poxel server already running on port ${PORT}?)` : ''}`);
+// If the port is taken (e.g. the server is already running), stop instead of lingering as a zombie.
+// The WebSocket server re-emits the HTTP server's errors, and its listener runs first: handle both,
+// or the error becomes an "uncaught exception" and the process keeps running without a port.
+const onStartError = (e: Error) => {
+  log(`Could not start: ${e.message}${(e as any).code === 'EADDRINUSE' ? ` (is another Poxel server already running on port ${PORT}?)` : ''}`);
   process.exit(1);
-});
+};
+http.on('error', onStartError);
+wss.on('error', onStartError);
 http.listen(PORT, () => log(`Poxel server listening on :${PORT} (data: ${DATA_DIR}, max ${MAX_PLAYERS} players)`));

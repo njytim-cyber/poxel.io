@@ -3,7 +3,7 @@
 import { itemDef } from '../shared/blocks.ts';
 import {
   newInv, applyAction, recipeGroups, recipeNeeds, available, fitsGrid, maxSets, refreshCrafting,
-  GRID_2, GRID_3, RESULT, FURNACE_INPUT, FURNACE_FUEL, FURNACE_OUTPUT,
+  GRID_2, GRID_3, RESULT, FURNACE_INPUT, FURNACE_FUEL, FURNACE_OUTPUT, CHEST_START, CHEST_SIZE,
   type Inv, type Screen, type ScreenMode, type InvAction, type Stack,
 } from '../shared/inventory.ts';
 import { SMELT_TIME, type FurnaceState } from '../shared/furnace.ts';
@@ -84,7 +84,12 @@ export function setSelectedFromServer(i: number) {
 export function getSelectedItem(): Stack { return inventory[selectedSlotIndex]; }
 
 // Local prediction of consuming the held item (placing/eating); the server confirms with 'inv'
+// Creative mode: placing doesn't use up the stack
+let infiniteBlocks = false;
+export function setInfiniteBlocks(on: boolean) { infiniteBlocks = on; }
+
 export function predictUseSelected() {
+  if (infiniteBlocks) return;
   const it = inventory[selectedSlotIndex];
   if (!it) return;
   it.count--;
@@ -105,8 +110,8 @@ function perform(action: InvAction) {
 }
 
 // Opening: plain inventory opens instantly; tables/furnaces open when the server confirms
-export function openScreen(mode: ScreenMode, furnace?: FurnaceState) {
-  screen = { mode, furnace: furnace ? { ...furnace } : null };
+export function openScreen(mode: ScreenMode, furnace?: FurnaceState, chest?: Stack[]) {
+  screen = { mode, furnace: furnace ? { ...furnace } : null, chest: chest ? chest.map(s => (s ? { ...s } : null)) : null };
   isOpen = true;
   ghost = null;
   const modal = document.getElementById('full-inventory-modal');
@@ -116,6 +121,19 @@ export function openScreen(mode: ScreenMode, furnace?: FurnaceState) {
 }
 
 export function screenMode(): ScreenMode | null { return screen?.mode ?? null; }
+
+export function setChestState(slots: Stack[]) {
+  if (!screen || screen.mode !== 'chest') return;
+  screen.chest = slots.map(s => (s ? { ...s } : null));
+  renderChest();
+}
+
+function renderChest() {
+  const host = document.getElementById('chest-grid');
+  if (!host || !screen || screen.mode !== 'chest') return;
+  host.innerHTML = '';
+  for (let i = 0; i < CHEST_SIZE; i++) host.appendChild(slotEl(CHEST_START + i));
+}
 
 export function setFurnaceState(f: FurnaceState) {
   if (!screen || screen.mode !== 'furnace') return;
@@ -155,6 +173,7 @@ function fillSlotEl(el: HTMLElement, item: Stack) {
 }
 
 function slotContent(slot: number): Stack {
+  if (slot >= CHEST_START) return screen?.chest?.[slot - CHEST_START] ?? null;
   if (slot >= 100) {
     const f = screen?.furnace;
     if (!f) return null;
@@ -240,15 +259,17 @@ export function renderFullInventory() {
 
   const craftingArea = document.getElementById('crafting-area');
   const furnaceArea = document.getElementById('furnace-area');
+  const chestArea = document.getElementById('chest-area');
   const armorArea = document.getElementById('armor-area');
-  if (craftingArea) craftingArea.style.display = mode === 'furnace' ? 'none' : 'block';
+  if (craftingArea) craftingArea.style.display = mode === 'furnace' || mode === 'chest' ? 'none' : 'block';
   if (furnaceArea) furnaceArea.style.display = mode === 'furnace' ? 'block' : 'none';
+  if (chestArea) chestArea.style.display = mode === 'chest' ? 'block' : 'none';
   if (armorArea) armorArea.style.display = mode === 'inventory' ? 'flex' : 'none';
   const title = document.getElementById('crafting-title');
   if (title) title.textContent = mode === 'table' ? 'Crafting Table' : 'Crafting';
 
   const cGrid = document.getElementById('crafting-grid');
-  if (cGrid && mode !== 'furnace') {
+  if (cGrid && mode !== 'furnace' && mode !== 'chest') {
     cGrid.innerHTML = '';
     cGrid.className = mode === 'table' ? 'grid-3x3' : 'grid-2x2';
     const cols = mode === 'table' ? 3 : 2;
@@ -280,6 +301,7 @@ export function renderFullInventory() {
   }
   renderRecipeBook();
   if (mode === 'furnace') renderFurnace();
+  if (mode === 'chest') renderChest();
 }
 
 function renderFurnace() {
@@ -306,8 +328,8 @@ function renderRecipeBook() {
   const book = document.getElementById('recipe-book');
   const gridEl = document.getElementById('recipe-grid');
   if (!book || !gridEl || !screen) return;
-  book.style.display = bookOpen && screen.mode !== 'furnace' ? 'flex' : 'none';
-  if (!bookOpen || screen.mode === 'furnace') return;
+  book.style.display = bookOpen && screen.mode !== 'furnace' && screen.mode !== 'chest' ? 'flex' : 'none';
+  if (!bookOpen || screen.mode === 'furnace' || screen.mode === 'chest') return;
   const search = (document.getElementById('recipe-search') as HTMLInputElement)?.value.trim().toLowerCase() || '';
   const onlyCraftable = (document.getElementById('recipe-filter') as HTMLInputElement)?.checked;
   const have = available(inv);

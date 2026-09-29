@@ -5,14 +5,14 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { crackMaterials } from './textures';
 import { keys, isMobile, touchLookDelta, actions } from './input';
-import { getBlock, setBlock, raycast, facing, isLoaded, type RayHit } from './world';
-import { BLOCKS, BLOCK_ID, WATER, LAVA, isFacingBlock, isPlant, itemDef, miningInfo } from '../shared/blocks.ts';
+import { getBlock, setBlock, raycast, setFacing, isLoaded, type RayHit } from './world';
+import { BLOCKS, BLOCK_ID, WATER, LAVA, POWDER_SNOW, isFacingBlock, isPlant, itemDef, miningInfo, plantCanStand } from '../shared/blocks.ts';
 import { makeBody, moveBody, boxIntersectsSolid, hasGroundBelow, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, GRAVITY } from '../shared/physics.ts';
 import { MF_GROUND, MF_SNEAK, MF_WATER, MF_LAVA } from '../shared/protocol.ts';
-import { inventory, selectedSlotIndex, getSelectedItem, onInventoryChange, predictUseSelected } from './inventory';
+import { inventory, selectedSlotIndex, getSelectedItem, onInventoryChange, predictUseSelected, setInfiniteBlocks } from './inventory';
 import { createAvatar, makeHeldMesh, savedLook, disposeOwned, type Avatar } from './avatar';
 import { isFlatItem } from './textures';
-import { rayHitEntity, entityInBlock } from './remote';
+import { rayHitEntity, entityInBlock, isDownedPlayer } from './remote';
 import { send } from './net';
 import type { Look } from '../shared/protocol.ts';
 import * as ui from './ui';
@@ -163,10 +163,45 @@ export function initPlayer(camera: THREE.PerspectiveCamera, scene: THREE.Scene) 
   ui.setRespawnHandler(() => { send({ t: 'respawn' }); ui.resume(); });
   onInventoryChange(refreshEquipment);
 
-  actions.primaryDown = () => { if (ui.isPlaying()) onPrimaryDown(); };
+  actions.primaryDown = () => { if (ui.isPlaying() && !downed) onPrimaryDown(); };
   actions.primaryUp = () => { primaryHeld = false; };
-  actions.secondaryDown = () => { if (ui.isPlaying()) { secondaryHeld = true; useTimer = 0.25; useItem(); } };
-  actions.secondaryUp = () => { secondaryHeld = false; };
+  actions.secondaryDown = () => {
+    if (!ui.isPlaying() || downed) return;
+    // Holding Use on a downed friend revives them
+    lookDir(_dir);
+    const ent = rayHitEntity(eyePos(), _dir, 3.5);
+    if (ent && isDownedPlayer(ent.eid)) { reviveTarget = ent.eid; reviveSendT = 0; secondaryHeld = true; return; }
+    secondaryHeld = true; useTimer = 0.25; useItem();
+  };
+  actions.secondaryUp = () => { secondaryHeld = false; reviveTarget = -1; ui.setReviveProgress(0, '', true); };
+  // Touch: a tap hits a mob under the crosshair, otherwise uses/places; a long-press mines (or eats food)
+  // Creative: double-tap jump toggles flying (taps come from key/button events, so quick taps aren't missed)
+  actions.jumpTap = () => {
+    if (!creative || !ui.isPlaying() || downed) return;
+    const now = performance.now();
+    if (now - lastJumpTap < 350) { flying = !flying; lastJumpTap = -1; body.vel.y = 0; }
+    else lastJumpTap = now;
+  };
+  actions.touchTap = () => {
+    if (!ui.isPlaying()) return;
+    lookDir(_dir);
+    const eye = eyePos();
+    const entHit = rayHitEntity(eye, _dir, 3.5);
+    const blockHit = raycast(eye, _dir, REACH);
+    if (entHit && (!blockHit || entHit.dist < blockHit.dist)) { onPrimaryDown(); primaryHeld = false; return; }
+    actions.secondaryDown();
+    secondaryHeld = false;
+  };
+  actions.touchHold = held => {
+    if (!held) { primaryHeld = false; secondaryHeld = false; reviveTarget = -1; ui.setReviveProgress(0, '', true); return; }
+    if (!ui.isPlaying() || downed) return;
+    lookDir(_dir);
+    const friend = rayHitEntity(eyePos(), _dir, 3.5);
+    if (friend && isDownedPlayer(friend.eid)) { actions.secondaryDown(); return; }
+    const item = getSelectedItem();
+    if (item && itemDef(item.type).food) actions.secondaryDown();
+    else onPrimaryDown();
+  };
   actions.inventory = () => {
     if (ui.state === 'screen') ui.closeGameScreen();
     else if (ui.state === 'playing') ui.openGameScreen('inventory');
@@ -191,7 +226,7 @@ export function setPlayerFeet(p: { x: number; y: number; z: number }) {
   body.pos.set(p.x, p.y, p.z);
   body.vel.set(0, 0, 0);
   pivot.position.set(p.x, p.y + EYE_HEIGHT, p.z);
-  lastSent.x = NaN;
+  lastSent.age = 99; // send our new position on the next move tick (NaN positions compared as "not moved")
 }
 
 export function getYawPitch() {
@@ -204,6 +239,35 @@ export function setYawPitch(yaw: number, pitch: number) {
 }
 
 // ------------------------------------------------------------------ Server events
+
+// Hunger (Medium/Hard). On Easy there is no hunger bar and food heals directly.
+let difficulty = 'medium';
+let food = 20;
+export function onDifficulty(d: string, f: number) {
+  difficulty = d;
+  onFood(f);
+}
+export function onFood(f: number) {
+  food = f;
+  ui.renderFood(difficulty === 'easy' || creative ? -1 : food);
+}
+export const canSprint = () => difficulty === 'easy' || creative || food > 6;
+
+// Creative mode: double-tap jump to fly, instant breaking, no hunger/health bars
+let creative = false, flying = false, lastJumpTap = -1;
+export function onGamemode(mode: string) {
+  creative = mode === 'creative';
+  if (!creative) flying = false;
+  setInfiniteBlocks(creative);
+  ui.setCreativeHud(creative);
+  if (!creative) ui.renderFood(difficulty === 'easy' ? -1 : food);
+}
+export const isFlying = () => flying;
+function canEat(): boolean {
+  const held = getSelectedItem();
+  if (difficulty === 'easy') return health < MAX_HEALTH;
+  return food < 20 || held?.type === 'golden_apple';
+}
 
 export function onHealth(hp: number) {
   const wasDead = dead;
@@ -221,7 +285,25 @@ export function onHurt(from: [number, number, number] | null, knock: number) {
   }
 }
 
+// ------------------------------------------------------------------ Downed / revive (multiplayer)
+
+let downed = false;
+let reviveTarget = -1, reviveSendT = 0;
+export function onDowned(seconds: number) {
+  downed = true;
+  primaryHeld = secondaryHeld = false;
+  ui.showDowned(seconds, () => send({ t: 'giveup' }));
+}
+export function onRevived() {
+  downed = false;
+  ui.hideDowned();
+}
+export function onReviveProgress(progress: number, name: string) {
+  ui.setReviveProgress(progress, name, !downed);
+}
+
 export function onDeath(msg: string) {
+  downed = false;
   dead = true;
   primaryHeld = secondaryHeld = false;
   ui.showDeath(msg);
@@ -229,6 +311,8 @@ export function onDeath(msg: string) {
 
 export function resetPlayerState(hp: number) {
   dead = false;
+  downed = false;
+  ui.hideDowned();
   health = hp;
   cameraViewMode = 0;
   ui.renderHealth(health, MAX_HEALTH);
@@ -294,7 +378,7 @@ function useItem() {
   const hit = raycast(eyePos(), _dir, REACH);
   const held = getSelectedItem();
 
-  if (hit && !keys.shift && (hit.id === BLOCK_ID.crafting_table || hit.id === BLOCK_ID.furnace)) {
+  if (hit && !keys.shift && (hit.id === BLOCK_ID.crafting_table || hit.id === BLOCK_ID.furnace || hit.id === BLOCK_ID.chest)) {
     secondaryHeld = false;
     ui.expectScreen();
     send({ t: 'open', x: hit.x, y: hit.y, z: hit.z });
@@ -302,7 +386,24 @@ function useItem() {
   }
   if (!held) return;
   const def = itemDef(held.type);
-  if (def.food) { if (health < MAX_HEALTH) send({ t: 'eat' }); return; }
+  // Farming: a hoe tills grass/dirt; seeds, carrots and potatoes are planted on farmland
+  // (aiming at tall grass/flowers tills the ground they grow on; tilling clears them)
+  const soil = hit && isPlant(hit.id) ? { ...hit, y: hit.y - 1, id: getBlock(hit.x, hit.y - 1, hit.z) } : hit;
+  const top = soil ? getBlock(soil.x, soil.y + 1, soil.z) : 0;
+  if (soil && def.tool?.kind === 'hoe' && (soil.id === BLOCK_ID.grass || soil.id === BLOCK_ID.dirt) && (top === 0 || isPlant(top))) {
+    if (top) setBlock(soil.x, soil.y + 1, soil.z, 0);
+    setBlock(soil.x, soil.y, soil.z, BLOCK_ID.farmland);
+    send({ t: 'till', x: soil.x, y: soil.y, z: soil.z });
+    secondaryHeld = false;
+    return;
+  }
+  if (hit && def.plants && hit.id === BLOCK_ID.farmland && hit.ny === 1 && getBlock(hit.x, hit.y + 1, hit.z) === 0) {
+    setBlock(hit.x, hit.y + 1, hit.z, BLOCK_ID[def.plants]);
+    predictUseSelected();
+    send({ t: 'place', x: hit.x, y: hit.y + 1, z: hit.z, nx: 0, ny: 1, nz: 0, facing: 0 });
+    return;
+  }
+  if (def.food) { if (canEat()) send({ t: 'eat' }); return; }
   if (def.block === undefined || !hit) return;
 
   // Clicking a plant replaces it instead of stacking on its neighbour
@@ -311,8 +412,7 @@ function useItem() {
   const existing = getBlock(px, py, pz);
   if (existing !== 0 && existing !== WATER && existing !== LAVA && !isPlant(existing)) return;
   if (BLOCKS[def.block].plant) {
-    const below = getBlock(px, py - 1, pz);
-    if (below !== BLOCK_ID.grass && below !== BLOCK_ID.dirt && below !== BLOCK_ID.snowy_grass) return;
+    if (!plantCanStand(def.block, getBlock(px, py - 1, pz))) return;
   } else if (playerOverlapsBlock(px, py, pz) || entityInBlock(px, py, pz)) return;
   let f = 0;
   if (isFacingBlock(def.block)) {
@@ -320,7 +420,7 @@ function useItem() {
     const { yaw } = getYawPitch();
     const lx = -Math.sin(yaw), lz = -Math.cos(yaw);
     f = Math.abs(lx) > Math.abs(lz) ? (lx > 0 ? 3 : 1) : (lz > 0 ? 2 : 0);
-    facing.set(`${px},${py},${pz}`, f);
+    setFacing(px, py, pz, f);
   }
   setBlock(px, py, pz, def.block);
   predictUseSelected();
@@ -342,8 +442,8 @@ function updateTargeting(dt: number) {
   const key = `${target.x},${target.y},${target.z}`;
   if (key !== mineKey) { mineKey = key; mineProgress = 0; }
   const info = miningInfo(target.id, getSelectedItem()?.type || null);
-  if (info.time === Infinity) { crackOverlay.visible = false; return; }
-  mineProgress += dt / info.time;
+  if (info.time === Infinity && !creative) { crackOverlay.visible = false; return; }
+  mineProgress += creative ? 1 : dt / info.time;
   if (swingTime >= 1) swing();
   crackOverlay.visible = true;
   crackOverlay.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
@@ -370,7 +470,8 @@ function sendMove(dt: number) {
   moveTimer = 0.05; // 20 per second
   const { yaw, pitch } = getYawPitch();
   const b = body;
-  const flags = (b.onGround ? MF_GROUND : 0) | (keys.shift ? MF_SNEAK : 0) | (b.inWater ? MF_WATER : 0) | (b.inLava ? MF_LAVA : 0);
+  // Powder snow counts as water for the server: it breaks falls
+  const flags = (b.onGround ? MF_GROUND : 0) | (keys.shift ? MF_SNEAK : 0) | (b.inWater || b.inSnow ? MF_WATER : 0) | (b.inLava ? MF_LAVA : 0);
   const moved = Math.abs(b.pos.x - lastSent.x) + Math.abs(b.pos.y - lastSent.y) + Math.abs(b.pos.z - lastSent.z) > 0.002 ||
     Math.abs(yaw - lastSent.yaw) + Math.abs(pitch - lastSent.pitch) > 0.002 || flags !== lastSent.flags;
   if (!moved && lastSent.age < 1) return;
@@ -398,9 +499,11 @@ export function updatePlayer(dt: number) {
     const fwd = playing ? Number(keys.forward) - Number(keys.backward) : 0;
     const strafe = playing ? Number(keys.right) - Number(keys.left) : 0;
     const sneak = playing && keys.shift;
-    let speed = sneak ? SNEAK_SPEED : keys.run ? RUN_SPEED : WALK_SPEED;
+    // Too hungry (3 drumsticks or fewer) to sprint; downed players crawl
+    let speed = downed ? SNEAK_SPEED * 0.6 : sneak ? SNEAK_SPEED : keys.run && canSprint() ? RUN_SPEED : WALK_SPEED;
     if (b.inWater) speed *= 0.55;
     if (b.inLava) speed *= 0.35;
+    if (b.inSnow) speed *= 0.4;
     let mx = 0, mz = 0;
     if (fwd || strafe) {
       const len = Math.hypot(fwd, strafe);
@@ -408,12 +511,24 @@ export function updatePlayer(dt: number) {
       mx = (-Math.sin(yaw) * f + Math.cos(yaw) * s) * speed;
       mz = (-Math.cos(yaw) * f - Math.sin(yaw) * s) * speed;
     }
-    const accel = Math.min(1, dt * (b.onGround ? 14 : b.inWater || b.inLava ? 5 : 4));
+    if (flying) speed = keys.run ? 21 : 10.9;
+    // On ice there's little grip: you speed up a bit slower and keep sliding for a long way when you stop
+    const onIce = b.onGround && b.slip > 0;
+    const accel = Math.min(1, dt * (flying ? 10 : onIce ? (mx || mz ? 5 : 14 * (1 - b.slip) * 4) : b.onGround ? 14 : b.inWater || b.inLava ? 5 : 4));
     b.vel.x += (mx - b.vel.x) * accel;
     b.vel.z += (mz - b.vel.z) * accel;
 
-    const jump = playing && keys.jump;
-    if (b.inWater || b.inLava) {
+    const jump = playing && keys.jump && !downed;
+    if (flying && (!creative || (b.onGround && sneak))) flying = false; // land by flying down onto the ground
+    if (flying) {
+      // Jump rises, sneak descends, otherwise hover
+      const vy = jump ? 8 : sneak ? -8 : 0;
+      b.vel.y += (vy - b.vel.y) * Math.min(1, dt * 10);
+    } else if (b.inSnow) {
+      // Powder snow: sink slowly; holding jump climbs back out
+      b.vel.y = Math.max(b.vel.y - 8 * dt, -1.2);
+      if (jump) b.vel.y = Math.min(b.vel.y + 20 * dt, 2.4);
+    } else if (b.inWater || b.inLava) {
       b.vel.y = Math.max(b.vel.y - 12 * dt, -(b.inLava ? 2 : 3));
       if (jump) b.vel.y = Math.min(b.vel.y + 30 * dt, b.inLava ? 2.5 : 4);
       if (jump && b.hitWall) b.vel.y = 6.5; // hop out onto a ledge
@@ -422,7 +537,7 @@ export function updatePlayer(dt: number) {
       if (jump && b.onGround) b.vel.y = JUMP_VELOCITY;
     }
     // Sneaking keeps you from walking off edges
-    if (sneak && b.onGround) {
+    if (sneak && b.onGround && !flying) {
       if (!hasGroundBelow(world, b, b.pos.x + b.vel.x * dt, b.pos.z)) b.vel.x = 0;
       if (!hasGroundBelow(world, b, b.pos.x, b.pos.z + b.vel.z * dt)) b.vel.z = 0;
     }
@@ -434,16 +549,21 @@ export function updatePlayer(dt: number) {
       b.vel.y = JUMP_VELOCITY;
     }
     wasOnGround = b.onGround;
-    pivot.position.set(b.pos.x, b.pos.y + EYE_HEIGHT, b.pos.z);
+    pivot.position.set(b.pos.x, b.pos.y + (downed ? 0.45 : EYE_HEIGHT), b.pos.z);
     sendMove(dt);
   }
   void wasOnGround;
 
   headInWater = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z)) === WATER;
   headInLava = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z)) === LAVA;
-  ui.setUnderwater(headInLava ? 'lava' : headInWater ? 'water' : 'none');
+  const headInSnow = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z)) === POWDER_SNOW;
+  ui.setUnderwater(headInLava ? 'lava' : headInWater ? 'water' : headInSnow ? 'snow' : 'none');
 
-  if (playing && secondaryHeld) {
+  if (playing && secondaryHeld && reviveTarget >= 0) {
+    // Keep telling the server we're still holding Use on them
+    reviveSendT -= dt;
+    if (reviveSendT <= 0) { reviveSendT = 0.2; send({ t: 'revive', eid: reviveTarget }); swing(); }
+  } else if (playing && secondaryHeld) {
     useTimer -= dt;
     if (useTimer <= 0) { useTimer = 0.22; useItem(); }
   }

@@ -2,7 +2,8 @@
 import { BLOCKS, BLOCK_ID, isFacingBlock } from '../../shared/blocks.ts';
 import { generateChunkData, computeHeights, idx, blocksSky, columnInfo, MIN_Y, MAX_Y, SEA_LEVEL } from '../../shared/worldgen.ts';
 
-interface ServerChunk { data: Uint8Array; heights: Int16Array; lastUsed: number }
+// gen: the untouched generated terrain, kept (lazily) only for chunks being edited
+interface ServerChunk { data: Uint8Array; heights: Int16Array; lastUsed: number; gen?: Uint8Array }
 
 const ckey = (cx: number, cz: number) => cx + ',' + cz;
 
@@ -48,14 +49,21 @@ export class ServerWorld {
     if (y < MIN_Y || y > MAX_Y || !(id >= 0 && id < BLOCKS.length)) return;
     const key = ckey(x >> 4, z >> 4);
     const lx = x & 15, lz = z & 15, i = idx(lx, y, lz);
+    const c = this.chunk(x >> 4, z >> 4);
+    // An edit that puts back the generated block is no edit at all: forget it so saves and
+    // new-player downloads don't grow forever with dig-and-refill churn
+    c.gen ??= generateChunkData(x >> 4, z >> 4, this.seed);
     let m = this.mods.get(key);
-    if (!m) { m = new Map(); this.mods.set(key, m); }
-    m.set(i, id);
+    if (c.gen[i] === id) {
+      if (m) { m.delete(i); if (!m.size) this.mods.delete(key); }
+    } else {
+      if (!m) { m = new Map(); this.mods.set(key, m); }
+      m.set(i, id);
+    }
     const fk = `${x},${y},${z}`;
     if (isFacingBlock(id) && facing >= 0) this.facing.set(fk, facing & 3);
     else this.facing.delete(fk);
 
-    const c = this.chunk(x >> 4, z >> 4);
     c.data[i] = id;
     const col = (lz << 4) | lx;
     if (blocksSky(id) && y > c.heights[col]) c.heights[col] = y;
@@ -91,14 +99,30 @@ export class ServerWorld {
     return [0.5, this.surfaceHeight(0, 0) + 1, 0.5];
   }
 
-  // Flat [x, y, z, id, ...] of every edit, for saves and new players
+  // Flat [x, y, z, id, ...] of every edit, for saves
   exportEdits(): number[] {
     const out: number[] = [];
-    for (const [key, m] of this.mods) {
-      const [cx, cz] = key.split(',').map(Number);
-      for (const [i, id] of m) out.push(cx * 16 + (i & 15), (i >> 8) + MIN_Y, cz * 16 + ((i >> 4) & 15), id);
-    }
+    for (const key of this.mods.keys()) this.chunkEdits(key, out);
     return out;
+  }
+
+  hasEdits(key: string) { return this.mods.has(key); }
+
+  // True when (x,y,z) is `id` because the world generated it there (not placed by a player)
+  isGenerated(x: number, y: number, z: number, id: number): boolean {
+    const i = idx(x & 15, y, z & 15);
+    const m = this.mods.get(ckey(x >> 4, z >> 4));
+    if (m?.has(i)) return false;
+    return this.get(x, y, z) === id;
+  }
+  editedChunkCount() { return this.mods.size; }
+
+  // Appends one chunk's edits (flat [x, y, z, id, ...]) to out; players receive these as they approach
+  chunkEdits(key: string, out: number[]) {
+    const m = this.mods.get(key);
+    if (!m) return;
+    const [cx, cz] = key.split(',').map(Number);
+    for (const [i, id] of m) out.push(cx * 16 + (i & 15), (i >> 8) + MIN_Y, cz * 16 + ((i >> 4) & 15), id);
   }
 
   importEdits(flat: number[]) {

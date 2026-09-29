@@ -1,45 +1,129 @@
-// Single-player save slots in localStorage. The local server produces the save data; this file
-// just stores it, and converts saves from older versions of the game.
+// Single-player save slots in IndexedDB (localStorage's ~5 MB quota is too small for big worlds).
+// All slots are loaded into memory once at startup (initSaves), so reads stay synchronous; writes
+// update memory straight away and reach the database in the background (savesSettled waits for them).
+// Saves from older versions in localStorage are moved over on first start. The local server produces
+// the save data; this file just stores it, and converts saves from older versions of the game.
 import { BLOCK_ID } from '../shared/blocks.ts';
 import { sanitizeInv } from '../shared/inventory.ts';
 import type { LocalSave } from './net';
 import type { WorldSave, PlayerSave } from '../server/core/game.ts';
 
 export const SP_NAME = 'Player';
+export const SAVE_SLOTS = 5;
 const key = (slot: number) => `poxel_save_${slot}`;
 const metaKey = (slot: number) => `poxel_meta_${slot}`;
 
-export function getSaveMeta(slot: number): string | null {
-  try { return localStorage.getItem(metaKey(slot)); } catch { return null; }
+interface Stored { save: LocalSave; meta: string }
+const cache = new Map<number, Stored>();
+let db: IDBDatabase | null = null;          // null: IndexedDB unavailable, fall back to localStorage
+let lastWrite: Promise<boolean> = Promise.resolve(true);
+
+function openDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('poxel', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('saves');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+    req.onblocked = () => reject(new Error('database blocked by another tab'));
+    setTimeout(() => reject(new Error('timed out opening the database')), 4000);
+  });
 }
 
-export function deleteSave(slot: number) {
-  try { localStorage.removeItem(key(slot)); localStorage.removeItem(metaKey(slot)); } catch { /* storage blocked */ }
+function tx<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = db!.transaction('saves', mode);
+    const req = run(t.objectStore('saves'));
+    t.oncomplete = () => resolve(req.result);
+    t.onerror = t.onabort = () => reject(t.error || req.error);
+  });
 }
 
-export function writeSave(slot: number, save: LocalSave): boolean {
-  try {
-    localStorage.setItem(key(slot), JSON.stringify({ v: 3, ...save }));
-    localStorage.setItem(metaKey(slot), new Date().toLocaleString());
-    return true;
-  } catch (e) {
-    console.error('Save failed (storage full or blocked?)', e);
-    return false;
-  }
-}
-
-export function readSave(slot: number): LocalSave | null {
-  let raw: string | null = null;
-  try { raw = localStorage.getItem(key(slot)); } catch { return null; }
-  if (!raw) return null;
+function parseLegacy(raw: string): LocalSave | null {
   try {
     const data = JSON.parse(raw);
     if (data.v === 3) return { world: data.world || null, players: data.players || {} };
     return migrateOldSave(data);
   } catch (e) {
-    console.error('Could not read save', slot, e);
+    console.error('Could not read an old save', e);
     return null;
   }
+}
+
+function lsGet(k: string) { try { return localStorage.getItem(k); } catch { return null; } }
+
+// Loads every slot. Call once (and await it) before using the other functions.
+export async function initSaves() {
+  try {
+    db = await openDb();
+    for (let slot = 0; slot < SAVE_SLOTS; slot++) {
+      const got = await tx<Stored | undefined>('readonly', s => s.get(slot));
+      if (got?.save) { cache.set(slot, got); continue; }
+      const raw = lsGet(key(slot));
+      const save = raw && parseLegacy(raw);
+      if (!save) continue;
+      const moved: Stored = { save, meta: lsGet(metaKey(slot)) || new Date().toLocaleString() };
+      await tx('readwrite', s => s.put(moved, slot));
+      cache.set(slot, moved);
+      try { localStorage.removeItem(key(slot)); localStorage.removeItem(metaKey(slot)); } catch { /* ignore */ }
+    }
+    navigator.storage?.persist?.().catch(() => {}); // ask the browser not to clear saves under storage pressure
+  } catch (e) {
+    console.warn('IndexedDB unavailable, saving to localStorage instead', e);
+    db = null;
+    for (let slot = 0; slot < SAVE_SLOTS; slot++) {
+      const raw = lsGet(key(slot));
+      const save = raw && parseLegacy(raw);
+      if (save) cache.set(slot, { save, meta: lsGet(metaKey(slot)) || '' });
+    }
+  }
+}
+
+export function getSaveMeta(slot: number): string | null {
+  return cache.get(slot)?.meta ?? null;
+}
+
+export function readSave(slot: number): LocalSave | null {
+  return cache.get(slot)?.save ?? null;
+}
+
+export function deleteSave(slot: number) {
+  cache.delete(slot);
+  if (db) lastWrite = lastWrite.then(() => tx('readwrite', s => s.delete(slot))).then(() => true, () => false);
+  try { localStorage.removeItem(key(slot)); localStorage.removeItem(metaKey(slot)); } catch { /* storage blocked */ }
+}
+
+// Resolves to false when the browser refused to store it (storage full or blocked)
+export function writeSave(slot: number, save: LocalSave): Promise<boolean> {
+  const stored: Stored = { save, meta: new Date().toLocaleString() };
+  cache.set(slot, stored);
+  if (!db) {
+    try {
+      localStorage.setItem(key(slot), JSON.stringify({ v: 3, ...save }));
+      localStorage.setItem(metaKey(slot), stored.meta);
+      return lastWrite = Promise.resolve(true);
+    } catch (e) {
+      console.error('Save failed (storage full or blocked?)', e);
+      return lastWrite = Promise.resolve(false);
+    }
+  }
+  // Chained so writes land in order and a slow one is never overtaken by an older one
+  return lastWrite = lastWrite.then(() => tx('readwrite', s => s.put(stored, slot))).then(() => true, e => {
+    console.error('Save failed (storage full or blocked?)', e);
+    return false;
+  });
+}
+
+// Resolves when every write so far has been stored; false if the last one failed
+export function savesSettled(): Promise<boolean> { return lastWrite; }
+
+// "12.3 MB used of 2.1 GB", or null when the browser won't say
+export async function storageUsage(): Promise<string | null> {
+  try {
+    const e = await navigator.storage?.estimate?.();
+    if (!e || e.usage === undefined || !e.quota) return null;
+    const mb = (n: number) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${(n / 1e6).toFixed(1)} MB`;
+    return `${mb(e.usage)} used of ${mb(e.quota)}`;
+  } catch { return null; }
 }
 
 // Saves from before the multiplayer rewrite: block names, one player, eye-height positions (v1)

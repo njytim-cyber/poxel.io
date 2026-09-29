@@ -50,6 +50,7 @@ canvas { display: block; }
 #liquid-overlay, #hurt-overlay { position: absolute; inset: 0; pointer-events: none; }
 #liquid-overlay.water { background: rgba(30, 70, 200, 0.35); }
 #liquid-overlay.lava { background: rgba(230, 80, 0, 0.6); }
+#liquid-overlay.snow { background: rgba(235, 242, 250, 0.9); }
 #hurt-overlay { background: radial-gradient(ellipse at center, transparent 40%, rgba(200, 0, 0, 0.55)); opacity: 0; }
 #hurt-overlay.flash { animation: hurt-flash 0.45s ease-out; }
 @keyframes hurt-flash { from { opacity: 1; } to { opacity: 0; } }
@@ -95,13 +96,18 @@ canvas { display: block; }
   gap: 4px;
 }
 
-#health-bar {
-  align-self: flex-start;
+#status-bars {
+  align-self: stretch;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 6px;
+}
+#health-bar, #food-bar {
   display: flex;
   gap: 1px;
-  padding-left: 6px;
 }
-#health-bar img {
+#food-bar.low img { animation: heart-shake 0.4s infinite; }
+#health-bar img, #food-bar img {
   width: 18px;
   height: 18px;
   image-rendering: pixelated;
@@ -198,6 +204,17 @@ canvas { display: block; }
 }
 .pause-panel h2 { text-align: center; font-size: 36px; text-shadow: 3px 3px 0 #000; }
 .pause-panel .menu-btn { justify-content: center; }
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid #555;
+  padding: 8px 16px;
+  font-size: 15px;
+}
+.setting-row input[type="range"] { flex: 1; min-width: 0; accent-color: #6c6; }
+.setting-row span { min-width: 5.5em; text-align: right; }
 .controls-list {
   background: rgba(0, 0, 0, 0.5);
   border: 2px solid #555;
@@ -218,6 +235,18 @@ kbd {
   font-family: inherit;
 }
 #death-screen { background: rgba(120, 0, 0, 0.55); gap: 20px; }
+/* Downed (multiplayer): a red vignette over the crawling view; tapping anywhere gives up */
+#downed-screen {
+  position: absolute; inset: 0; z-index: 70; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: #fff; text-shadow: 2px 2px 0 #000; pointer-events: auto; cursor: pointer;
+  background: radial-gradient(ellipse at center, rgba(90, 0, 0, 0.15) 30%, rgba(120, 0, 0, 0.65));
+}
+#downed-screen h2 { font-size: 40px; margin: 0; }
+#downed-screen p { margin: 0; font-size: 18px; }
+.downed-hint { opacity: 0.75; font-size: 14px !important; }
+#revive-bar, #revive-bar-2 { width: 240px; height: 12px; border: 2px solid #fff; background: rgba(0, 0, 0, 0.5); }
+#revive-bar-fill, #revive-bar-fill-2 { height: 100%; width: 0; background: #4ce04c; transition: width 0.2s linear; }
+#revive-progress { position: absolute; left: 50%; top: 60%; transform: translateX(-50%); z-index: 60; color: #fff; text-align: center; text-shadow: 2px 2px 0 #000; pointer-events: none; }
 #death-screen h1 { font-size: 56px; text-shadow: 4px 4px 0 #000; }
 #death-screen p { font-size: 20px; }
 
@@ -756,9 +785,11 @@ kbd {
 }
 
 /* Mobile HUD UI */
+/* fixed + inset (not 100vh): on phones 100vh includes the hidden address bar, which pushed the
+   joystick and bottom buttons off the visible screen */
 #mobile-hud {
-  position: absolute;
-  top: 0; left: 0; width: 100vw; height: 100vh;
+  position: fixed;
+  inset: 0;
   z-index: 50;
   pointer-events: none;
   user-select: none;
@@ -766,17 +797,18 @@ kbd {
   -webkit-touch-callout: none;
   -webkit-user-select: none;
 }
+/* Kept well clear of the screen's bottom edge: phones reserve it for system swipe gestures
+   (Android navigation, iPhone home bar), which stole the touch when pulling the stick down */
 #joystick-zone {
   position: absolute;
-  bottom: 100px; left: 15px;
+  bottom: calc(48px + env(safe-area-inset-bottom)); left: calc(24px + env(safe-area-inset-left));
   width: 140px; height: 140px;
   pointer-events: auto;
   z-index: 55;
 }
 #touch-look-zone {
   position: absolute;
-  top: 0; left: 0;
-  width: 100vw; height: calc(100vh - 70px);
+  top: 0; left: 0; right: 0; bottom: 70px;
   pointer-events: auto;
   z-index: 51;
 }
@@ -792,26 +824,21 @@ kbd {
   border-radius: 10px;
 }
 
-/* Left-side action buttons (jump, run, sneak) — above joystick */
-#action-buttons-left {
-  position: absolute;
-  bottom: 20px; left: 170px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  pointer-events: auto;
-  z-index: 55;
-}
-
-/* Right-side action buttons (mine, place) — large, thumb-friendly */
+/* Bottom-right movement buttons: Run, then a column with Sneak above Jump */
 #action-buttons-right {
   position: absolute;
-  bottom: 20px; right: 20px;
+  bottom: calc(32px + env(safe-area-inset-bottom)); right: calc(20px + env(safe-area-inset-right));
   display: flex;
-  flex-direction: column;
+  align-items: flex-end;
   gap: 10px;
   pointer-events: auto;
   z-index: 55;
+}
+.mobile-btn-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
 
 /* Top-right toolbar (inv, shop, save) */
@@ -864,14 +891,10 @@ kbd {
   border-radius: 10px;
 }
 
-/* Colored action buttons */
-.mobile-btn-action {
-  background: rgba(180, 60, 60, 0.6);
-  border-color: rgba(255, 100, 100, 0.5);
-}
-.mobile-btn-place {
-  background: rgba(60, 120, 180, 0.6);
-  border-color: rgba(100, 160, 255, 0.5);
+/* Toggled on (Run/Sneak latch like the keyboard's hold) */
+.mobile-btn.on {
+  background: rgba(255, 255, 255, 0.45);
+  border-color: #fff;
 }
 
 /* ===================== */
@@ -995,11 +1018,11 @@ kbd {
 /* Landscape phone optimization */
 @media (max-height: 500px) and (orientation: landscape) {
   #joystick-zone {
-    bottom: 10px; left: 10px;
+    bottom: calc(36px + env(safe-area-inset-bottom)); left: calc(20px + env(safe-area-inset-left));
     width: 120px; height: 120px;
   }
-  #action-buttons-left {
-    bottom: 10px; left: 140px;
+  #action-buttons-right {
+    bottom: calc(24px + env(safe-area-inset-bottom)); right: calc(16px + env(safe-area-inset-right));
   }
   .mobile-btn {
     width: 52px; height: 52px;
@@ -1011,6 +1034,14 @@ kbd {
   }
 }
 
+
+.mp-hint { margin: -4px 0 6px; font-size: 12px; color: #bbb; max-width: 360px; text-align: left; }
+select.mp-input { cursor: pointer; }
+
+.difficulty-btn { flex-direction: column; gap: 2px; }
+.difficulty-btn small { font-size: 12px; opacity: 0.8; font-weight: normal; }
+
+#chest-grid { display: grid; grid-template-columns: repeat(9, auto); gap: 2px; }
 
 /* Save slots with delete buttons */
 .save-row { display: flex; gap: 8px; align-items: stretch; }

@@ -3,3 +3,4 @@ dist/
 .DS_Store
 .env
 data/
+tests/e2e/out/

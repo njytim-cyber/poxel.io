@@ -1,6 +1,6 @@
 // Axis-aligned box physics shared by client (prediction) and server (mobs, items, validation).
 // Worlds are passed in as a block lookup so this runs anywhere.
-import { isSolid, WATER, LAVA } from './blocks.ts';
+import { isSolid, WATER, LAVA, POWDER_SNOW, BLOCKS } from './blocks.ts';
 
 export interface Vec3 { x: number; y: number; z: number }
 export type BlockSource = (x: number, y: number, z: number) => number;
@@ -21,12 +21,14 @@ export interface Body {
   hitWall: boolean;
   inWater: boolean;
   inLava: boolean;
+  inSnow: boolean;   // sinking in powder snow
+  slip: number;      // slipperiness of the block underfoot (0 = normal grip, ~1 = ice)
 }
 
 export function makeBody(halfW: number, height: number, pos?: Vec3, vel?: Vec3): Body {
   return {
     pos: pos || { x: 0, y: 0, z: 0 }, vel: vel || { x: 0, y: 0, z: 0 },
-    halfW, height, onGround: false, hitWall: false, inWater: false, inLava: false,
+    halfW, height, onGround: false, hitWall: false, inWater: false, inLava: false, inSnow: false, slip: 0,
   };
 }
 
@@ -96,6 +98,8 @@ export function moveBody(world: BlockSource, b: Body, dt: number) {
   if (!b.onGround && b.vel.y <= 0 && boxIntersectsSolid(world, b.pos.x, b.pos.y - 0.01, b.pos.z, b.halfW, b.height)) b.onGround = true;
   b.inWater = liquidAt(world, b, WATER);
   b.inLava = liquidAt(world, b, LAVA);
+  b.inSnow = liquidAt(world, b, POWDER_SNOW);
+  b.slip = b.onGround ? BLOCKS[world(Math.floor(b.pos.x), Math.floor(b.pos.y - 0.05), Math.floor(b.pos.z))]?.slippery || 0 : 0;
 }
 
 // True when the body stands on something at the given x/z (used for sneaking at ledges)

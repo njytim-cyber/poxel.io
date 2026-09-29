@@ -10,11 +10,13 @@ let player: Player | null = null;
 let world: WorldSave | null = null;
 let players: Record<string, PlayerSave> = {};
 
+// A save holds one character under a fixed key, whatever the player's (changeable) profile name is
+const SP_KEY = 'Player';
 const storage: Storage = {
   loadWorld: () => world,
   saveWorld: w => { world = w; ctx.postMessage({ type: 'save', world, players }); },
-  loadPlayer: name => players[name] || null,
-  savePlayer: (name, s) => { players[name] = s; },
+  loadPlayer: () => players[SP_KEY] || null,
+  savePlayer: (_name, s) => { players[SP_KEY] = s; },
 };
 
 ctx.onmessage = e => {
@@ -23,7 +25,7 @@ ctx.onmessage = e => {
     if (d.type === 'init') {
       world = d.world || null;
       players = d.players || {};
-      game = new Game(storage, { seed: d.seed, maxPlayers: 1 });
+      game = new Game(storage, { seed: d.seed, maxPlayers: 1, allowCarry: false, difficulty: d.difficulty, devTools: !!(import.meta as any).env?.DEV });
       let last = performance.now();
       // Save (world + player) every 10s so closing the tab loses at most a few seconds
       setInterval(() => { try { game!.saveAll(true); } catch (err) { ctx.postMessage({ type: 'error', error: String(err) }); } }, 10000);

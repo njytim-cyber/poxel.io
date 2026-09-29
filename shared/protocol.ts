@@ -8,7 +8,7 @@ export const PROTOCOL_VERSION = 1;
 export const TICK_RATE = 20;
 export const MAX_PLAYERS = 16;
 
-export type MobKind = 'pig' | 'cow' | 'chicken' | 'zombie';
+export type MobKind = 'pig' | 'cow' | 'chicken' | 'zombie' | 'husk' | 'frostbitten' | 'spider' | 'skeleton' | 'slime' | 'slimelet';
 export type EntityKind = 'player' | 'item' | MobKind;
 
 export interface Look {
@@ -27,12 +27,24 @@ export interface SpawnInfo {
 }
 
 // ack = last inventory action (seq) the server has applied, so the client knows when its prediction is confirmed
+// Easy: no hunger, weaker mobs. Medium: hunger, starving stops at half a heart. Hard: starving kills, tougher mobs.
+export type Difficulty = 'easy' | 'medium' | 'hard';
+// creative: fly, instant breaking, blocks never run out, no damage or hunger (via /gamemode, operators only)
+export type GameMode = 'survival' | 'creative';
+export const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
+
 export interface InvState { slots: Stack[]; cursor: Stack; selected: number; ack?: number }
 
 // ------------------------------------------------------------------ Client -> server
 
 export type ClientMsg =
-  | { t: 'hello'; v: number; name: string; look: Look; token?: string }
+  | { t: 'till'; x: number; y: number; z: number }       // hoe on grass/dirt -> farmland
+  | { t: 'revive'; eid: number }                          // sent repeatedly while holding Use on a downed player
+  | { t: 'giveup' }                                       // a downed player chooses to die now
+  | { t: 'dev'; give?: string; count?: number; spawn?: string; time?: number } // test builds only (Game option devTools)
+  | { t: 'hello'; v: number; name: string; look: Look; token?: string;
+      prevName?: string;                                  // renaming: the name this player had on this server
+      carry?: { inv: unknown; health: number; food?: number } } // character brought from a single-player save
   | { t: 'move'; x: number; y: number; z: number; yaw: number; pitch: number; flags: number }
   | { t: 'dig'; x: number; y: number; z: number }
   | { t: 'place'; x: number; y: number; z: number; nx: number; ny: number; nz: number; facing: number }
@@ -56,14 +68,22 @@ export const MF_GROUND = 1, MF_SNEAK = 2, MF_WATER = 4, MF_LAVA = 8;
 // ------------------------------------------------------------------ Server -> client
 
 export type ServerMsg =
-  | { t: 'welcome'; eid: number; seed: number; time: number; edits: number[]; facing: number[];
-      you: { x: number; y: number; z: number; yaw: number; pitch: number; health: number; inv: InvState; spawn: [number, number, number] } }
+  | { t: 'welcome'; eid: number; seed: number; time: number; edits: number[]; facing: number[]; difficulty?: Difficulty;
+      carried?: boolean;                                  // the character from the player's save was accepted
+      you: { x: number; y: number; z: number; yaw: number; pitch: number; health: number; food?: number; gamemode?: GameMode; inv: InvState; spawn: [number, number, number] } }
+  | { t: 'gamemode'; mode: GameMode }
+  | { t: 'food'; food: number; sat: number }       // hunger (Medium/Hard)
+  | { t: 'downed'; seconds: number }               // multiplayer: you're down; others can revive you before this runs out
+  | { t: 'revive_progress'; progress: number; name: string } // 0..1, shown to the downed player and the reviver
+  | { t: 'revived' }
   | { t: 'snap'; ents: number[] }                 // [eid, x, y, z, yaw, pitch, flags] * n
   | { t: 'spawn'; ents: SpawnInfo[] }
   | { t: 'despawn'; eids: number[] }
   | { t: 'blocks'; list: number[] }               // [x, y, z, id, facing(-1 none)] * n
+  | { t: 'chest'; slots: Stack[] }               // contents of the chest you have open
+  | { t: 'edits'; list: number[] }                // saved edits of chunks the player is approaching: [x, y, z, id] * n
   | { t: 'inv'; inv: InvState }
-  | { t: 'screen'; mode: 'inventory' | 'table' | 'furnace' | null; furnace?: FurnaceState }
+  | { t: 'screen'; mode: 'inventory' | 'table' | 'furnace' | 'chest' | null; furnace?: FurnaceState; chest?: Stack[] }
   | { t: 'furnace'; state: FurnaceState }
   | { t: 'health'; hp: number }
   | { t: 'hurt'; from: [number, number, number] | null; knock: number }
@@ -80,7 +100,7 @@ export type ServerMsg =
   | { t: 'pong'; ts: number };
 
 // Entity snapshot flags
-export const EF_SNEAK = 1, EF_HURT = 2, EF_DYING = 4, EF_GROUND = 8, EF_SWING = 16;
+export const EF_SNEAK = 1, EF_HURT = 2, EF_DYING = 4, EF_GROUND = 8, EF_SWING = 16, EF_DOWNED = 32;
 
 // ------------------------------------------------------------------ Binary encoding (WebSocket only)
 

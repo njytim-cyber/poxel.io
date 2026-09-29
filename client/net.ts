@@ -37,7 +37,7 @@ export interface LocalSave { world: WorldSave | null; players: Record<string, Pl
 let localWorker: Worker | null = null;
 let saveResolvers: ((s: LocalSave) => void)[] = [];
 
-export function startLocal(save: LocalSave, seed: number | undefined, name: string, look: Look, onSave: (s: LocalSave) => void) {
+export function startLocal(save: LocalSave, seed: number | undefined, name: string, look: Look, onSave: (s: LocalSave) => void, difficulty?: string) {
   disconnect();
   const worker = new Worker(new URL('./serverWorker.ts', import.meta.url), { type: 'module' });
   localWorker = worker;
@@ -52,7 +52,7 @@ export function startLocal(save: LocalSave, seed: number | undefined, name: stri
     } else if (d.type === 'error') console.error('Local server error:', d.error);
   };
   worker.onerror = e => { console.error('Local server crashed', e.message); statusHandler('offline', 'The local game server crashed. Your last autosave is safe; reload to continue.'); };
-  worker.postMessage({ type: 'init', world: save.world, players: save.players, seed });
+  worker.postMessage({ type: 'init', world: save.world, players: save.players, seed, difficulty });
   conn = {
     kind: 'local',
     send: m => worker.postMessage({ type: 'msg', msg: m }),
@@ -79,7 +79,8 @@ export function requestLocalSave(): Promise<LocalSave | null> {
 
 // ------------------------------------------------------------------ Remote (multiplayer)
 
-export function startRemote(url: string, name: string, look: Look, token: string) {
+// helloExtra is read at every (re)connect, so a carried character is always the save's latest state
+export function startRemote(url: string, name: string, look: Look, token: string, helloExtra: () => Record<string, unknown> = () => ({})) {
   disconnect();
   let ws: WebSocket | null = null;
   let closed = false;
@@ -99,7 +100,7 @@ export function startRemote(url: string, name: string, look: Look, token: string
     ws.onopen = () => {
       attempt = 0;
       everConnected = true;
-      ws!.send(JSON.stringify({ t: 'hello', v: PROTOCOL_VERSION, name, look, token }));
+      ws!.send(JSON.stringify({ ...helloExtra(), t: 'hello', v: PROTOCOL_VERSION, name, look, token }));
       const q = queue; queue = [];
       for (const m of q) c.send(m);
       statusHandler('online');

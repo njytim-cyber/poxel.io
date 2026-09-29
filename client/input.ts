@@ -29,7 +29,15 @@ export const actions = {
   toggleDebug: () => {},
   setHome: () => {},
   chat: (_prefill: string) => {},
+  jumpTap: () => {},         // each press of jump (creative: a double tap toggles flying)
+  touchTap: () => {},        // quick tap on the view: attack a mob, else use/place
+  touchHold: (_held: boolean) => {}, // long-press on the view: mine (or eat when holding food)
 };
+
+// Touch gestures on the view (like Minecraft's touch controls): drag to look,
+// tap to use/place, press and hold (without moving) to mine
+const HOLD_MS = 300;
+const TAP_SLOP_PX = 12;
 
 const MOVE_KEYS: Record<string, keyof typeof keys> = {
   KeyW: 'forward', ArrowUp: 'forward', KeyS: 'backward', ArrowDown: 'backward',
@@ -39,6 +47,7 @@ const MOVE_KEYS: Record<string, keyof typeof keys> = {
 
 export function releaseAllKeys() {
   for (const k of Object.keys(keys) as (keyof typeof keys)[]) keys[k] = false;
+  if (isMobile) syncToggles();
 }
 
 export function setupInput() {
@@ -49,6 +58,7 @@ export function setupInput() {
     const k = MOVE_KEYS[e.code];
     if (k) { keys[k] = true; if (e.code === 'Space') e.preventDefault(); }
     if (e.repeat) return;
+    if (k === 'jump') actions.jumpTap();
     switch (e.code) {
       case 'Tab': case 'KeyE': e.preventDefault(); actions.inventory(); break;
       case 'Escape': actions.escape(); break;
@@ -97,6 +107,14 @@ export function setupInput() {
   if (isMobile) setupMobileInput();
 }
 
+function setLatched(id: string, on: boolean) {
+  document.getElementById(id)?.classList.toggle('on', on);
+}
+function syncToggles() {
+  setLatched('btn-mobile-sprint', keys.run);
+  setLatched('btn-mobile-sneak', keys.shift);
+}
+
 function setupMobileInput() {
   const hud = document.getElementById('mobile-hud');
   if (hud) hud.style.display = 'block';
@@ -113,18 +131,31 @@ function setupMobileInput() {
       keys.backward = v.y < -0.3;
       keys.right = v.x > 0.3;
       keys.left = v.x < -0.3;
-      // Push the stick all the way out to run
-      keys.run = (data.force ?? 0) > 1.2 && v.y > 0.5;
+      // Pushing the stick all the way forward also starts running (until the stick is released)
+      if ((data.force ?? 0) > 1.2 && v.y > 0.5 && !keys.run && !keys.shift) { keys.run = true; syncToggles(); }
     });
-    manager.on('end', () => { keys.forward = keys.backward = keys.left = keys.right = keys.run = false; });
+    // Letting go of the stick stops running, like Minecraft's sprint
+    manager.on('end', () => { keys.forward = keys.backward = keys.left = keys.right = keys.run = false; syncToggles(); });
   }
 
   const lookZone = document.getElementById('touch-look-zone');
-  let lastX = 0, lastY = 0, lookId: number | null = null;
+  let lastX = 0, lastY = 0, startX = 0, startY = 0, startT = 0, lookId: number | null = null;
+  let moved = false, holding = false;
+  let holdTimer: ReturnType<typeof setTimeout> | undefined;
+  const endLook = (tap: boolean) => {
+    clearTimeout(holdTimer);
+    if (holding) actions.touchHold(false);
+    else if (tap && !moved && performance.now() - startT < HOLD_MS) actions.touchTap();
+    holding = false; lookId = null;
+  };
   if (lookZone) {
     lookZone.addEventListener('touchstart', e => {
+      if (lookId !== null) return; // a second finger on the view doesn't restart the gesture
       const t = e.changedTouches[0];
-      lookId = t.identifier; lastX = t.clientX; lastY = t.clientY;
+      lookId = t.identifier; lastX = startX = t.clientX; lastY = startY = t.clientY;
+      startT = performance.now(); moved = false; holding = false;
+      clearTimeout(holdTimer);
+      holdTimer = setTimeout(() => { if (lookId !== null && !moved) { holding = true; actions.touchHold(true); } }, HOLD_MS);
     });
     lookZone.addEventListener('touchmove', e => {
       for (const t of Array.from(e.changedTouches)) {
@@ -132,9 +163,15 @@ function setupMobileInput() {
         touchLookDelta.x += t.clientX - lastX;
         touchLookDelta.y += t.clientY - lastY;
         lastX = t.clientX; lastY = t.clientY;
+        // Once the finger travels it's a look drag (a hold that already started keeps mining while aiming)
+        if (Math.hypot(t.clientX - startX, t.clientY - startY) > TAP_SLOP_PX) moved = true;
       }
     });
-    lookZone.addEventListener('touchend', () => { lookId = null; });
+    const finish = (tap: boolean) => (e: TouchEvent) => {
+      if (Array.from(e.changedTouches).some(t => t.identifier === lookId)) endLook(tap);
+    };
+    lookZone.addEventListener('touchend', finish(true));
+    lookZone.addEventListener('touchcancel', finish(false));
   }
 
   const bindBtn = (id: string, action: (held: boolean) => void) => {
@@ -145,11 +182,10 @@ function setupMobileInput() {
     btn.addEventListener('touchcancel', e => { if (e.cancelable) e.preventDefault(); e.stopPropagation(); action(false); }, { passive: false });
   };
 
-  bindBtn('btn-mobile-jump', h => { keys.jump = h; });
-  bindBtn('btn-mobile-sprint', h => { keys.run = h; });
-  bindBtn('btn-mobile-sneak', h => { keys.shift = h; });
-  bindBtn('btn-mobile-hit', h => (h ? actions.primaryDown() : actions.primaryUp()));
-  bindBtn('btn-mobile-place', h => (h ? actions.secondaryDown() : actions.secondaryUp()));
+  bindBtn('btn-mobile-jump', h => { keys.jump = h; if (h) actions.jumpTap(); });
+  // Run and Sneak are toggles so the right thumb stays free to look around
+  bindBtn('btn-mobile-sprint', h => { if (h) { keys.run = !keys.run; if (keys.run) keys.shift = false; syncToggles(); } });
+  bindBtn('btn-mobile-sneak', h => { if (h) { keys.shift = !keys.shift; if (keys.shift) keys.run = false; syncToggles(); } });
   bindBtn('btn-mobile-inv', h => { if (h) actions.inventory(); });
   bindBtn('btn-mobile-drop', h => { if (h) actions.drop(false); });
   bindBtn('btn-mobile-view', h => { if (h) actions.toggleView(); });

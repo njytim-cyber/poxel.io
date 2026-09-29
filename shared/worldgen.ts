@@ -56,12 +56,14 @@ export function generateChunkData(cx: number, cz: number, seed: number): Uint8Ar
   // Coarse cave noise grid, trilinearly interpolated per block (16x fewer noise calls)
   const gy = HEIGHT / CAVE_STEP + 1, gx = CHUNK / CAVE_STEP + 1;
   const tunnelA = new Float32Array(gx * gx * gy), tunnelB = new Float32Array(gx * gx * gy), cheese = new Float32Array(gx * gx * gy);
+  const blobs = new Float32Array(gx * gx * gy); // granite/diorite/andesite pockets
   for (let ix = 0; ix < gx; ix++) for (let iz = 0; iz < gx; iz++) for (let iy = 0; iy < gy; iy++) {
     const wx = x0 + ix * CAVE_STEP, wz = z0 + iz * CAVE_STEP, wy = MIN_Y + iy * CAVE_STEP;
     const gi = (ix * gx + iz) * gy + iy;
     tunnelA[gi] = noiseB.noise3(wx / 28, wy / 18, wz / 28);
     tunnelB[gi] = noiseC.noise3(wx / 28 + 71, wy / 18, wz / 28 + 13);
     cheese[gi] = noise.noise3(wx / 52, wy / 30, wz / 52);
+    blobs[gi] = noise.noise3(wx / 14 + 700, wy / 10, wz / 14 + 700);
   }
   const sample = (arr: Float32Array, lx: number, y: number, lz: number) => {
     const fx = lx / CAVE_STEP, fz = lz / CAVE_STEP, fy = (y - MIN_Y) / CAVE_STEP;
@@ -79,6 +81,8 @@ export function generateChunkData(cx: number, cz: number, seed: number): Uint8Ar
     const { h, biome } = columnInfo(x, z, seed);
     const underwater = h < SEA_LEVEL;
     const beach = h <= SEA_LEVEL + 1 && biome !== 'snowy';
+    // Powder snow: hidden drifts in snowy land that you sink into
+    const powder = biome === 'snowy' && !underwater && noiseB.noise2(x / 9 + 400, z / 9 + 400) > 0.45;
 
     // Ravines: open cracks in the surface that expose ores and lead down into the caves
     let ravineFloor = Infinity;
@@ -92,19 +96,27 @@ export function generateChunkData(cx: number, cz: number, seed: number): Uint8Ar
       const depth = h - y;
       if (y <= MIN_Y + 4) id = B.bedrock;
       else if (y <= MIN_Y + 6 && hash3(x, y, z, seed) < (y === MIN_Y + 5 ? 0.6 : 0.3)) id = B.bedrock;
-      else if (y > h) id = WATER;
+      else if (y > h) id = biome === 'snowy' && y === SEA_LEVEL ? B.ice : WATER; // snowy lakes freeze over
+      else if (powder && depth <= 2) id = B.powder_snow;
       else if (depth === 0) {
         if (underwater) id = hash3(x >> 2, 0, z >> 2, seed + 9) < 0.25 ? B.clay : (hash3(x >> 1, 1, z >> 1, seed) < 0.3 ? B.gravel : B.sand);
         else if (biome === 'desert' || beach) id = B.sand;
         else if (biome === 'snowy') id = B.snowy_grass;
-        else if (biome === 'mountains' && h > 30) id = h > 42 ? B.snowy_grass : B.stone;
+        else if (biome === 'mountains' && h > 30) id = h > 42 ? (hash3(x >> 2, 5, z >> 2, seed) < 0.3 ? B.packed_ice : B.snowy_grass) : B.stone;
         else id = B.grass;
       } else if (depth <= 3) {
         if (biome === 'desert' || beach || underwater) id = depth <= 2 ? B.sand : B.sandstone;
         else if (biome === 'mountains' && h > 30) id = B.stone;
         else id = B.dirt;
       } else if (biome === 'desert' && depth <= 6) id = B.sandstone;
-      else id = oreAt(x, y, z, h, seed);
+      else {
+        id = oreAt(x, y, z, h, seed, biome);
+        // Big pockets of granite/diorite/andesite in plain stone (noise looked up only where it matters)
+        if (id === B.stone && sample(blobs, lx, y, lz) > 0.55) {
+          const kind = hash3(x >> 4, y >> 4, z >> 4, seed + 24);
+          id = kind < 0.34 ? B.granite : kind < 0.67 ? B.diorite : B.andesite;
+        }
+      }
 
       // Carve caves (keep a solid roof under water so lakes don't drain visually)
       if (id !== WATER && id !== B.bedrock && y > MIN_Y + 5 && !(underwater && depth < 5) && !(beach && depth < 3)) {
@@ -118,15 +130,32 @@ export function generateChunkData(cx: number, cz: number, seed: number): Uint8Ar
       d[idx(lx, y, lz)] = id;
     }
 
-    // Grass tufts and flowers on untouched grass
+    // Grass tufts, flowers and wild food on untouched grass
     const top = d[idx(lx, h, lz)];
     if (top === B.grass && h + 1 <= MAX_Y && d[idx(lx, h + 1, lz)] === 0) {
       const r = hash3(x, 3, z, seed);
       const [grassP, flowerP] = biome === 'plains' ? [0.2, 0.035] : biome === 'forest' ? [0.12, 0.015] : biome === 'pine' ? [0.1, 0.008] : [0.05, 0.005];
-      if (r < flowerP) {
-        const f = hash3(x, 4, z, seed);
-        d[idx(lx, h + 1, lz)] = biome === 'pine' ? B.cornflower : f < 0.5 ? B.dandelion : f < 0.85 ? B.poppy : B.cornflower;
-      } else if (r < flowerP + grassP) d[idx(lx, h + 1, lz)] = B.tall_grass;
+      const f = hash3(x, 4, z, seed);
+      let plant = 0;
+      if (r < flowerP) plant = biome === 'pine' ? B.cornflower : f < 0.5 ? B.dandelion : f < 0.85 ? B.poppy : B.cornflower;
+      else if (r < flowerP + grassP) plant = B.tall_grass;
+      else if (r < flowerP + grassP + 0.012) {
+        // Food: berries in the woods, wild carrots/potatoes in the open, mushrooms in the shade
+        if (biome === 'pine' || biome === 'forest') plant = f < 0.45 ? B.berry_bush : f < 0.75 ? B.brown_mushroom : B.red_mushroom;
+        else if (biome === 'plains') plant = f < 0.5 ? B.wild_carrots : B.wild_potatoes;
+      }
+      if (plant) d[idx(lx, h + 1, lz)] = plant;
+    } else if (top === B.snowy_grass && h + 1 <= MAX_Y && d[idx(lx, h + 1, lz)] === 0) {
+      const r = hash3(x, 3, z, seed);
+      if (r < 0.05) d[idx(lx, h + 1, lz)] = B.frost_fern;
+      else if (r < 0.062) d[idx(lx, h + 1, lz)] = B.snowberry_bush;
+    }
+
+    // Mushrooms on dark cave floors
+    for (let y = MIN_Y + 7; y < h - 8; y++) {
+      if (d[idx(lx, y + 1, lz)] !== 0 || d[idx(lx, y, lz)] === 0 || d[idx(lx, y, lz)] === LAVA) continue;
+      const r = hash3(x, y, z, seed + 21);
+      if (r < 0.006) d[idx(lx, y + 1, lz)] = r < 0.003 ? B.brown_mushroom : B.red_mushroom;
     }
   }
 
@@ -134,7 +163,7 @@ export function generateChunkData(cx: number, cz: number, seed: number): Uint8Ar
   return d;
 }
 
-function oreAt(x: number, y: number, z: number, h: number, seed: number): number {
+function oreAt(x: number, y: number, z: number, h: number, seed: number, biome: Biome): number {
   const r = hash3(x, y, z, seed + 3);
   const vein = (salt: number, p: number) => hash3(x >> 1, y >> 1, z >> 1, seed + salt) < p && r < 0.7;
   if (y < -92 && vein(11, 0.018)) return B.etherite_ore;
@@ -143,7 +172,13 @@ function oreAt(x: number, y: number, z: number, h: number, seed: number): number
   if (y < -32 && vein(14, 0.035)) return B.gold_ore;
   if (y < h - 6 && y > -95 && vein(15, 0.06)) return B.iron_ore;
   if (y < h - 4 && y > -60 && vein(16, 0.08)) return B.coal_ore;
+  if (y < h - 4 && y > -30 && vein(18, 0.05)) return B.copper_ore;
+  if ((biome === 'snowy' || biome === 'mountains') && y < h - 8 && y > -40 && vein(19, 0.03)) return B.frost_crystal_ore;
   if (y < h - 8 && hash3(x >> 2, y >> 2, z >> 2, seed + 17) < 0.02) return B.gravel;
+  // Deep layers: slate below -40 (with a ragged edge), basalt and obsidian near the bottom
+  const deep = y < -44 || (y < -36 && y < -40 + Math.floor(hash3(x, 0, z, seed + 20) * 4));
+  if (y < -86 && hash3(x >> 2, y >> 2, z >> 2, seed + 22) < 0.12) return hash3(x >> 1, y >> 1, z >> 1, seed + 23) < 0.25 ? B.obsidian : B.basalt;
+  if (deep) return B.slate;
   return B.stone;
 }
 
@@ -176,6 +211,7 @@ function placeFeatures(data: Uint8Array, cx: number, cz: number, seed: number) {
       continue;
     }
     if (biome === 'plains' && r < 0.0015) { put(x, h + 1, z, B.pumpkin); continue; }
+    if ((biome === 'plains' || biome === 'forest') && r > 0.039 && r < 0.0398) { put(x, h + 1, z, B.melon, true); continue; }
     const density = biome === 'forest' ? 0.035 : biome === 'pine' ? 0.03 : biome === 'snowy' ? 0.01 : biome === 'mountains' ? (h > 30 ? 0 : 0.006) : 0.005;
     if (r >= density) continue;
     // Trees need ground: skip ravines/caves under the trunk
@@ -206,6 +242,101 @@ function placeFeatures(data: Uint8Array, cx: number, cz: number, seed: number) {
       for (let i = 1; i <= th; i++) put(x, h + i, z, log);
     }
   }
+  placeStructures(put, cx, cz, seed);
+}
+
+// ------------------------------------------------------------------ Structures (with loot chests)
+//
+// The world is split into REGION x REGION areas; each can hold one surface structure (picked by biome)
+// and, on a separate grid, one underground dungeon. Everything is a pure function of the seed, so each
+// chunk draws just the part of any nearby structure that falls inside it.
+
+const REGION = 48;
+const STRUCT_REACH = 6; // max distance of a structure's blocks from its origin
+
+export type StructureKind = 'cabin' | 'temple' | 'igloo' | 'dungeon';
+export interface Structure { kind: StructureKind; x: number; y: number; z: number }
+
+export function structureInRegion(rx: number, rz: number, seed: number, underground: boolean): Structure | null {
+  const salt = underground ? 97 : 91;
+  const r = hash3(rx, salt, rz, seed);
+  const x = rx * REGION + 8 + Math.floor(hash3(rx, salt + 1, rz, seed) * (REGION - 16));
+  const z = rz * REGION + 8 + Math.floor(hash3(rx, salt + 2, rz, seed) * (REGION - 16));
+  if (Math.abs(x) < 24 && Math.abs(z) < 24) return null; // keep the world spawn clear
+  const { h, biome } = columnInfo(x, z, seed);
+  if (underground) {
+    if (r > 0.55) return null;
+    const y = Math.min(h - 14, -12 - Math.floor(hash3(rx, salt + 3, rz, seed) * 60));
+    return { kind: 'dungeon', x, y, z };
+  }
+  if (h < SEA_LEVEL + 1) return null;
+  if (biome === 'desert' && r < 0.45) return { kind: 'temple', x, y: h, z };
+  if (biome === 'snowy' && r < 0.45) return { kind: 'igloo', x, y: h, z };
+  if ((biome === 'plains' || biome === 'forest' || biome === 'pine') && r < 0.35) return { kind: 'cabin', x, y: h, z };
+  return null;
+}
+
+function placeStructures(put: (x: number, y: number, z: number, id: number, onlyAir?: boolean) => void, cx: number, cz: number, seed: number) {
+  const x0 = cx * CHUNK, z0 = cz * CHUNK;
+  const r0x = Math.floor((x0 - STRUCT_REACH) / REGION), r1x = Math.floor((x0 + 15 + STRUCT_REACH) / REGION);
+  const r0z = Math.floor((z0 - STRUCT_REACH) / REGION), r1z = Math.floor((z0 + 15 + STRUCT_REACH) / REGION);
+  for (let rx = r0x; rx <= r1x; rx++) for (let rz = r0z; rz <= r1z; rz++) for (const under of [false, true]) {
+    const s = structureInRegion(rx, rz, seed, under);
+    if (!s || s.x + STRUCT_REACH < x0 || s.x - STRUCT_REACH > x0 + 15 || s.z + STRUCT_REACH < z0 || s.z - STRUCT_REACH > z0 + 15) continue;
+    buildStructure(s, put, seed);
+  }
+}
+
+function buildStructure(s: Structure, put: (x: number, y: number, z: number, id: number, onlyAir?: boolean) => void, seed: number) {
+  const { x, y, z } = s;
+  const box = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, id: number) => {
+    for (let i = ax; i <= bx; i++) for (let j = ay; j <= by; j++) for (let k = az; k <= bz; k++) put(x + i, y + j, z + k, id);
+  };
+  const B = BLOCK_ID;
+  if (s.kind === 'cabin') {
+    box(-3, -3, -3, 3, -1, 3, B.cobblestone);           // foundation (no floating cabins on slopes)
+    box(-3, 0, -3, 3, 0, 3, B.planks);                  // floor
+    box(-3, 1, -3, 3, 4, 3, 0);                          // clear the inside
+    for (let j = 1; j <= 3; j++) for (let i = -3; i <= 3; i++) for (const k of [-3, 3]) {
+      const corner = Math.abs(i) === 3;
+      put(x + i, y + j, z + k, corner ? B.wood : B.planks);
+      put(x + k, y + j, z + i, corner ? B.wood : B.planks);
+    }
+    for (const [i, k] of [[0, -3], [-3, 0], [3, 0]]) put(x + i, y + 2, z + k, B.glass);
+    put(x, y + 1, z + 3, 0); put(x, y + 2, z + 3, 0);   // doorway
+    box(-4, 4, -4, 4, 4, 4, B.planks);                  // roof with overhang
+    box(-2, 5, -2, 2, 5, 2, B.planks);
+    put(x + 2, y + 1, z - 2, B.chest);
+    put(x - 2, y + 1, z - 2, B.crafting_table);
+    put(x - 2, y + 1, z + 1, B.furnace);
+    put(x, y + 3, z, B.lantern);
+  } else if (s.kind === 'temple') {
+    for (let layer = 0; layer <= 4; layer++) box(-(5 - layer), layer, -(5 - layer), 5 - layer, layer, 5 - layer, layer === 4 ? B.terracotta : B.sandstone);
+    box(-2, 1, -2, 2, 2, 2, 0);                          // treasure room
+    box(-2, 0, -2, 2, 0, 2, B.terracotta);
+    put(x, y + 1, z + 5, 0); put(x, y + 2, z + 5, 0);   // tunnel in
+    put(x, y + 1, z + 4, 0); put(x, y + 2, z + 4, 0); put(x, y + 1, z + 3, 0); put(x, y + 2, z + 3, 0);
+    put(x - 1, y + 1, z - 2, B.chest); put(x + 1, y + 1, z - 2, B.chest);
+  } else if (s.kind === 'igloo') {
+    for (let i = -4; i <= 4; i++) for (let j = 0; j <= 4; j++) for (let k = -4; k <= 4; k++) {
+      const d = Math.hypot(i, j * 1.25, k);
+      if (d <= 2.6) put(x + i, y + 1 + j, z + k, 0);
+      else if (d <= 3.6) put(x + i, y + 1 + j, z + k, B.snow_bricks);
+    }
+    box(-2, 0, -2, 2, 0, 2, B.wool);                    // rug
+    put(x, y + 1, z + 3, 0); put(x, y + 2, z + 3, 0); put(x, y + 1, z + 4, 0); put(x, y + 2, z + 4, 0);
+    put(x + 1, y + 1, z - 2, B.chest);
+    put(x - 1, y + 1, z - 2, B.lantern);
+  } else {
+    // Dungeon: a mossy room hidden in the rock
+    for (let i = -3; i <= 3; i++) for (let j = -1; j <= 4; j++) for (let k = -3; k <= 3; k++) {
+      const shell = Math.abs(i) === 3 || Math.abs(k) === 3 || j === -1 || j === 4;
+      put(x + i, y + j, z + k, shell ? (hash3(x + i, y + j, z + k, seed + 31) < 0.5 ? B.mossy_cobblestone : B.cobblestone) : 0);
+    }
+    put(x + 2, y, z - 2, B.chest);
+    if (hash3(x, y, z, seed + 32) < 0.5) put(x - 2, y, z + 2, B.chest);
+    put(x, y, z + 3, 0); put(x, y + 1, z + 3, 0);        // a way out into the rock
+  }
 }
 
 export function computeHeights(data: Uint8Array): Int16Array {
@@ -222,7 +353,7 @@ export function computeHeights(data: Uint8Array): Int16Array {
 //
 // Vertex format (10 bytes):
 //   aPos  Uint16 x3 : chunk-local position in 1/16 block units (x, y - MIN_Y, z)
-//   aData Uint16 x2 : [tile | light<<6 | face<<9 | ao<<12,  u | v<<5]
+//   aData Uint16 x2 : [tile | light<<8 | face<<11 | ao<<14,  u | v<<5]   (tile: 8 bits, up to 256 textures)
 // Faces with the same texture, light and flat AO are merged into one quad; the shader repeats
 // the texture across it using the block-unit u/v.
 
@@ -269,7 +400,8 @@ const AO_OFFSETS = FACES.map(face => {
 const FRONT_FACE = [4, 0, 5, 1]; // facing 0:+z 1:+x 2:-z 3:-x
 const OCCLUDES = new Uint8Array(256);
 const TRANSPARENT = new Uint8Array(256);
-for (const b of BLOCKS) { OCCLUDES[b.id] = isOccluding(b.id) ? 1 : 0; TRANSPARENT[b.id] = b.transparent ? 1 : 0; }
+const GLOW = new Uint8Array(256);
+for (const b of BLOCKS) { OCCLUDES[b.id] = isOccluding(b.id) ? 1 : 0; TRANSPARENT[b.id] = b.transparent ? 1 : 0; GLOW[b.id] = b.glow ? 1 : 0; }
 
 class Builder {
   pos: number[] = [];
@@ -306,7 +438,7 @@ export function meshSection(input: SectionInput): SectionOutput {
   for (let ly = 0; ly < 16; ly++) for (let lz = 0; lz < 16; lz++) for (let lx = 0; lx < 16; lx++) {
     const id = get(lx, ly, lz);
     if (!id || !BLOCKS[id].plant) continue;
-    const d0 = BLOCKS[id].tiles[0] | (skyLight(lx, y0 + ly, lz) << 6) | (6 << 9) | (3 << 12);
+    const d0 = BLOCKS[id].tiles[0] | ((GLOW[id] ? 4 : skyLight(lx, y0 + ly, lz)) << 8) | (6 << 11) | (3 << 14);
     const X = lx * 16, Y = yBase + ly * 16, Z = lz * 16;
     for (const [ax, az, bx, bz] of [[2, 2, 14, 14], [2, 14, 14, 2]]) {
       const base = solid.pos.length / 3;
@@ -350,7 +482,7 @@ export function meshSection(input: SectionInput): SectionOutput {
           const fc = facingMap.get((ly * 16 + lz) * 16 + lx) ?? 0;
           tile = FRONT_FACE[fc] === f ? BLOCKS[id].tiles[4] : f === 2 || f === 3 ? BLOCKS[id].tiles[f] : BLOCKS[id].tiles[0];
         }
-        const light = isLava ? 4 : skyLight(nx, y0 + ny, nz);
+        const light = isLava || GLOW[id] ? 4 : skyLight(nx, y0 + ny, nz);
         const cell = (b << 4) | a;
         let aoKey = 0, uniform = 1;
         for (let k = 0; k < 4; k++) {
@@ -366,7 +498,7 @@ export function meshSection(input: SectionInput): SectionOutput {
           aoKey |= ao << (k * 2);
           if (k > 0 && ao !== maskAo[cell * 4]) uniform = 0;
         }
-        mask[cell] = 1 + (tile | (light << 6) | (lowered ? 1 << 9 : 0) | (isWater ? 1 << 10 : 0) | (aoKey << 11) | (uniform << 19));
+        mask[cell] = 1 + (tile | (light << 8) | (lowered ? 1 << 11 : 0) | (isWater ? 1 << 12 : 0) | (aoKey << 13) | (uniform << 21));
       }
 
       // 2) Greedy merge: grow each face along a, then along b, while the key matches and AO is flat
@@ -377,7 +509,7 @@ export function meshSection(input: SectionInput): SectionOutput {
           const key = mask[cell];
           if (!key) { a++; continue; }
           let w = 1, h = 1;
-          if ((key - 1) & (1 << 19)) {
+          if ((key - 1) & (1 << 21)) {
             while (a + w < 16 && mask[(b << 4) | (a + w)] === key) w++;
             let grow = true;
             while (grow && b + h < 16) {
@@ -389,7 +521,7 @@ export function meshSection(input: SectionInput): SectionOutput {
           for (let hh = 0; hh < h; hh++) for (let k = 0; k < w; k++) mask[((b + hh) << 4) | (a + k)] = 0;
 
           const kv = key - 1;
-          const tile = kv & 63, light = (kv >> 6) & 7, lowered = (kv >> 9) & 1, water = (kv >> 10) & 1;
+          const tile = kv & 255, light = (kv >> 8) & 7, lowered = (kv >> 11) & 1, water = (kv >> 12) & 1;
           const out = water ? liquid : solid;
           const base = out.pos.length / 3;
           for (let k = 0; k < 4; k++) {
@@ -400,7 +532,7 @@ export function meshSection(input: SectionInput): SectionOutput {
             let py = yBase + p[1] * 16;
             if (lowered && cc[1] === 1) py -= 2;
             const uu = k === 1 || k === 2 ? w : 0, vv = k >= 2 ? h : 0;
-            out.vert(p[0] * 16, py, p[2] * 16, tile | (light << 6) | (f << 9) | (aos[k] << 12), uu | (vv << 5));
+            out.vert(p[0] * 16, py, p[2] * 16, tile | (light << 8) | (f << 11) | (aos[k] << 14), uu | (vv << 5));
           }
           // Flip the quad diagonal so AO gradients interpolate evenly
           if (aos[0] + aos[2] < aos[1] + aos[3]) out.index.push(base + 1, base + 2, base + 3, base + 1, base + 3, base);
