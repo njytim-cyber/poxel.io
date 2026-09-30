@@ -801,6 +801,13 @@ function fallbackPixels(): Tile {
 
 // Warm up so the first inventory open doesn't stutter; also surfaces missing art in dev
 export function preloadIcons() {
-  for (const type of Object.keys(ITEMS)) getIconCanvas(type);
+  const todo = Object.keys(ITEMS);
+  const idle = (fn: () => void) => ('requestIdleCallback' in window ? (window as any).requestIdleCallback(fn, { timeout: 500 }) : setTimeout(fn, 30));
+  const slice = () => {
+    const end = performance.now() + 8;
+    while (todo.length && performance.now() < end) getIconCanvas(todo.pop()!);
+    if (todo.length) idle(slice);
+  };
+  idle(slice);
   void TIERS;
 }

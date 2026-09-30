@@ -32,7 +32,7 @@ export function handleServerMessage(m: ServerMsg) {
       importEditsFlat(m.edits);
       const near = keep && Math.hypot(keep.x - m.you.x, keep.y - m.you.y, keep.z - m.you.z) < 4;
       const at = near ? keep! : m.you;
-      loadAreaNow(at.x, at.z, 1);
+      loadAreaNow(at.x, at.z, 0); // just the ground underfoot now; the rest streams in on the workers
       player.setPlayerFeet(at);
       if (!reconnect) player.setYawPitch(m.you.yaw, m.you.pitch);
       // A new session has no open screens and a living player: leave anything the old session left open

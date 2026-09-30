@@ -2,8 +2,9 @@ import { setSelectedSlot, selectedSlotIndex } from './inventory';
 import nipplejs from 'nipplejs';
 
 // Touch controls for phones/tablets. A touchscreen laptop also has a mouse/trackpad ("fine" pointer),
-// so it gets the normal mouse + keyboard controls.
-export const isMobile = (() => {
+// so it starts with the normal mouse + keyboard controls, and switches to touch controls when the screen
+// is touched (as does any touch device this check misses: tablets in desktop mode, keyboards attached...).
+export let isMobile = (() => {
   const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
   const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   const hasFinePointer = typeof matchMedia === 'function' && matchMedia('(any-pointer: fine)').matches;
@@ -109,6 +110,7 @@ export function setupInput() {
   }, { passive: true });
 
   if (isMobile) setupMobileInput();
+  else window.addEventListener('touchstart', switchToTouch, { once: true, capture: true, passive: true });
 }
 
 function setLatched(id: string, on: boolean) {
@@ -117,6 +119,13 @@ function setLatched(id: string, on: boolean) {
 function syncToggles() {
   setLatched('btn-mobile-sprint', keys.run);
   setLatched('btn-mobile-sneak', keys.shift);
+}
+
+function switchToTouch() {
+  if (isMobile) return;
+  isMobile = true;
+  if (document.pointerLockElement) document.exitPointerLock();
+  setupMobileInput();
 }
 
 function setupMobileInput() {

@@ -33,7 +33,7 @@ try {
   // 2. Reload (like quitting to the menu) and join multiplayer with that save's character, through the menu
   const name = uniqueName('Carrier');
   await page.reload({ waitUntil: 'load' });
-  await page.waitForFunction(() => !!window.poxel);
+  await page.waitForFunction(() => !!window.poxel && document.body.dataset.ready === '1');
   await sleep(1000);
   await page.click('#btn-multiplayer');
   await sleep(300);
@@ -59,7 +59,7 @@ try {
 
   // 4. Name and token are remembered (the same profile everywhere)
   await page.reload({ waitUntil: 'load' });
-  await page.waitForFunction(() => !!window.poxel);
+  await page.waitForFunction(() => !!window.poxel && document.body.dataset.ready === '1');
   await sleep(800);
   check('profile name remembered after reload', (await page.$eval('#mp-name', el => el.value)) === name);
   check('name token remembered after reload', !!token1 && (await ev(() => localStorage.getItem('poxel_token'))) === token1);

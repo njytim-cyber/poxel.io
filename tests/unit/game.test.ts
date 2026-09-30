@@ -1,7 +1,8 @@
 // Fast checks of the authoritative server (no browser, no network): node --test tests/unit/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Game, type Storage, type WorldSave, type PlayerSave } from '../../server/core/game.ts';
+import { Game, creativeCodeHash, type Storage, type WorldSave, type PlayerSave } from '../../server/core/game.ts';
+const TEST_CODE = creativeCodeHash('1234'); // the tests' own creative code
 import type { ServerMsg } from '../../shared/protocol.ts';
 
 function memoryStorage(world: WorldSave | null = null) {
@@ -26,7 +27,7 @@ const tick = (g: Game, n: number) => { for (let i = 0; i < n; i++) g.tick(0.05);
 
 test('a brand-new world is saved immediately, so an early crash keeps the seed', () => {
   const { s, storage } = memoryStorage();
-  new Game(storage, { seed: 4242 });
+  new Game(storage, { creativeCode: TEST_CODE, seed: 4242 });
   assert.equal(s.worldSaves, 1);
   assert.equal(s.world?.seed, 4242);
 });
@@ -35,7 +36,7 @@ test('new players get nearby edits in the welcome, far ones only when they get c
   const near = [3, 20, 3, 0];               // chunk 0,0
   const far = [3200, 20, 3200, 0];          // chunk 200,200
   const { storage } = memoryStorage({ v: 1, seed: 7, time: 0.3, edits: [...near, ...far], facing: [], spawn: [0.5, 60, 0.5] } as WorldSave);
-  const g = new Game(storage, {});
+  const g = new Game(storage, { creativeCode: TEST_CODE,});
   const { got, conn } = fakeConn();
   const p = g.join(conn, hello('Walker'))!;
   const welcome = got.find(m => m.t === 'welcome') as Extract<ServerMsg, { t: 'welcome' }>;
@@ -55,7 +56,7 @@ test('new players get nearby edits in the welcome, far ones only when they get c
 
 test('an edit that restores the generated block is forgotten', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 99 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 99 });
   const w = (g as any).world;
   const original = w.get(5, 10, 5);
   w.set(5, 10, 5, original === 0 ? 1 : 0);
@@ -67,7 +68,7 @@ test('an edit that restores the generated block is forgotten', () => {
 
 test('a refused dig tells the client the real block (no ghost holes)', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const { got, conn } = fakeConn();
   const p = g.join(conn, hello('Digger'))!;
   const x = Math.floor(p.body.pos.x) + 9, y = Math.floor(p.body.pos.y) - 1, z = Math.floor(p.body.pos.z);
@@ -78,7 +79,7 @@ test('a refused dig tells the client the real block (no ghost holes)', () => {
 
 test('a dig far outside the world range generates no terrain', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const { conn } = fakeConn();
   const p = g.join(conn, hello('Faraway'))!;
   const chunksBefore = g.stats().chunks;
@@ -91,7 +92,7 @@ test('in daylight, zombies only spawn in caves (never on the surface or under tr
   const { columnInfo } = await import('../../shared/worldgen.ts');
   for (const seed of [12345, 777, 4242]) {
     const { storage } = memoryStorage();
-    const g = new Game(storage, { seed });
+    const g = new Game(storage, { creativeCode: TEST_CODE, seed });
     const { conn } = fakeConn();
     const p = g.join(conn, hello('Sunny' + seed))!;
     const gm = g as any;
@@ -107,7 +108,7 @@ test('in daylight, zombies only spawn in caves (never on the surface or under tr
 
 test('at night, zombies can spawn on the surface', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 12345 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 12345 });
   const { conn } = fakeConn();
   const p = g.join(conn, hello('Nightowl'))!;
   const gm = g as any;
@@ -118,7 +119,7 @@ test('at night, zombies can spawn on the surface', () => {
 
 test('a character carried from a save replaces the server inventory and health', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 3 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3 });
   const { got, conn } = fakeConn();
   const carry = { inv: { slots: [{ type: 'diamond', count: 3 }, null, { type: 'stick', count: 5 }], selected: 2, cursor: null }, health: 11 };
   const p = g.join(conn, { ...hello('Traveller'), carry })!;
@@ -130,7 +131,7 @@ test('a character carried from a save replaces the server inventory and health',
 
 test('a carried character is never saved as the server character (no duplicating items between them)', () => {
   const { s, storage } = memoryStorage();
-  const g = new Game(storage, { seed: 3 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3 });
   // The server's own character for this name has 2 sticks
   const own = g.join(fakeConn().conn, hello('Traveller'))!;
   own.inv.slots[0] = { type: 'stick', count: 2 };
@@ -148,7 +149,7 @@ test('a carried character is never saved as the server character (no duplicating
 
 test('using /give or creative marks the character as cheated (it stays in single player)', () => {
   const { s, storage } = memoryStorage();
-  const g = new Game(storage, { seed: 3, ops: ['*'] });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, ops: ['*'] });
   const p = g.join(fakeConn().conn, hello('Solo'))!;
   g.handle(p, { t: 'chat', text: '/give diamond 5' } as any);
   g.leave(p);
@@ -160,11 +161,11 @@ test('using /give or creative marks the character as cheated (it stays in single
 
 test('nobody is an operator unless the server names them', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 3 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3 });
   const c = fakeConn();
   const p = g.join(c.conn, { ...hello('player9989'), token: 'x' })!;
   g.handle(p, { t: 'chat', text: '/give diamond 64' } as any);
-  g.handle(p, { t: 'chat', text: '/gamemode creative' } as any);
+  g.handle(p, { t: 'chat', text: '/gamemode creative 1234' } as any);
   assert.equal(p.inv.slots.filter(Boolean).length, 0);
   assert.equal(p.gamemode, 'survival');
 });
@@ -172,7 +173,7 @@ test('nobody is an operator unless the server names them', () => {
 test('an operator who renames keeps their old name locked', () => {
   const { s, storage } = memoryStorage();
   (storage as any).deletePlayer = (n: string) => { delete s.players[n]; };
-  const g = new Game(storage, { seed: 3, ops: ['Boss'] });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, ops: ['Boss'] });
   g.leave(g.join(fakeConn().conn, { ...hello('Boss'), token: 'boss' })!);
   g.leave(g.join(fakeConn().conn, { ...hello('Chief'), token: 'boss', prevName: 'Boss' } as any)!);
   assert.ok(s.players['Boss'], 'old name still claimed');
@@ -182,7 +183,7 @@ test('an operator who renames keeps their old name locked', () => {
 
 test('servers can refuse carried characters', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 3, allowCarry: false });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, allowCarry: false });
   const { got, conn } = fakeConn();
   const p = g.join(conn, { ...hello('Traveller'), carry: { inv: { slots: [{ type: 'diamond', count: 64 }] }, health: 20 } })!;
   assert.equal((got.find(m => m.t === 'welcome') as any).carried, false);
@@ -192,7 +193,7 @@ test('servers can refuse carried characters', () => {
 test('renaming moves the character and frees the old name; others cannot take a claimed name', () => {
   const { s, storage } = memoryStorage();
   (storage as any).deletePlayer = (n: string) => { delete s.players[n]; };
-  const g = new Game(storage, { seed: 3 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3 });
   const a = fakeConn();
   const alice = g.join(a.conn, { ...hello('Alice'), token: 'alice-token' })!;
   alice.inv.slots[0] = { type: 'apple', count: 2 };
@@ -222,7 +223,7 @@ test('renaming moves the character and frees the old name; others cannot take a 
 test('Easy has no hunger; Medium and Hard drain food with activity', () => {
   for (const difficulty of ['easy', 'medium', 'hard'] as const) {
     const { storage } = memoryStorage();
-    const g = new Game(storage, { seed: 11, difficulty });
+    const g = new Game(storage, { creativeCode: TEST_CODE, seed: 11, difficulty });
     const { got, conn } = fakeConn();
     const p = g.join(conn, hello('Runner' + difficulty))!;
     assert.equal((got.find(m => m.t === 'welcome') as any).difficulty, difficulty);
@@ -236,7 +237,7 @@ test('Easy has no hunger; Medium and Hard drain food with activity', () => {
 test('starving stops at half a heart on Medium, kills on Hard', () => {
   for (const [difficulty, survives] of [['medium', true], ['hard', false]] as const) {
     const { storage } = memoryStorage();
-    const g = new Game(storage, { seed: 11, difficulty, maxPlayers: 1 }); // single player: no downed state
+    const g = new Game(storage, { creativeCode: TEST_CODE, seed: 11, difficulty, maxPlayers: 1 }); // single player: no downed state
     const p = g.join(fakeConn().conn, hello('Hungry' + difficulty))!;
     p.food = 0; p.sat = 0;
     for (let i = 0; i < 20 * 120; i++) g.tick(0.05); // two minutes of starving
@@ -247,7 +248,7 @@ test('starving stops at half a heart on Medium, kills on Hard', () => {
 
 test('eating fills hunger (and returns the bowl from stew)', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 11, difficulty: 'medium' });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 11, difficulty: 'medium' });
   const p = g.join(fakeConn().conn, hello('Eater'))!;
   p.food = 10;
   p.inv.slots[0] = { type: 'mushroom_stew', count: 1 };
@@ -259,15 +260,15 @@ test('eating fills hunger (and returns the bowl from stew)', () => {
 
 test('the difficulty is kept in the world save', () => {
   const { s, storage } = memoryStorage();
-  new Game(storage, { seed: 11, difficulty: 'hard' });
+  new Game(storage, { creativeCode: TEST_CODE, seed: 11, difficulty: 'hard' });
   assert.equal(s.world?.difficulty, 'hard');
-  const again = new Game(storage, { seed: 11, difficulty: 'easy' }); // a saved world keeps its own
+  const again = new Game(storage, { creativeCode: TEST_CODE, seed: 11, difficulty: 'easy' }); // a saved world keeps its own
   assert.equal(again.difficulty, 'hard');
 });
 
 test('crops planted on farmland grow until ripe', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 11 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 11 });
   const p = g.join(fakeConn().conn, hello('Farmer'))!;
   const w = (g as any).world;
   const x = Math.floor(p.body.pos.x) + 2, z = Math.floor(p.body.pos.z);
@@ -293,7 +294,7 @@ test('new blocks: powder snow is not solid, plants follow their placement rules'
 
 test('a hit is not healed back straight away by the hunger regeneration', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 11, difficulty: 'medium' });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 11, difficulty: 'medium' });
   const a = g.join(fakeConn().conn, { ...hello('Hitter'), token: 'h' })!;
   const b = g.join(fakeConn().conn, { ...hello('Target'), token: 't' })!;
   for (let i = 0; i < 60; i++) g.tick(0.05); // spawn protection wears off, heal timer sits at full
@@ -335,7 +336,7 @@ test('a generated chest has loot; a placed chest starts empty; contents are save
   const { CHEST } = await import('../../shared/blocks.ts');
   const s = await findStructure('cabin', 12345);
   const { s: saved, storage } = memoryStorage();
-  const g = new Game(storage, { seed: 12345 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 12345 });
   const { got, conn } = fakeConn();
   const p = g.join(conn, hello('Looter'))!;
   const w = (g as any).world;
@@ -377,7 +378,7 @@ test('a generated chest has loot; a placed chest starts empty; contents are save
 
 function arena(difficulty: 'easy' | 'medium' | 'hard' = 'medium') {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 12345, difficulty });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 12345, difficulty });
   const p = g.join(fakeConn().conn, hello('Hunter' + Math.random().toString(36).slice(2, 6)))!;
   const gm = g as any;
   for (let i = 0; i < 60; i++) g.tick(0.05); // spawn protection wears off
@@ -442,7 +443,7 @@ test('desert nights bring husks, snowy nights frostbitten; caves have a mix (sli
 
 function party() {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 12345, maxPlayers: 8, difficulty: 'easy' });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 12345, maxPlayers: 8, difficulty: 'easy' });
   const a = fakeConn(), b = fakeConn();
   const alice = g.join(a.conn, { ...hello('Alice'), token: 'a' })!;
   const bob = g.join(b.conn, { ...hello('Bob'), token: 'b' })!;
@@ -494,7 +495,7 @@ test('while downed: can only crawl; mobs leave you alone; another hit finishes y
   assert.equal(bob.dead, true);
 
   const { storage } = memoryStorage();
-  const sp = new Game(storage, { seed: 1, maxPlayers: 1 });
+  const sp = new Game(storage, { creativeCode: TEST_CODE, seed: 1, maxPlayers: 1 });
   const solo = sp.join(fakeConn().conn, hello('Solo'))!;
   for (let i = 0; i < 60; i++) sp.tick(0.05);
   (sp as any).damagePlayer(solo, 100, null, 'fall');
@@ -507,7 +508,7 @@ function chatReplies(got: ServerMsg[]) { return got.filter(m => m.t === 'chat').
 
 test('/give and /gamemode work for operators only (none by default)', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 3, ops: ['player9989'] });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, ops: ['player9989'] });
   const op = fakeConn(), other = fakeConn();
   const owner = g.join(op.conn, { ...hello('player9989'), token: 'o' })!;
   const guest = g.join(other.conn, { ...hello('Guest'), token: 'g' })!;
@@ -520,20 +521,20 @@ test('/give and /gamemode work for operators only (none by default)', () => {
   assert.deepEqual(guest.inv.slots.find(Boolean), { type: 'wood', count: 3 });
   g.handle(owner, { t: 'chat', text: '/give notathing' } as any);
   assert.ok(chatReplies(op.got).some(t => t.includes('Unknown item')));
-  g.handle(guest, { t: 'chat', text: '/gamemode creative' } as any);
+  g.handle(guest, { t: 'chat', text: '/gamemode creative 1234' } as any);
   assert.equal(guest.gamemode, 'survival');
-  g.handle(owner, { t: 'chat', text: '/gamemode c' } as any);
+  g.handle(owner, { t: 'chat', text: '/gamemode c 1234' } as any);
   assert.equal(owner.gamemode, 'creative');
   assert.ok(op.got.some(m => m.t === 'gamemode' && (m as any).mode === 'creative'));
 });
 
 test('creative: no damage, instant breaking without drops, blocks never run out, mobs ignore you', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 12345, maxPlayers: 8, ops: ['player9989'] });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 12345, maxPlayers: 8, ops: ['player9989'] });
   const gm = g as any;
   const p = g.join(fakeConn().conn, { ...hello('player9989'), token: 'o' })!;
   for (let i = 0; i < 60; i++) g.tick(0.05);
-  g.handle(p, { t: 'chat', text: '/gamemode creative' } as any);
+  g.handle(p, { t: 'chat', text: '/gamemode creative 1234' } as any);
   gm.damagePlayer(p, 50, null, 'zombie');
   assert.equal(p.health, 20);
   // Break stone instantly (no tool, no dig credit) and get nothing
@@ -561,9 +562,9 @@ test('creative: no damage, instant breaking without drops, blocks never run out,
 
 test('creative mode is saved for the owner (and never for anyone else)', () => {
   const { s, storage } = memoryStorage();
-  const g = new Game(storage, { seed: 3, ops: ['player9989'] });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, ops: ['player9989'] });
   const p = g.join(fakeConn().conn, { ...hello('player9989'), token: 'o' })!;
-  g.handle(p, { t: 'chat', text: '/gamemode creative' } as any);
+  g.handle(p, { t: 'chat', text: '/gamemode creative 1234' } as any);
   g.leave(p);
   assert.equal(s.players['player9989'].gamemode, 'creative');
   const again = g.join(fakeConn().conn, { ...hello('player9989'), token: 'o' })!;
@@ -575,7 +576,7 @@ test('creative mode is saved for the owner (and never for anyone else)', () => {
 
 test('a hoe tills grass with tall grass on it (clearing the plant)', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 12345 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 12345 });
   const gm = g as any;
   const p = g.join(fakeConn().conn, hello('Tiller'))!;
   const x = Math.floor(p.body.pos.x) + 2, z = Math.floor(p.body.pos.z);
@@ -589,14 +590,14 @@ test('a hoe tills grass with tall grass on it (clearing the plant)', () => {
 
 test('a carried character brings its hunger too', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 3, difficulty: 'medium' });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, difficulty: 'medium' });
   const p = g.join(fakeConn().conn, { ...hello('Traveller'), carry: { inv: { slots: [] }, health: 20, food: 9 } })!;
   assert.equal(p.food, 9);
 });
 
 test('item spam evicts ordinary drops before death loot', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const items = (g as any).items as Map<number, { type: string; keep?: boolean }>;
   g.spawnItem('diamond', 3, 100, 200, 100, { x: 0, y: 0, z: 0 }, 1, true);
   for (let i = 0; i < 700; i++) g.spawnItem('dirt', 1, i * 2, 200, 0, { x: 0, y: 0, z: 0 });
@@ -608,7 +609,7 @@ test('item spam evicts ordinary drops before death loot', () => {
 
 test('digging a slow block takes its real time (no 1-second cap)', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const w = (g as any).world;
   const p = g.join(fakeConn().conn, hello('Miner'))!;
   const x = Math.floor(p.body.pos.x) + 1, y = Math.floor(p.body.pos.y), z = Math.floor(p.body.pos.z);
@@ -626,7 +627,7 @@ test('digging a slow block takes its real time (no 1-second cap)', () => {
 
 test('moving into solid blocks is refused', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const w = (g as any).world;
   const { got, conn } = fakeConn();
   const p = g.join(conn, hello('Ghost'))!;
@@ -639,7 +640,7 @@ test('moving into solid blocks is refused', () => {
 
 test('a chest stops working when you walk away from it', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const w = (g as any).world;
   const p = g.join(fakeConn().conn, hello('Reacher'))!;
   const x = Math.floor(p.body.pos.x) + 1, y = Math.floor(p.body.pos.y), z = Math.floor(p.body.pos.z);
@@ -653,7 +654,7 @@ test('a chest stops working when you walk away from it', () => {
 
 test('dying with a full inventory and a stack on the cursor drops the cursor stack too', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const p = g.join(fakeConn().conn, hello('Hoarder'))!;
   g.handle(p, { t: 'screen', mode: 'inventory' } as any);
   for (let i = 0; i < 36; i++) p.inv.slots[i] = { type: 'dirt', count: 64 };
@@ -665,7 +666,7 @@ test('dying with a full inventory and a stack on the cursor drops the cursor sta
 
 test('/give ignores names that are not items', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5, ops: ['*'] });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5, ops: ['*'] });
   const p = g.join(fakeConn().conn, hello('Op'))!;
   g.handle(p, { t: 'chat', text: '/give constructor 5' } as any);
   assert.equal(p.inv.slots.filter(Boolean).length, 0);
@@ -699,7 +700,7 @@ function buildPortal(g: Game, p: { body: { pos: { x: number; y: number; z: numbe
 
 test('a portal takes you to the Robotic World and back', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const { got, conn } = fakeConn();
   const p = g.join(conn, hello('Traveller'))!;
   const home = { x: p.body.pos.x, z: p.body.pos.z };
@@ -724,7 +725,7 @@ test('a portal takes you to the Robotic World and back', () => {
 
 test('a robot fires its laser at you (3 hearts), and a tungsten ingot tames it', () => {
   const { s, storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const w = (g as any).world;
   const { got, conn } = fakeConn();
   const p = g.join(conn, hello('Tamer'))!;
@@ -733,7 +734,7 @@ test('a robot fires its laser at you (3 hearts), and a tungsten ingot tames it',
   for (let dx = -12; dx <= 12; dx++) for (let dz = -3; dz <= 3; dz++) { w.set(bx + dx, by - 1, bz + dz, BLOCK_ID.stone); for (let dy = 0; dy < 4; dy++) w.set(bx + dx, by + dy, bz + dz, 0); }
   p.body.pos.x = bx + 0.5; p.body.pos.y = by; p.body.pos.z = bz + 0.5;
   const robot = (g as any).spawnMob('robot', bx + 8.5, by, bz + 0.5);
-  for (let i = 0; i < 200 && p.health >= 20; i++) g.tick(0.05);
+  for (let i = 0; i < 600 && p.health >= 20; i++) g.tick(0.05); // up to ~10 shots (robots can miss)
   assert.ok(p.health <= 14, `laser hurt: health ${p.health}`);
   assert.ok(got.some(m => m.t === 'beam'), 'beam shown');
   // Tame it
@@ -747,7 +748,7 @@ test('a robot fires its laser at you (3 hearts), and a tungsten ingot tames it',
   assert.equal(p.health, 20, 'a tamed robot does not shoot you');
   // It fights for you: a zombie nearby gets lasered
   const zombie = (g as any).spawnMob('zombie', bx - 6.5, by, bz + 0.5);
-  for (let i = 0; i < 100 && zombie.health >= 20; i++) g.tick(0.05);
+  for (let i = 0; i < 300 && zombie.health >= 20 && zombie.dying < 0; i++) g.tick(0.05);
   assert.ok(zombie.health < 20 || zombie.dying >= 0, 'pet attacked the zombie');
   // Saved with you, and back when you return
   g.leave(p);
@@ -759,7 +760,7 @@ test('a robot fires its laser at you (3 hearts), and a tungsten ingot tames it',
 
 test('a quick block right after a slow one is not refused (log by hand, then leaves)', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const w = (g as any).world;
   const p = g.join(fakeConn().conn, hello('Lumberjack'))!;
   const x = Math.floor(p.body.pos.x) + 1, y = Math.floor(p.body.pos.y), z = Math.floor(p.body.pos.z);
@@ -774,7 +775,7 @@ test('a quick block right after a slow one is not refused (log by hand, then lea
 
 test('landing in powder snow breaks the fall', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const w = (g as any).world;
   const p = g.join(fakeConn().conn, hello('Skier'))!;
   const x = Math.floor(p.body.pos.x), z = Math.floor(p.body.pos.z), y = Math.floor(p.body.pos.y) + 40;
@@ -790,7 +791,7 @@ test('landing in powder snow breaks the fall', () => {
 
 test('a teleport never lands inside blocks, and a return portal never destroys a chest', () => {
   const { s, storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5 });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
   const w = (g as any).world;
   const p = g.join(fakeConn().conn, hello('Builder'))!;
   const sx = Math.floor(p.spawn[0]), sy = Math.floor(p.spawn[1]), sz = Math.floor(p.spawn[2]);
@@ -812,12 +813,12 @@ test('a teleport never lands inside blocks, and a return portal never destroys a
 
 test('creative item list: any item, only in creative', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 5, ops: ['*'] });
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5, ops: ['*'] });
   const p = g.join(fakeConn().conn, hello('Maker'))!;
   g.handle(p, { t: 'screen', mode: 'inventory' } as any);
   g.handle(p, { t: 'inv', seq: 1, action: { a: 'creative', type: 'diamond', all: true } } as any);
   assert.equal(p.inv.cursor, null, 'refused in survival');
-  g.handle(p, { t: 'chat', text: '/gamemode creative' } as any);
+  g.handle(p, { t: 'chat', text: '/gamemode creative 1234' } as any);
   g.handle(p, { t: 'screen', mode: 'inventory' } as any);
   g.handle(p, { t: 'inv', seq: 2, action: { a: 'creative', type: 'diamond', all: true } } as any);
   assert.deepEqual(p.inv.cursor, { type: 'diamond', count: 64 });
@@ -825,4 +826,34 @@ test('creative item list: any item, only in creative', () => {
   assert.deepEqual(p.inv.cursor, { type: 'diamond', count: 64 }, 'not an item: ignored');
   g.handle(p, { t: 'inv', seq: 4, action: { a: 'creative', type: null, all: false } } as any);
   assert.equal(p.inv.cursor, null, 'deleted');
+});
+
+test('etherite is craftable from a gold ingot and a moonstone', async () => {
+  const { recipes } = await import('../../shared/recipes.ts');
+  const r = recipes.filter(r => r.result.type === 'etherite' && JSON.stringify(r.shape).includes('moonstone'));
+  assert.equal(r.length, 2, 'both ways round');
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
+  const p = g.join(fakeConn().conn, hello('Smith'))!;
+  p.inv.slots[0] = { type: 'gold_ingot', count: 1 }; p.inv.slots[1] = { type: 'moonstone', count: 1 };
+  g.handle(p, { t: 'screen', mode: 'inventory' } as any);
+  g.handle(p, { t: 'inv', seq: 1, action: { a: 'book', result: 'etherite', shift: false } } as any);
+  g.handle(p, { t: 'inv', seq: 2, action: { a: 'click', slot: 54, button: 0, shift: true } } as any);
+  assert.ok(p.inv.slots.some(s => s?.type === 'etherite'), JSON.stringify(p.inv.slots.filter(Boolean)));
+});
+
+test('creative mode needs the code', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5, ops: ['*'] });
+  const c = fakeConn();
+  const p = g.join(c.conn, hello('Kid'))!;
+  g.handle(p, { t: 'chat', text: '/gamemode creative' } as any);
+  assert.equal(p.gamemode, 'survival');
+  g.handle(p, { t: 'chat', text: '/gamemode creative 9999' } as any);
+  assert.equal(p.gamemode, 'survival');
+  assert.ok(chatReplies(c.got).some(t => t.includes('needs the code')));
+  g.handle(p, { t: 'chat', text: '/gamemode creative 1234' } as any);
+  assert.equal(p.gamemode, 'creative');
+  g.handle(p, { t: 'chat', text: '/gamemode survival' } as any);
+  assert.equal(p.gamemode, 'survival', 'survival needs no code');
 });

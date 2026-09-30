@@ -377,8 +377,8 @@ function renderRecipeBook() {
   const gridEl = document.getElementById('recipe-grid');
   if (!book || !gridEl || !screen) return;
   if (creativeList && screen.mode !== 'furnace' && screen.mode !== 'chest') {
-    book.style.display = bookOpen ? 'flex' : 'none';
-    if (bookOpen) renderCreativeList(gridEl);
+    book.style.display = 'flex'; // always there in creative (like the creative menu elsewhere)
+    renderCreativeList(gridEl);
     return;
   }
   book.style.display = bookOpen && screen.mode !== 'furnace' && screen.mode !== 'chest' ? 'flex' : 'none';

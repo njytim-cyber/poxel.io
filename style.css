@@ -205,6 +205,8 @@ canvas { display: block; }
 }
 .pause-panel h2 { text-align: center; font-size: 36px; text-shadow: 3px 3px 0 #000; }
 .pause-panel .menu-btn { justify-content: center; }
+/* Until the game has finished starting (saves open), the main menu can't be used yet */
+body:not([data-ready]) #main-menu .menu-btn { opacity: 0.6; pointer-events: none; }
 #recipe-book.creative #recipe-filter-label { display: none; }
 .setting-row {
   display: flex;

@@ -49,6 +49,9 @@ for (const [item, block] of [['copper_ingot', 'copper_block'], ['iron_ingot', 'i
 // Etherite blocks (4 etherite each): four around a gold block make a portal to the Robotic World
 add(square('etherite'), 'etherite_block');
 add([['etherite_block']], 'etherite', 4);
+// Etherite ore is very rare, so it can also be made: a gold ingot and a moonstone side by side (either way round)
+add([['gold_ingot', 'moonstone']], 'etherite');
+add([['moonstone', 'gold_ingot']], 'etherite');
 
 // Light
 add([['coal'], ['stick']], 'torch', 4);

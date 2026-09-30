@@ -77,6 +77,7 @@ export async function openGame(browser, { ctx = false } = {}) {
   await page.waitForFunction(() => !!window.poxel, { timeout: 15000 }).catch(() => {
     throw new Error(`window.poxel hooks missing at ${BASE}. The suites need the Vite dev client (npm run dev).`);
   });
+  await page.waitForFunction(() => document.body.dataset.ready === '1', { timeout: 15000 });
   await sleep(500);
   return page;
 }

@@ -75,7 +75,14 @@ function sanitizeChest(c: unknown[]): Stack[] {
 }
 
 const MOB_CAUSES = new Set(['zombie', 'husk', 'frostbitten', 'spider', 'skeleton', 'slime', 'robot']);
-const MAX_PETS = 3;          // tamed robots per player        // blocks below the natural ground where zombies may spawn in daylight
+const MAX_PETS = 3;
+// /gamemode creative needs the owner's code. Only its fingerprint is kept here (the source is public).
+const CREATIVE_CODE = 'ff78b193';
+export function creativeCodeHash(code: string): string {
+  let x = 0x811c9dc5;
+  for (const c of 'poxel-creative:' + code) { x ^= c.charCodeAt(0); x = Math.imul(x, 0x01000193) >>> 0; }
+  return x.toString(16).padStart(8, '0');
+}          // tamed robots per player        // blocks below the natural ground where zombies may spawn in daylight
 const MAX_ITEMS = 600;        // item entities (drops and arrows); see makeRoomForItem
 const EDIT_RADIUS = 12;      // chunks around a player whose saved edits it receives (render distance is at most 10)
 const REACH = 6.5;          // server allows a little more than the client's 5 for latency
@@ -160,7 +167,7 @@ const MOB_DROPS: Record<MobKind, () => [string, number][]> = {
 // allowCarry: players may bring their character (inventory + health) from a single-player save
 // devTools: accept 'dev' messages (give items, spawn mobs, set time). Only the dev build's single player turns it on.
 // ops: player names allowed to use /give and /gamemode ('*': everyone, as in single player). None by default.
-export interface GameOptions { seed?: number; log?: (msg: string) => void; maxPlayers?: number; allowCarry?: boolean; difficulty?: Difficulty; devTools?: boolean; ops?: string[] }
+export interface GameOptions { creativeCode?: string; seed?: number; log?: (msg: string) => void; maxPlayers?: number; allowCarry?: boolean; difficulty?: Difficulty; devTools?: boolean; ops?: string[] }
 
 function sanitizeFurnace(f: any): FurnaceState | null {
   if (!f || typeof f !== 'object') return null;
@@ -179,6 +186,7 @@ export class Game {
   private allowCarry: boolean;
   private devTools: boolean;
   private ops: Set<string>;
+  private creativeCode: string; // fingerprint of the code /gamemode creative needs (creativeCodeHash)
   readonly difficulty: Difficulty;
   private players = new Map<number, Player>();
   private mobs = new Map<number, Mob>();
@@ -201,6 +209,7 @@ export class Game {
     this.allowCarry = opts.allowCarry ?? true;
     this.devTools = !!opts.devTools;
     this.ops = new Set((opts.ops ?? []).map(n => n.toLowerCase()));
+    this.creativeCode = opts.creativeCode ?? CREATIVE_CODE;
     const save = storage.loadWorld();
     this.difficulty = DIFFICULTIES.includes(save?.difficulty as Difficulty) ? save!.difficulty! : DIFFICULTIES.includes(opts.difficulty!) ? opts.difficulty! : 'medium';
     const seed = save?.seed ?? opts.seed ?? ((Math.random() * 2 ** 31) | 0);
@@ -741,7 +750,7 @@ export class Game {
     }
     if (text === '/help') {
       const op = this.isOp(p.name);
-      p.conn.send({ t: 'chat', from: null, text: `Commands: /players, /spawn, /kill${op ? ', /give <item> [amount] [player], /gamemode <creative|survival> [player]' : ''}` });
+      p.conn.send({ t: 'chat', from: null, text: `Commands: /players, /spawn, /kill${op ? ', /give <item> [amount] [player], /gamemode creative <code> [player], /gamemode survival [player]' : ''}` });
       return;
     }
     if (text.startsWith('/give ') || text === '/give' || text.startsWith('/gamemode') || text.startsWith('/gm ')) { this.opCommand(p, text); return; }
@@ -774,12 +783,18 @@ export class Game {
       say(`Gave ${count} ${itemDef(type).name} to ${target.name}`);
       return;
     }
-    // /gamemode <creative|survival> [player]  (also c/s, 1/0)
+    // /gamemode creative <code> [player] or /gamemode survival [player]  (also c/s, 1/0)
     const m = (args[1] || '').toLowerCase();
     const mode: GameMode | null = ['creative', 'c', '1'].includes(m) ? 'creative' : ['survival', 's', '0'].includes(m) ? 'survival' : null;
-    if (!mode) { say('Usage: /gamemode <creative|survival> [player]'); return; }
-    const target = findPlayer(args[2]);
-    if (!target) { say(`No player called ${args[2]} is online.`); return; }
+    if (!mode) { say('Usage: /gamemode creative <code> [player], or /gamemode survival [player]'); return; }
+    // Creative also needs the owner's code (dev builds and test servers skip it)
+    let who = args[2];
+    if (mode === 'creative' && !this.devTools) {
+      if (creativeCodeHash(args[2] || '') !== this.creativeCode) { say('Creative mode needs the code: /gamemode creative <code>'); return; }
+      who = args[3];
+    }
+    const target = findPlayer(who);
+    if (!target) { say(`No player called ${who} is online.`); return; }
     this.setGamemode(target, mode);
     if (target !== p) say(`${target.name} is now in ${mode} mode`);
   }

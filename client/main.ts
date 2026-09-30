@@ -52,10 +52,11 @@ setupInput();
 initRemote(scene);
 initPlayer(perspectiveCamera, scene);
 initInventory();
+// Item icons are drawn a few at a time while idle (they're needed only once an inventory shows)
 preloadIcons();
-// Background world behind the main menu (no server needed just to look at it)
+// Background world behind the main menu (no server needed just to look at it). It streams in on the
+// worker threads like the rest of the world, so the menu shows straight away on slow phones.
 resetWorld(1337);
-loadAreaNow(0, 0, 1);
 warmUpShaders();
 
 // Compiles every kind of material the game draws (terrain, water, mobs, players, name tags, items, hand)
@@ -741,3 +742,5 @@ function frame() {
   }
 }
 requestAnimationFrame(frame);
+// Menu buttons work from here on (saves are open and every handler is attached)
+document.body.dataset.ready = '1';
