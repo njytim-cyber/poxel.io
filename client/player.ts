@@ -327,7 +327,7 @@ export function resetPlayerState(hp: number) {
   ui.renderHealth(health, MAX_HEALTH);
 }
 
-export function onHomes(list: { x: number; y: number; z: number; name: string }[], slots: number) {
+export function onHomes(list: ({ x: number; y: number; z: number; name: string } | null)[], slots: number) {
   const sidebar = document.getElementById('homes-sidebar');
   const ul = document.getElementById('homes-list');
   if (!sidebar || !ul) return;

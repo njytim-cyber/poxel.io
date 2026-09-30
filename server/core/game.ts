@@ -99,7 +99,7 @@ export interface WorldSave {
 }
 export interface PlayerSave {
   x: number; y: number; z: number; yaw: number; pitch: number; health: number; food?: number; saturation?: number; gamemode?: GameMode;
-  inv: InvState; spawn?: [number, number, number]; homes?: { x: number; y: number; z: number; name: string }[];
+  inv: InvState; spawn?: [number, number, number]; homes?: ({ x: number; y: number; z: number; name: string } | null)[];
   token?: string; // proves ownership of the name
   cheated?: boolean; // used /give, creative mode or dev tools: this character can't be carried into a server
   pets?: number[];   // tamed robots (their health), which come back with the player
@@ -128,7 +128,7 @@ interface Player {
   gamemode: GameMode;
   inv: Inv; screen: Screen | null; furnaceKey: string | null; // furnaceKey: position of the furnace or chest that's open
   screenAt: { x: number; y: number; z: number; id: number } | null; // the block whose screen is open (table, furnace, chest)
-  spawn: [number, number, number]; homes: { x: number; y: number; z: number; name: string }[];
+  spawn: [number, number, number]; homes: ({ x: number; y: number; z: number; name: string } | null)[];
   attackCd: number; lastDig: number; swingUntil: number; invSeq: number;
   moveBudget: number; climbBudget: number; dropCredit: number; chatCredit: number; token: string;
   seen: Set<number>;         // entity ids this client currently knows about
@@ -276,7 +276,7 @@ export class Game {
       downed: false, downT: 0, downCause: '', revive: 0, reviveAt: -1, reviverName: '',
       gamemode: saved?.gamemode === 'creative' && this.isOp(name) ? 'creative' : 'survival',
       inv: carry ? { ...sanitizeInv(carry.inv), cursor: null } : saved ? sanitizeInv(saved.inv) : newInv(), screen: null, furnaceKey: null, screenAt: null,
-      spawn: [...spawn] as [number, number, number], homes: Array.isArray(saved?.homes) ? saved!.homes!.slice(0, 4) : [],
+      spawn: [...spawn] as [number, number, number], homes: Array.isArray(saved?.homes) ? saved!.homes!.slice(0, 4).map(h => (h && [h.x, h.y, h.z].every(isNum) ? h : null)) : [],
       attackCd: 0, lastDig: -99, swingUntil: 0, invSeq: 0, seen: new Set(), ping: 0,
       moveBudget: 3, climbBudget: 3, dropCredit: 8, chatCredit: 5, token,
       editChunks: new Set(), editCenter: '',
@@ -354,7 +354,7 @@ export class Game {
       case 'swing': p.swingUntil = this.clock + 0.25; return;
       case 'chat': return this.onChat(p, msg.text);
       case 'respawn': return this.onRespawn(p);
-      case 'sethome': return this.onSetHome(p);
+      case 'sethome': return this.onSetHome(p, -1);
       case 'gohome': if (isInt(msg.i)) this.onGoHome(p, msg.i); return;
       case 'ping': if (isNum(msg.ts)) p.conn.send({ t: 'pong', ts: msg.ts }); return;
     }
@@ -750,11 +750,17 @@ export class Game {
     }
     if (text === '/help') {
       const op = this.isOp(p.name);
-      p.conn.send({ t: 'chat', from: null, text: `Commands: /players, /spawn, /kill${op ? ', /give <item> [amount] [player], /gamemode creative <code> [player], /gamemode survival [player]' : ''}` });
+      p.conn.send({ t: 'chat', from: null, text: `Commands: /players, /spawn, /kill, /sethome <1-4>, /tphome <1-4>${op ? ', /give <item> [amount] [player], /gamemode creative <code> [player], /gamemode survival [player]' : ''}` });
       return;
     }
     if (text.startsWith('/give ') || text === '/give' || text.startsWith('/gamemode') || text.startsWith('/gm ')) { this.opCommand(p, text); return; }
     if (text === '/kill') { if (!p.dead) { p.health = 0; p.conn.send({ t: 'health', hp: 0 }); this.killPlayer(p, 'kill'); } return; }
+    const homeCmd = /^\/(sethome|tphome|home)(?:\s+(\d+))?$/i.exec(text);
+    if (homeCmd) {
+      const n = homeCmd[2] ? Number(homeCmd[2]) : 1;
+      if (homeCmd[1].toLowerCase() === 'sethome') this.onSetHome(p, n - 1); else this.onGoHome(p, n - 1, true);
+      return;
+    }
     if (text === '/spawn') { if (p.downed) { p.conn.send({ t: 'chat', from: null, text: "You can't do that while you're down." }); return; } this.teleport(p, p.spawn[0], p.spawn[1], p.spawn[2]); return; }
     this.broadcast({ t: 'chat', from: p.name, text });
     this.log(`<${p.name}> ${text}`);
@@ -960,20 +966,31 @@ export class Game {
     return n;
   }
 
-  private onSetHome(p: Player) {
+  // Homes: one slot per piece of etherite armour worn (up to 4). slot -1 (the H key): the first empty
+  // slot, or the last one when all are used.
+  private onSetHome(p: Player, slot: number) {
+    const say = (text: string) => p.conn.send({ t: 'chat', from: null, text });
     const slots = this.etheritePieces(p);
-    if (p.dead || slots <= 0) return;
-    const h = { x: p.body.pos.x, y: p.body.pos.y, z: p.body.pos.z, name: '' };
-    if (p.homes.length < slots) p.homes.push(h); else p.homes[p.homes.length - 1] = h;
-    p.homes.forEach((home, i) => { home.name = `Home ${i + 1}`; });
-    p.conn.send({ t: 'toast', text: 'Home set!' });
+    if (p.dead || p.downed) return;
+    if (slots <= 0) { say('Wear etherite armour to get home slots (one per piece, up to 4).'); return; }
+    if (slot < 0) { slot = p.homes.findIndex(h => !h); if (slot < 0 || slot >= slots) slot = Math.min(p.homes.length, slots - 1); }
+    if (!(slot >= 0 && slot < slots)) { say(`Pick a home from 1 to ${slots} (one per piece of etherite armour you wear).`); return; }
+    while (p.homes.length < slot) p.homes.push(null);
+    p.homes[slot] = { x: p.body.pos.x, y: p.body.pos.y, z: p.body.pos.z, name: `Home ${slot + 1}` };
+    p.conn.send({ t: 'toast', text: `Home ${slot + 1} set!` });
     this.sendHomes(p);
   }
 
-  private onGoHome(p: Player, i: number) {
+  private onGoHome(p: Player, i: number, fromChat = false) {
+    const say = (text: string) => { if (fromChat) p.conn.send({ t: 'chat', from: null, text }); };
+    if (p.dead) return;
+    if (p.downed) { say("You can't do that while you're down."); return; }
+    const slots = this.etheritePieces(p);
+    if (!(i >= 0 && i < slots)) { say(slots ? `Pick a home from 1 to ${slots}.` : 'Wear etherite armour to get home slots (one per piece, up to 4).'); return; }
     const h = p.homes[i];
-    if (!h || p.dead || i >= this.etheritePieces(p)) return;
+    if (!h) { say(`Home ${i + 1} isn't set yet. Stand there and type /sethome ${i + 1}.`); return; }
     this.teleport(p, h.x, h.y, h.z);
+    say(`Teleported to Home ${i + 1}.`);
   }
 
   private sendHomes(p: Player) {

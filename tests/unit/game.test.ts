@@ -857,3 +857,29 @@ test('creative mode needs the code', () => {
   g.handle(p, { t: 'chat', text: '/gamemode survival' } as any);
   assert.equal(p.gamemode, 'survival', 'survival needs no code');
 });
+
+test('/sethome and /tphome (one home per piece of etherite armour)', () => {
+  const { s, storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
+  const c = fakeConn();
+  const p = g.join(c.conn, hello('Homer'))!;
+  g.handle(p, { t: 'chat', text: '/sethome 1' } as any);
+  assert.ok(chatReplies(c.got).some(t => t.includes('Wear etherite armour')), 'needs armour');
+  p.inv.slots[55] = { type: 'etherite_helmet', count: 1 };
+  p.inv.slots[56] = { type: 'etherite_chestplate', count: 1 };
+  const home = { ...p.body.pos };
+  g.handle(p, { t: 'chat', text: '/sethome 2' } as any);
+  assert.equal(p.homes[1]?.name, 'Home 2');
+  assert.equal(p.homes[0], null, 'slot 1 still empty');
+  g.handle(p, { t: 'chat', text: '/sethome 3' } as any);
+  assert.ok(chatReplies(c.got).some(t => t.includes('from 1 to 2')), 'only 2 slots');
+  (g as any).teleport(p, home.x + 30, home.y + 20, home.z);
+  g.handle(p, { t: 'chat', text: '/tphome 1' } as any);
+  assert.ok(chatReplies(c.got).some(t => t.includes("isn't set yet")));
+  g.handle(p, { t: 'chat', text: '/tphome 2' } as any);
+  assert.ok(Math.hypot(p.body.pos.x - home.x, p.body.pos.z - home.z) < 0.01, 'back home');
+  g.leave(p);
+  assert.equal(s.players['Homer'].homes?.[0], null);
+  const again = g.join(fakeConn().conn, hello('Homer'))!;
+  assert.equal(again.homes[1]?.name, 'Home 2', 'saved');
+});

@@ -98,7 +98,7 @@ export type ServerMsg =
   | { t: 'time'; time: number }
   | { t: 'players'; list: { eid: number; name: string; ping: number }[] }
   | { t: 'toast'; text: string }
-  | { t: 'homes'; list: { x: number; y: number; z: number; name: string }[]; slots: number }
+  | { t: 'homes'; list: ({ x: number; y: number; z: number; name: string } | null)[]; slots: number }
   | { t: 'kick'; reason: string }
   | { t: 'pong'; ts: number };
 
