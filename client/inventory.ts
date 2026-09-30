@@ -298,6 +298,10 @@ export function renderFullInventory() {
       if (!inventory[i]) el.dataset.label = labels[i - 55];
       aGrid.appendChild(el);
     }
+    // Offhand: a laser cannon or a compass works from here while you hold something else
+    const off = slotEl(60, 'armor-slot-ui');
+    if (!inventory[60]) off.dataset.label = 'offhand';
+    aGrid.appendChild(off);
   }
   renderRecipeBook();
   if (mode === 'furnace') renderFurnace();

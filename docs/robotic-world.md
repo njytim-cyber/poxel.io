@@ -47,4 +47,16 @@ Decisions: "enderite" in the drawing means the game's existing **Etherite**. Bui
 - Hostile robots with a 3-heart laser. They can miss, and they drop iron, sometimes tungsten or a robot eye.
 - Taming with a tungsten ingot (smelted from tungsten ore). Up to 3 robots, which follow you, laser hostile mobs, come through portals with you, and are saved with your character.
 
-**Stage 2 (to do):** the boss and its altar (respawning every 30 minutes), obitite ore plus armour and tools, the laser cannon (crafted, and a 2% robot drop) with an offhand slot, deflecting lasers with a compass, oil as jetpack fuel, and the jetpack.
+**Stage 2 (done):**
+- The Robot Titan: 5 blocks tall, 300 health. It wakes at an altar when a player comes within 40 blocks. Altars are raised metal platforms with glowing pillars, about one per 256 x 256 blocks, and can't be mined.
+  - It fires a laser (4 hearts), charges with its grinder for 4 s of every 14 (1 heart a second), and punches up close.
+  - It drops 6-10 obitite, and half the time its laser cannon core. It wakes again 30 minutes after being defeated.
+  - A health bar shows for players within 48 blocks.
+- Tungsten and obitite tools and armour are the two top tiers. Their armour adds toughness beyond the armour cap: each piece takes off another 2% (tungsten) or 4% (obitite) of damage.
+- Laser cannon: crafted from tungsten and etherite, or a 2% robot drop. Right-click fires a 3-heart laser with a 24-block range.
+  - It can be held in the offhand (a new slot next to the armour). It then fires when the main hand holds nothing with its own right-click use.
+- Compass: crafted from iron and copper. Held, it deflects robot lasers half the time, bouncing half their power back. In the Robotic World it points to the nearest altar.
+- Jetpack: 6 obitite around the laser cannon core, worn in the chest slot.
+  - To refuel, hold it and right-click oil: three clicks fill it. A tank gives 30 s of thrust.
+  - Hold jump in the air to fly. Thrusting cancels fall damage, but only in the air and not while plummeting.
+- Reading of the drawing: "after killing one time, he gets an ore called obitite" is taken as the boss dropping obitite (there is no obitite ore).

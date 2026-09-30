@@ -52,6 +52,11 @@ add([['etherite_block']], 'etherite', 4);
 // Etherite ore is very rare, so it can also be made: a gold ingot and a moonstone side by side (either way round)
 add([['gold_ingot', 'moonstone']], 'etherite');
 add([['moonstone', 'gold_ingot']], 'etherite');
+// The Robotic World: a laser cannon (tungsten and etherite), and a compass that deflects robot lasers
+add([['tungsten_ingot', 'tungsten_ingot', 'tungsten_ingot'], ['etherite', 'etherite', 'tungsten_ingot']], 'laser_cannon');
+add([[_, 'iron_ingot', _], ['iron_ingot', 'copper_ingot', 'iron_ingot'], [_, 'iron_ingot', _]], 'compass');
+// Jetpack: obitite around the Robot Titan's laser cannon core
+add([['obitite', _, 'obitite'], ['obitite', 'laser_cannon_core', 'obitite'], ['obitite', _, 'obitite']], 'jetpack');
 
 // Light
 add([['coal'], ['stick']], 'torch', 4);
@@ -96,6 +101,8 @@ const MATERIALS: { item: string; tier: string; armor?: string }[] = [
   { item: 'diamond', tier: 'diamond', armor: 'diamond' },
   { item: 'moonstone', tier: 'moonstone', armor: 'moonstone' },
   { item: 'etherite', tier: 'etherite', armor: 'etherite' },
+  { item: 'tungsten_ingot', tier: 'tungsten', armor: 'tungsten' },
+  { item: 'obitite', tier: 'obitite', armor: 'obitite' },
 ];
 const S = 'stick';
 const mirror = (shape: Cell[][]) => shape.map(row => [...row].reverse());

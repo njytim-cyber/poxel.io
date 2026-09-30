@@ -6,9 +6,9 @@ import { checkCraftingRecipe, recipes, type Recipe } from './recipes.ts';
 import type { FurnaceState, Stack } from './furnace.ts';
 
 export type { Stack };
-export const INV_SIZE = 60;
-// 0-8 hotbar, 9-44 main, 45-53 crafting grid, 54 craft result, 55-59 armor (helmet, chest, legs, boots, gauntlets)
-export const HOTBAR = 9, MAIN_END = 45, RESULT = 54, ARMOR_START = 55;
+export const INV_SIZE = 61;
+// 0-8 hotbar, 9-44 main, 45-53 crafting grid, 54 craft result, 55-59 armor (helmet, chest, legs, boots, gauntlets), 60 offhand
+export const HOTBAR = 9, MAIN_END = 45, RESULT = 54, ARMOR_START = 55, ARMOR_END = 60, OFFHAND = 60;
 export const GRID_2 = [45, 46, 48, 49];
 export const GRID_3 = [45, 46, 47, 48, 49, 50, 51, 52, 53];
 // Furnace slots are addressed as 100 (input), 101 (fuel), 102 (output)
@@ -103,7 +103,7 @@ export function held(inv: Inv): Stack { return inv.slots[inv.selected]; }
 
 export function armorPoints(inv: Inv): number {
   let pts = 0;
-  for (let i = ARMOR_START; i < INV_SIZE; i++) { const it = inv.slots[i]; if (it) pts += itemDef(it.type).armor?.points || 0; }
+  for (let i = ARMOR_START; i < ARMOR_END; i++) { const it = inv.slots[i]; if (it) pts += itemDef(it.type).armor?.points || 0; }
   return pts;
 }
 
@@ -242,7 +242,7 @@ function setSlot(inv: Inv, screen: Screen, slot: number, v: Stack) {
 function slotAccepts(slot: number, type: string): boolean {
   if (slot === FURNACE_OUTPUT || slot === RESULT) return false;
   if (slot === FURNACE_FUEL) return !!itemDef(type).fuel;
-  if (slot >= ARMOR_START && slot < INV_SIZE) return itemDef(type).armor?.slot === slot - ARMOR_START;
+  if (slot >= ARMOR_START && slot < ARMOR_END) return itemDef(type).armor?.slot === slot - ARMOR_START;
   return true;
 }
 

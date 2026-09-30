@@ -72,7 +72,7 @@ export function makeHeldMesh(type: string, blockSize: number, planeSize: number)
   return new THREE.Mesh(new THREE.PlaneGeometry(planeSize, planeSize), itemPlaneMat(type));
 }
 
-const ARMOR_COLORS: Record<string, number> = { wood: 0xa07844, iron: 0xd8d8d8, gold: 0xfad64a, diamond: 0x33ebcb, moonstone: 0xd6d0f5, etherite: 0x3a3448 };
+const ARMOR_COLORS: Record<string, number> = { wood: 0xa07844, iron: 0xd8d8d8, gold: 0xfad64a, diamond: 0x33ebcb, moonstone: 0xd6d0f5, etherite: 0x3a3448, tungsten: 0xa4aec2, obitite: 0xd0304a };
 const armorMats = new Map<string, THREE.MeshLambertMaterial>();
 function armorMat(type: string | null | undefined): THREE.MeshLambertMaterial | null {
   if (!type) return null;

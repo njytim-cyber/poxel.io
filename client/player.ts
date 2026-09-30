@@ -8,8 +8,11 @@ import { keys, isMobile, touchLookDelta, actions } from './input';
 import { getBlock, setBlock, raycast, setFacing, isLoaded, type RayHit } from './world';
 import { BLOCKS, BLOCK_ID, WATER, LAVA, OIL, POWDER_SNOW, isLiquid, isFacingBlock, isPlant, itemDef, miningInfo, plantCanStand } from '../shared/blocks.ts';
 import { makeBody, moveBody, boxIntersectsSolid, hasGroundBelow, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, GRAVITY } from '../shared/physics.ts';
-import { MF_GROUND, MF_SNEAK, MF_WATER, MF_LAVA } from '../shared/protocol.ts';
+import { MF_GROUND, MF_SNEAK, MF_WATER, MF_LAVA, MF_JET } from '../shared/protocol.ts';
 import { inventory, selectedSlotIndex, getSelectedItem, onInventoryChange, predictUseSelected, setInfiniteBlocks, setCreativeInventory } from './inventory';
+import { OFFHAND } from '../shared/inventory.ts';
+import { isRobotic, nearestAltar } from '../shared/robotic.ts';
+import { getSeed } from './world';
 import { createAvatar, makeHeldMesh, savedLook, disposeOwned, type Avatar } from './avatar';
 import { isFlatItem } from './textures';
 import { rayHitEntity, entityInBlock, isDownedPlayer, isWildRobot } from './remote';
@@ -192,6 +195,8 @@ export function initPlayer(camera: THREE.PerspectiveCamera, scene: THREE.Scene) 
     const eye = eyePos();
     const entHit = rayHitEntity(eye, _dir, 3.5);
     const blockHit = raycast(eye, _dir, REACH);
+    const onMob = entHit && (!blockHit || entHit.dist < blockHit.dist);
+    if (canFire() && (!onMob || getSelectedItem()?.type === 'laser_cannon')) { actions.secondaryDown(); secondaryHeld = false; return; }
     if (entHit && (!blockHit || entHit.dist < blockHit.dist)) {
       const taming = isWildRobot(entHit.eid) && getSelectedItem()?.type === 'tungsten_ingot';
       if (taming || isDownedPlayer(entHit.eid)) { actions.secondaryDown(); secondaryHeld = false; return; }
@@ -381,6 +386,63 @@ function playerOverlapsBlock(x: number, y: number, z: number) {
     p.y + HEIGHT > y && p.y < y + 1;
 }
 
+// ------------------------------------------------------------------ Jetpack
+let jetFuel = 0, jetting = false;
+export function onFuel(f: number) { jetFuel = f; }
+function updateJetHud() {
+  const el = document.getElementById('jet-fuel');
+  if (!el) return;
+  const worn = inventory[56]?.type === 'jetpack';
+  el.style.display = worn ? 'block' : 'none';
+  const fill = document.getElementById('jet-fuel-fill');
+  if (worn && fill) fill.style.width = `${Math.round(jetFuel * 100)}%`;
+}
+// Holding a jetpack, right-click oil (the aim passes through liquids to find it) to refuel
+function tryRefuel(): boolean {
+  if (getSelectedItem()?.type !== 'jetpack') return false;
+  lookDir(_dir);
+  const e = eyePos();
+  for (let t = 0; t <= 5; t += 0.1) {
+    const x = Math.floor(e.x + _dir.x * t), y = Math.floor(e.y + _dir.y * t), z = Math.floor(e.z + _dir.z * t);
+    const id = getBlock(x, y, z);
+    if (id === OIL) { send({ t: 'refuel', x, y, z }); return true; }
+    if (id !== 0 && !isLiquid(id) && !isPlant(id)) return false;
+  }
+  return false;
+}
+
+let compassT = 0;
+function updateCompass(dt: number) {
+  compassT -= dt;
+  if (compassT > 0) return;
+  compassT = 0.2;
+  const el = document.getElementById('compass-hint');
+  if (!el) return;
+  const holding = getSelectedItem()?.type === 'compass' || inventory[OFFHAND]?.type === 'compass';
+  if (!holding) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  const p = body.pos;
+  if (!isRobotic(p.x)) { el.textContent = 'Compass: finds Robot Titan altars in the Robotic World'; return; }
+  const a = nearestAltar(p.x, p.z, getSeed());
+  if (!a) { el.textContent = 'Compass: no altar nearby'; return; }
+  const dx = a.x + 0.5 - p.x, dz = a.z + 0.5 - p.z, dist = Math.round(Math.hypot(dx, dz));
+  // Direction relative to where you're looking (0 = straight ahead)
+  const rel = Math.atan2(-dx, -dz) - getYawPitch().yaw;
+  const arrows = ['⬆', '↖', '⬅', '↙', '⬇', '↘', '➡', '↗'];
+  const i = ((Math.round(rel / (Math.PI / 4)) % 8) + 8) % 8;
+  el.textContent = dist < 6 ? 'Altar: here!' : `Altar ${arrows[i]} ${dist} blocks`;
+}
+
+function hasOwnUse(type: string | undefined) {
+  if (!type) return false;
+  const d = itemDef(type);
+  return d.block !== undefined || !!d.food || !!d.plants || d.tool?.kind === 'hoe' || type === 'tungsten_ingot';
+}
+function canFire() {
+  const main = getSelectedItem()?.type;
+  return main === 'laser_cannon' || (inventory[OFFHAND]?.type === 'laser_cannon' && !hasOwnUse(main));
+}
+
 function useItem() {
   swing();
   lookDir(_dir);
@@ -400,6 +462,9 @@ function useItem() {
     send({ t: 'open', x: hit.x, y: hit.y, z: hit.z });
     return;
   }
+  if (tryRefuel()) { secondaryHeld = false; return; }
+  // Laser cannon: in hand, or in the offhand when the hand holds nothing with its own right-click use
+  if (canFire()) { lookDir(_dir); send({ t: 'fire', dx: _dir.x, dy: _dir.y, dz: _dir.z }); secondaryHeld = false; return; }
   if (!held) return;
   const def = itemDef(held.type);
   // Farming: a hoe tills grass/dirt; seeds, carrots and potatoes are planted on farmland
@@ -487,7 +552,7 @@ function sendMove(dt: number) {
   const { yaw, pitch } = getYawPitch();
   const b = body;
   // Powder snow counts as water for the server: it breaks falls
-  const flags = (b.onGround ? MF_GROUND : 0) | (keys.shift ? MF_SNEAK : 0) | (b.inWater || b.inSnow ? MF_WATER : 0) | (b.inLava ? MF_LAVA : 0);
+  const flags = (b.onGround ? MF_GROUND : 0) | (keys.shift ? MF_SNEAK : 0) | (b.inWater || b.inSnow ? MF_WATER : 0) | (b.inLava ? MF_LAVA : 0) | (jetting ? MF_JET : 0);
   const moved = Math.abs(b.pos.x - lastSent.x) + Math.abs(b.pos.y - lastSent.y) + Math.abs(b.pos.z - lastSent.z) > 0.002 ||
     Math.abs(yaw - lastSent.yaw) + Math.abs(pitch - lastSent.pitch) > 0.002 || flags !== lastSent.flags;
   if (!moved && lastSent.age < 1) return;
@@ -535,6 +600,7 @@ export function updatePlayer(dt: number) {
     b.vel.z += (mz - b.vel.z) * accel;
 
     const jump = playing && keys.jump && !downed;
+    jetting = false;
     if (flying && (!creative || (b.onGround && sneak))) flying = false; // land by flying down onto the ground
     if (flying) {
       // Jump rises, sneak descends, otherwise hover
@@ -548,6 +614,11 @@ export function updatePlayer(dt: number) {
       b.vel.y = Math.max(b.vel.y - 12 * dt, -(b.inLava ? 2 : 3));
       if (jump) b.vel.y = Math.min(b.vel.y + 30 * dt, b.inLava ? 2.5 : 4);
       if (jump && b.hitWall) b.vel.y = 6.5; // hop out onto a ledge
+    } else if (jump && !b.onGround && jetFuel > 0 && inventory[56]?.type === 'jetpack') {
+      // Jetpack: holding jump in the air thrusts you up, burning fuel (a full tank lasts 30 s)
+      b.vel.y = Math.min(b.vel.y + 34 * dt, 7);
+      jetFuel = Math.max(0, jetFuel - dt / 30);
+      jetting = true;
     } else {
       b.vel.y = Math.max(b.vel.y - GRAVITY * dt, -55);
       if (jump && b.onGround) b.vel.y = JUMP_VELOCITY;
@@ -570,6 +641,8 @@ export function updatePlayer(dt: number) {
   }
   void wasOnGround;
 
+  updateCompass(dt);
+  updateJetHud();
   const headBlock = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z));
   headInWater = headBlock === WATER;
   headInOil = headBlock === OIL;

@@ -54,6 +54,8 @@ export function handleServerMessage(m: ServerMsg) {
     case 'spawn': onSpawn(m.ents.filter(e => e.eid !== myEid)); return;
     case 'despawn': onDespawn(m.eids); return;
     case 'beam': showBeam(m.a, m.b, m.pet); return;
+    case 'boss': ui.setBossBar(m.name, m.hp, m.max); return;
+    case 'fuel': player.onFuel(m.f); return;
     case 'equip': onEquip(m.eid, m.held, m.armor); return;
     case 'anim': onAnim(m.eid, m.a); return;
     case 'edits': importEditsFlat(m.list); return;

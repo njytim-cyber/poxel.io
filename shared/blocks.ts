@@ -3,9 +3,10 @@
 export type ToolKind = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 
 // Tier order: higher = mines faster, hits harder
-export const TIERS = ['wooden', 'stone', 'iron', 'gold', 'diamond', 'moonstone', 'etherite'] as const;
-export const TIER_SPEED = [2, 4, 6, 8, 10, 12, 15];
-const SWORD_DAMAGE = [4, 5, 6, 7, 8, 9, 10];
+// (tungsten and obitite come from the Robotic World, which etherite unlocks)
+export const TIERS = ['wooden', 'stone', 'iron', 'gold', 'diamond', 'moonstone', 'etherite', 'tungsten', 'obitite'] as const;
+export const TIER_SPEED = [2, 4, 6, 8, 10, 12, 15, 17, 20];
+const SWORD_DAMAGE = [4, 5, 6, 7, 8, 9, 10, 11, 13];
 
 // Atlas tile indices (see textures.ts, same order)
 export const TILE = {
@@ -29,9 +30,9 @@ export const TILE = {
   chest_front: 103, chest_side: 104, chest_top: 105,
   // The Robotic World
   etherite_block: 106, rust_rock: 107, scrap_top: 108, scrap_side: 109, tungsten_ore: 110, oil: 111,
-  metal_plate: 112, rusty_metal: 113, robot_eye: 114, portal_core: 115,
+  metal_plate: 112, rusty_metal: 113, robot_eye: 114, portal_core: 115, altar_core: 116,
 } as const;
-export const TILE_COUNT = 116;
+export const TILE_COUNT = 117;
 export const ATLAS_COLS = 16;
 export const ATLAS_ROWS = Math.ceil(TILE_COUNT / ATLAS_COLS);
 
@@ -181,6 +182,8 @@ export const BLOCKS: BlockDef[] = [
   // The return portals the game builds on arrival: they can be mined away but drop nothing (or travelling would make free etherite and gold)
   { id: 99, name: 'portal_frame', hardness: 5, tool: 'pickaxe', harvestTier: 0, drop: null, glow: true, tiles: all(TILE.etherite_block) },
   { id: 100, name: 'portal_core', hardness: 5, tool: 'pickaxe', harvestTier: 0, drop: null, glow: true, tiles: all(TILE.portal_core) },
+  // The Robot Titan's altar (it wakes here); can't be mined, so the boss always has a home
+  { id: 101, name: 'altar_core', hardness: Infinity, tool: null, harvestTier: -1, drop: null, glow: true, tiles: all(TILE.altar_core) },
 ];
 
 export const WATER = 21;
@@ -345,6 +348,11 @@ export const ITEMS: Record<string, ItemDef> = {
   metal_plate: { name: 'Metal Plate', stack: 64, block: 96 },
   rusty_metal: { name: 'Rusty Metal', stack: 64, block: 97 },
   robot_eye: { name: 'Robot Eye', stack: 64, block: 98 },
+  obitite: { name: 'Obitite', stack: 64 },                 // dropped by the Robot Titan
+  laser_cannon_core: { name: 'Laser Cannon Core', stack: 1 }, // the Titan's heart (a jetpack needs one)
+  laser_cannon: { name: 'Laser Cannon', stack: 1 },       // right-click: a laser (3 hearts); works from the offhand too
+  jetpack: { name: 'Jetpack', stack: 1, armor: { slot: 1, points: 3 } }, // worn in the chest slot; hold jump in the air to fly (oil fuel)
+  compass: { name: 'Compass', stack: 1 },                 // held (or in the offhand): deflects robot lasers, points to the nearest altar
   string: { name: 'String', stack: 64 },
   red_dye: { name: 'Red Dye', stack: 64 },
   yellow_dye: { name: 'Yellow Dye', stack: 64 },
@@ -378,7 +386,7 @@ export const ITEMS: Record<string, ItemDef> = {
 
 // Tools and armor for every tier
 const ARMOR_BASE = [1, 3, 2, 1, 1];
-const ARMOR_MULT = [1, 1, 2, 2.2, 3, 3.3, 3.6];
+const ARMOR_MULT = [1, 1, 2, 2.2, 3, 3.3, 3.6, 3.9, 4.4];
 const ARMOR_PARTS = ['helmet', 'chestplate', 'leggings', 'boots', 'gauntlets'] as const;
 const TOOL_KINDS: ToolKind[] = ['pickaxe', 'axe', 'shovel', 'hoe', 'sword'];
 

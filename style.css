@@ -208,6 +208,25 @@ canvas { display: block; }
 /* Until the game has finished starting (saves open), the main menu can't be used yet */
 body:not([data-ready]) #main-menu .menu-btn { opacity: 0.6; pointer-events: none; }
 #recipe-book.creative #recipe-filter-label { display: none; }
+#compass-hint {
+  position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+  color: #ffe9a0; text-shadow: 2px 2px 0 #000; font-size: 16px; pointer-events: none;
+}
+#jet-fuel {
+  position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px; color: #fff; text-shadow: 2px 2px 0 #000; font-size: 13px; pointer-events: none;
+}
+#jet-fuel span { margin-right: 6px; }
+#jet-fuel-track { display: inline-block; width: 120px; height: 8px; background: rgba(0, 0, 0, 0.6); border: 2px solid #000; vertical-align: middle; }
+#jet-fuel-fill { height: 100%; width: 0; background: linear-gradient(#5a4a3a, #1a120c); border-right: 2px solid #ffb030; }
+/* Boss health bar (top centre) */
+#boss-bar {
+  position: absolute; top: 52px; left: 50%; transform: translateX(-50%);
+  width: min(420px, 70vw); text-align: center; color: #fff; text-shadow: 2px 2px 0 #000;
+  font-size: 15px; pointer-events: none;
+}
+#boss-track { height: 10px; margin-top: 3px; background: rgba(0, 0, 0, 0.6); border: 2px solid #000; }
+#boss-fill { height: 100%; width: 100%; background: linear-gradient(#ff5a3a, #b01818); transition: width 0.2s; }
 .setting-row {
   display: flex;
   align-items: center;

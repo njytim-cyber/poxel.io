@@ -5,12 +5,12 @@ import { blockGeometry, blockEntityMaterial, getIconCanvas, isFlatItem } from '.
 import { itemDef } from '../shared/blocks.ts';
 import { MOB_SPECS } from '../shared/mobs.ts';
 import { PLAYER_HALF_WIDTH, PLAYER_HEIGHT, rayHitsBox, type Vec3 } from '../shared/physics.ts';
-import { EF_SNEAK, EF_HURT, EF_DYING, EF_SWING, EF_DOWNED, type SpawnInfo, type EntityKind, type MobKind } from '../shared/protocol.ts';
+import { EF_SNEAK, EF_HURT, EF_DYING, EF_SWING, EF_DOWNED, EF_ANGRY, type SpawnInfo, type EntityKind, type MobKind } from '../shared/protocol.ts';
 
 const INTERP_DELAY = 110; // ms behind the newest snapshot, smooths out network jitter
 
 interface Sample { t: number; x: number; y: number; z: number; yaw: number; pitch: number; flags: number }
-interface MobModel { model: THREE.Group; parts: { mesh: THREE.Mesh; swing: number }[]; mats: THREE.MeshLambertMaterial[] }
+interface MobModel { model: THREE.Group; parts: { mesh: THREE.Mesh; swing: number }[]; mats: THREE.MeshLambertMaterial[]; grinder?: THREE.Object3D }
 interface View {
   eid: number; kind: EntityKind; obj: THREE.Object3D; samples: Sample[];
   pos: THREE.Vector3; yaw: number; pitch: number; flags: number; hspeed: number;
@@ -142,6 +142,30 @@ function buildMob(kind: MobKind, owner?: string): MobModel {
     box(s * 0.5, s * 0.5, s * 0.5, core, 0, 0, 0, body);
     eyes(body, -s / 2 - 0.01, s * 0.12, s * 0.2, s * 0.14, 0x1a3a10);
     parts.push({ mesh: body, swing: 0 });
+  } else if (kind === 'robot_titan') {
+    // The boss: a huge rusted robot with a glowing core, a laser cannon arm and a grinder arm
+    const steel = mat(0x6e747c), dark = mat(0x3a3f46), rust = mat(0x7a3a1c);
+    const core = new THREE.MeshBasicMaterial({ color: 0xff7a1a }); core.userData.owned = true;
+    const eye = new THREE.MeshBasicMaterial({ color: 0xff2020 }); eye.userData.owned = true;
+    const head = box(1.1, 0.9, 1.0, steel, 0, 4.5, 0, model);
+    box(0.8, 0.16, 0.02, eye, 0, 0.05, -0.51, head);
+    box(0.08, 0.5, 0.08, dark, -0.35, 0.7, 0, head); box(0.08, 0.5, 0.08, dark, 0.35, 0.7, 0, head);
+    box(1.9, 1.7, 1.1, steel, 0, 3.15, 0, model);                             // body
+    box(0.7, 0.5, 0.02, rust, -0.45, 3.6, -0.56, model);
+    box(0.5, 0.5, 0.06, core, 0, 3.1, -0.56, model);                           // laser cannon core
+    box(0.6, 0.35, 0.8, dark, 0, 2.2, 0, model);                               // waist
+    const cannon = box(0.45, 1.6, 0.45, dark, 1.2, 3.9, 0, model, true);        // right arm: laser cannon
+    box(0.2, 0.2, 0.06, core, 0, -1.55, -0.2, cannon);
+    parts.push({ mesh: cannon, swing: 0.25 });
+    const arm = box(0.45, 1.5, 0.45, dark, -1.2, 3.9, 0, model, true);          // left arm: grinder
+    parts.push({ mesh: arm, swing: -0.25 });
+    const grinder = new THREE.Group();
+    grinder.position.set(0, -1.55, -0.25);
+    arm.add(grinder);
+    const disc = box(0.9, 0.9, 0.12, rust, 0, 0, 0, grinder);
+    for (let k = 0; k < 4; k++) { const t = box(0.14, 0.3, 0.14, steel, 0, 0.5, 0, disc); t.position.set(Math.cos(k * 1.57) * 0.5, Math.sin(k * 1.57) * 0.5, 0); t.rotation.z = k * 1.57; }
+    for (const [x, s] of [[-0.45, -1], [0.45, 1]]) parts.push({ mesh: box(0.6, 2.0, 0.65, dark, x, 2.0, 0, model, true), swing: s });
+    return { model, parts, mats, grinder };
   } else if (kind === 'robot') {
     // A boxy robot, 2 blocks tall, with a laser cannon for a right arm. Tamed: green eyes.
     const steel = mat(0x8a9098), darkSteel = mat(0x4a5058), rust = mat(0x8a4a28);
@@ -306,6 +330,8 @@ export function updateRemote(dt: number) {
       }
       v.walk += dt * v.hspeed * 4;
       const sw = Math.sin(v.walk) * Math.min(0.7, v.hspeed * 0.4);
+      // The Titan's grinder spins (fast while it charges)
+      if (v.mob.grinder) v.mob.grinder.rotation.z += dt * (v.flags & EF_ANGRY ? 25 : 2);
       for (const p of v.mob.parts) {
         if (v.kind === 'zombie' && Math.abs(p.swing) < 1) p.mesh.rotation.x = Math.PI / 2 + sw * p.swing;
         else p.mesh.rotation.x = sw * p.swing;

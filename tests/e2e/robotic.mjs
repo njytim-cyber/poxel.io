@@ -89,6 +89,15 @@ try {
     await page.screenshot({ path: `${OUT}/robotic-tamed.png` });
   }
 
+  // 2b. The Robot Titan (summoned here for the picture) and its health bar
+  await ev(() => window.poxel.send({ t: 'dev', spawn: 'robot_titan' }));
+  await sleep(2000);
+  const titan = await ev(() => window.poxel.entities().find(e => e.kind === 'robot_titan'));
+  check('the Robot Titan appears', !!titan, JSON.stringify(titan));
+  check('its health bar shows', await ev(() => document.getElementById('boss-bar').style.display === 'block' && document.getElementById('boss-name').textContent === 'Robot Titan'));
+  if (titan) { await aimAt(titan.x, titan.y + 3, titan.z); await sleep(1500); }
+  await page.screenshot({ path: `${OUT}/robotic-titan.png` });
+
   // 3. Home again, with the robot
   const coreAt = (await findCore()) || core;
   await ev(c => window.poxel.glide(c.x + 0.5, c.y + 1, c.z + 1.5), coreAt);

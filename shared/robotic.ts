@@ -85,10 +85,60 @@ export function generateRoboticChunk(cx: number, cz: number, seed: number): Uint
     }
   }
   placeRoboticStructures(d, cx, cz, seed);
+  placeAltars(d, cx, cz, seed);
   return d;
 }
 
 // ------------------------------------------------------------------ Structures
+
+// ------------------------------------------------------------------ Altars (where the Robot Titan wakes)
+
+const ALTAR_GRID = 256; // one altar in every 256 x 256 area
+const ALTAR_R = 5;      // platform radius
+
+export interface Altar { x: number; y: number; z: number; key: string }
+export function altarInCell(ax: number, az: number, seed: number): Altar | null {
+  const x = ax * ALTAR_GRID + 40 + Math.floor(hash3(ax, 151, az, seed) * (ALTAR_GRID - 80));
+  const z = az * ALTAR_GRID + 40 + Math.floor(hash3(ax, 152, az, seed) * (ALTAR_GRID - 80));
+  if (x < ROBO_MIN_X + WALL + 20 || x >= ROBO_MAX_X - WALL - 20) return null;
+  const y = Math.max(roboticHeight(x, z, seed), OIL_LEVEL) + 1;
+  return { x, y, z, key: `${ax},${az}` };
+}
+// The altar nearest to a spot (it's in this cell or a neighbouring one)
+export function nearestAltar(x: number, z: number, seed: number): Altar | null {
+  const cx = Math.floor(x / ALTAR_GRID), cz = Math.floor(z / ALTAR_GRID);
+  let best: Altar | null = null, bd = Infinity;
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+    const a = altarInCell(cx + dx, cz + dz, seed);
+    if (!a) continue;
+    const d = Math.hypot(a.x - x, a.z - z);
+    if (d < bd) { bd = d; best = a; }
+  }
+  return best;
+}
+
+function placeAltars(d: Uint8Array, cx: number, cz: number, seed: number) {
+  const B = BLOCK_ID;
+  const x0 = cx * CHUNK, z0 = cz * CHUNK;
+  const a = nearestAltar(x0 + 8, z0 + 8, seed);
+  if (!a || a.x + ALTAR_R + 1 < x0 || a.x - ALTAR_R - 1 > x0 + 15 || a.z + ALTAR_R + 1 < z0 || a.z - ALTAR_R - 1 > z0 + 15) return;
+  const put = (x: number, y: number, z: number, id: number) => {
+    const lx = x - x0, lz = z - z0;
+    if (lx < 0 || lx > 15 || lz < 0 || lz > 15 || y < MIN_Y || y > MAX_Y) return;
+    d[idx(lx, y, lz)] = id;
+  };
+  // A raised metal platform, cleared of scrap above (the Titan is 5 blocks tall), glowing pillars at the corners
+  for (let i = -ALTAR_R; i <= ALTAR_R; i++) for (let k = -ALTAR_R; k <= ALTAR_R; k++) {
+    const edge = Math.max(Math.abs(i), Math.abs(k)) === ALTAR_R;
+    for (let j = -4; j <= -1; j++) put(a.x + i, a.y + j, a.z + k, edge ? B.rusty_metal : B.metal_plate);
+    for (let j = 0; j <= 7; j++) put(a.x + i, a.y + j, a.z + k, 0);
+  }
+  for (const [i, k] of [[-4, -4], [4, -4], [-4, 4], [4, 4]]) {
+    for (let j = 0; j <= 3; j++) put(a.x + i, a.y + j, a.z + k, B.metal_plate);
+    put(a.x + i, a.y + 4, a.z + k, B.robot_eye);
+  }
+  put(a.x, a.y - 1, a.z, B.altar_core);
+}
 
 const REGION = 40;
 const REACH = 10; // max distance of a structure's blocks from its origin

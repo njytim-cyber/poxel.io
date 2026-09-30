@@ -8,7 +8,7 @@ export const PROTOCOL_VERSION = 1;
 export const TICK_RATE = 20;
 export const MAX_PLAYERS = 16;
 
-export type MobKind = 'pig' | 'cow' | 'chicken' | 'zombie' | 'husk' | 'frostbitten' | 'spider' | 'skeleton' | 'slime' | 'slimelet' | 'robot';
+export type MobKind = 'pig' | 'cow' | 'chicken' | 'zombie' | 'husk' | 'frostbitten' | 'spider' | 'skeleton' | 'slime' | 'slimelet' | 'robot' | 'robot_titan';
 export type EntityKind = 'player' | 'item' | MobKind;
 
 export interface Look {
@@ -42,6 +42,8 @@ export type ClientMsg =
   | { t: 'till'; x: number; y: number; z: number }       // hoe on grass/dirt -> farmland
   | { t: 'revive'; eid: number }                          // sent repeatedly while holding Use on a downed player
   | { t: 'tame'; eid: number }                            // Use on a robot while holding a tungsten ingot
+  | { t: 'fire'; dx: number; dy: number; dz: number }     // a laser cannon shot in this direction
+  | { t: 'refuel'; x: number; y: number; z: number }      // right-click oil holding a jetpack
   | { t: 'giveup' }                                       // a downed player chooses to die now
   | { t: 'dev'; give?: string; count?: number; spawn?: string; time?: number; tp?: { x: number; y: number; z: number }; blocks?: number[] } // test builds only (Game option devTools)
   | { t: 'hello'; v: number; name: string; look: Look; token?: string;
@@ -65,7 +67,7 @@ export type ClientMsg =
   | { t: 'ping'; ts: number };
 
 // Move flags
-export const MF_GROUND = 1, MF_SNEAK = 2, MF_WATER = 4, MF_LAVA = 8;
+export const MF_GROUND = 1, MF_SNEAK = 2, MF_WATER = 4, MF_LAVA = 8, MF_JET = 16; // jet: a jetpack is thrusting
 
 // ------------------------------------------------------------------ Server -> client
 
@@ -98,12 +100,14 @@ export type ServerMsg =
   | { t: 'time'; time: number }
   | { t: 'players'; list: { eid: number; name: string; ping: number }[] }
   | { t: 'toast'; text: string }
+  | { t: 'boss'; name: string; hp: number; max: number } // a boss nearby (hp < 0: none, hide the bar)
+  | { t: 'fuel'; f: number }                             // jetpack fuel, 0..1
   | { t: 'homes'; list: ({ x: number; y: number; z: number; name: string } | null)[]; slots: number }
   | { t: 'kick'; reason: string }
   | { t: 'pong'; ts: number };
 
 // Entity snapshot flags
-export const EF_SNEAK = 1, EF_HURT = 2, EF_DYING = 4, EF_GROUND = 8, EF_SWING = 16, EF_DOWNED = 32;
+export const EF_SNEAK = 1, EF_HURT = 2, EF_DYING = 4, EF_GROUND = 8, EF_SWING = 16, EF_DOWNED = 32, EF_ANGRY = 64; // angry: the Titan's grinder charge
 
 // ------------------------------------------------------------------ Binary encoding (WebSocket only)
 

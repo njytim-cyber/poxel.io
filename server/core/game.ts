@@ -1,11 +1,11 @@
 // Authoritative game simulation. Environment-agnostic: runs in Node (multiplayer) and in a Web Worker
 // (single player). Transports hand it decoded messages and deliver what it sends.
 import { BLOCKS, BLOCK_ID, ITEMS, WATER, LAVA, OIL, POWDER_SNOW, CHEST, isLiquid, isFacingBlock, isLeaves, isPlant, isSolid, itemDef, miningInfo, plantCanStand, CROP_NEXT, CROP_GROW_SECONDS } from '../../shared/blocks.ts';
-import { isRobotic, isPortal, portalDestination, roboticStructureAt, ROBO_DAYLIGHT } from '../../shared/robotic.ts';
-import { makeBody, moveBody, boxIntersectsSolid, boxTouchesBlock, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, type Body } from '../../shared/physics.ts';
+import { isRobotic, isPortal, portalDestination, roboticStructureAt, nearestAltar, ROBO_DAYLIGHT } from '../../shared/robotic.ts';
+import { makeBody, moveBody, boxIntersectsSolid, boxTouchesBlock, raycastBlocks, rayHitsBox, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, type Body } from '../../shared/physics.ts';
 import {
   newInv, sanitizeInv, addItem, applyAction, closeScreen, removeFromSlot, armorPoints, attackBonus,
-  newChest, maxStack, CHEST_SIZE, type Inv, type Screen, type InvAction, type Stack,
+  newChest, maxStack, CHEST_SIZE, OFFHAND, type Inv, type Screen, type InvAction, type Stack,
 } from '../../shared/inventory.ts';
 import { newFurnace, tickFurnace, isFurnaceEmpty, type FurnaceState } from '../../shared/furnace.ts';
 import { MOB_SPECS, MOB_KINDS } from '../../shared/mobs.ts';
@@ -13,7 +13,7 @@ import { DAY_LENGTH, daylight } from '../../shared/time.ts';
 import { MIN_Y, MAX_Y, columnInfo } from '../../shared/worldgen.ts';
 import {
   PROTOCOL_VERSION, MAX_PLAYERS, sanitizeName, sanitizeLook, isNum, isInt,
-  MF_GROUND, MF_SNEAK, MF_WATER, EF_SNEAK, EF_HURT, EF_DYING, EF_GROUND, EF_SWING, EF_DOWNED,
+  MF_GROUND, MF_SNEAK, MF_WATER, MF_JET, EF_SNEAK, EF_HURT, EF_DYING, EF_GROUND, EF_SWING, EF_DOWNED, EF_ANGRY,
   DIFFICULTIES, type Difficulty, type GameMode, type ClientMsg, type ServerMsg, type Look, type MobKind, type SpawnInfo, type InvState,
 } from '../../shared/protocol.ts';
 import { ServerWorld } from './world.ts';
@@ -74,7 +74,9 @@ function sanitizeChest(c: unknown[]): Stack[] {
   return out;
 }
 
-const MOB_CAUSES = new Set(['zombie', 'husk', 'frostbitten', 'spider', 'skeleton', 'slime', 'robot']);
+const MOB_CAUSES = new Set(['zombie', 'husk', 'frostbitten', 'spider', 'skeleton', 'slime', 'robot', 'robot_titan']);
+const JET_SECONDS = 30;       // a full jetpack tank lasts this long
+const TITAN_RESPAWN = 30 * 60; // seconds after a Robot Titan is defeated before it wakes again
 const MAX_PETS = 3;
 // /gamemode creative needs the owner's code. Only its fingerprint is kept here (the source is public).
 const CREATIVE_CODE = 'ff78b193';
@@ -96,6 +98,7 @@ export interface WorldSave {
   difficulty?: Difficulty;
   chests?: Record<string, Stack[]>;
   crops?: Record<string, number>; // "x,y,z" -> seconds until the next growth stage
+  titans?: Record<string, number>; // altar -> seconds until its Robot Titan wakes again
 }
 export interface PlayerSave {
   x: number; y: number; z: number; yaw: number; pitch: number; health: number; food?: number; saturation?: number; gamemode?: GameMode;
@@ -103,6 +106,7 @@ export interface PlayerSave {
   token?: string; // proves ownership of the name
   cheated?: boolean; // used /give, creative mode or dev tools: this character can't be carried into a server
   pets?: number[];   // tamed robots (their health), which come back with the player
+  jetFuel?: number;  // jetpack fuel, 0..1
 }
 export interface Storage {
   loadWorld(): WorldSave | null;
@@ -140,11 +144,16 @@ interface Player {
   home?: { inv: InvState; health: number; food?: number; saturation?: number };
   cheated: boolean;
   portalCd: number;          // game time before the next portal trip
+  fireCd: number;            // laser cannon cooldown
+  jetFuel: number;           // jetpack fuel, 0..1 (a full tank is JET_SECONDS of thrust)
+  bossHp: number;            // boss health last shown to this player (-1: no bar)
 }
 interface Mob {
   kind: MobKind; eid: number; body: Body; yaw: number; targetYaw: number; health: number;
   wander: number; moving: boolean; hurt: number; flee: number; attackCd: number; dying: number; burnT: number; lavaT: number;
   owner?: string;            // a tamed robot: follows this player and fights for them
+  altar?: string;            // the Robot Titan: its altar (see shared/robotic.ts nearestAltar)
+  phaseT?: number; grindT?: number;
 }
 // arrow: set while an arrow is flying (it hurts the first player it hits, then lands as a normal item)
 interface Item { kind: 'item'; eid: number; type: string; count: number; body: Body; age: number; pickupDelay: number; arrow?: { damage: number }; keep?: boolean }
@@ -161,7 +170,8 @@ const MOB_DROPS: Record<MobKind, () => [string, number][]> = {
   skeleton: () => [['bone', rnd(0, 2)], ['arrow', rnd(0, 2)]],
   slime: () => [],
   slimelet: () => [['slime_ball', rnd(0, 2)]],
-  robot: () => [['iron_ingot', rnd(0, 1)], ...(Math.random() < 0.15 ? [['tungsten_ingot', 1] as [string, number]] : []), ...(Math.random() < 0.25 ? [['robot_eye', 1] as [string, number]] : [])],
+  robot_titan: () => [['obitite', rnd(6, 10)], ...(Math.random() < 0.5 ? [['laser_cannon_core', 1] as [string, number]] : [])],
+  robot: () => [...(Math.random() < 0.02 ? [['laser_cannon', 1] as [string, number]] : []), ['iron_ingot', rnd(0, 1)], ...(Math.random() < 0.15 ? [['tungsten_ingot', 1] as [string, number]] : []), ...(Math.random() < 0.25 ? [['robot_eye', 1] as [string, number]] : [])],
 };
 
 // allowCarry: players may bring their character (inventory + health) from a single-player save
@@ -197,6 +207,7 @@ export class Game {
   private clock = 0;          // seconds of game time
   private pendingBlocks: number[] = [];
   private crops = new Map<string, number>();
+  private titanWakes = new Map<string, number>(); // altar key -> game clock when its Titan may wake again
   private chests = new Map<string, Stack[]>(); // "x,y,z" -> 27 slots (a generated chest gets its loot when first opened) // "x,y,z" -> game clock when it grows a stage
   private tickCount = 0;
   private spawnTimer = 0;
@@ -221,6 +232,7 @@ export class Game {
       for (const [k, f] of Object.entries(save.furnaces || {})) { const clean = sanitizeFurnace(f); if (clean) this.furnaces.set(k, clean); }
       for (const [k, c] of Object.entries(save.chests || {})) if (Array.isArray(c)) this.chests.set(k, sanitizeChest(c));
       for (const [k, s] of Object.entries(save.crops || {})) if (isNum(s) && /^-?\d+,-?\d+,-?\d+$/.test(k)) this.crops.set(k, this.clock + Math.max(0, s));
+      for (const [k, s] of Object.entries(save.titans || {})) if (isNum(s) && /^-?\d+,-?\d+$/.test(k)) this.titanWakes.set(k, this.clock + Math.max(0, Math.min(TITAN_RESPAWN, s)));
     }
     const sp = save?.spawn;
     this.spawnPoint = Array.isArray(sp) && sp.length === 3 && sp.every(isNum) ? sp : this.world.findSpawn();
@@ -281,7 +293,7 @@ export class Game {
       moveBudget: 3, climbBudget: 3, dropCredit: 8, chatCredit: 5, token,
       editChunks: new Set(), editCenter: '',
       home: carry ? (saved ? { inv: saved.inv, health: saved.health, food: saved.food, saturation: saved.saturation } : { inv: { slots: [], cursor: null, selected: 0, ack: 0 }, health: MAX_HEALTH }) : undefined,
-      cheated: !!saved?.cheated, portalCd: 0,
+      cheated: !!saved?.cheated, portalCd: 0, bossHp: -1, fireCd: 0, jetFuel: isNum(saved?.jetFuel) ? Math.max(0, Math.min(1, saved!.jetFuel!)) : 0,
     };
     this.players.set(p.eid, p);
     if (Array.isArray(saved?.pets)) for (const hp of saved!.pets!.slice(0, MAX_PETS)) {
@@ -306,6 +318,7 @@ export class Game {
       you: { ...pos, yaw: p.yaw, pitch: p.pitch, health: p.health, food: p.food, gamemode: p.gamemode, inv: this.invState(p), spawn: p.spawn },
     });
     this.sendHomes(p);
+    conn.send({ t: 'fuel', f: p.jetFuel });
     if (this.maxPlayers > 1) this.broadcast({ t: 'chat', from: null, text: `${name} joined the game` });
     this.log(`${name} joined (${this.players.size} online)`);
     this.sendPlayerList();
@@ -336,6 +349,8 @@ export class Game {
     switch (msg.t) {
       case 'revive': return this.onRevive(p, msg.eid);
       case 'tame': return this.onTame(p, msg.eid);
+      case 'fire': return this.onFire(p, msg);
+      case 'refuel': return this.onRefuel(p, msg);
       case 'dev': return this.onDev(p, msg);
       case 'giveup': if (p.downed) this.killPlayer(p, p.downCause, p.downBy); return;
       case 'move': return this.onMove(p, msg);
@@ -362,6 +377,7 @@ export class Game {
 
   private onMove(p: Player, m: Extract<ClientMsg, { t: 'move' }>) {
     if (p.dead || ![m.x, m.y, m.z, m.yaw, m.pitch].every(isNum)) return;
+    const sinceMove = Math.min(0.25, this.clock - p.lastMove); // for burning jetpack fuel
     const b = p.body;
     const dx = m.x - b.pos.x, dy = m.y - b.pos.y, dz = m.z - b.pos.z;
     const horiz = Math.hypot(dx, dz);
@@ -386,6 +402,14 @@ export class Game {
     p.lastMove = this.clock;
     const wasGround = !!(p.flags & MF_GROUND);
     p.flags = m.flags | 0;
+    // Jetpack thrust: needs one worn and fuel, which it burns; while thrusting you aren't falling
+    if (p.flags & MF_JET) {
+      if (p.inv.slots[56]?.type === 'jetpack' && p.jetFuel > 0 && !(p.flags & MF_GROUND) && dy > -0.4) {
+        p.jetFuel = Math.max(0, p.jetFuel - sinceMove / JET_SECONDS);
+        p.fallStart = b.pos.y;
+        if (p.jetFuel === 0 || Math.floor(p.jetFuel * 20) !== Math.floor((p.jetFuel + sinceMove / JET_SECONDS) * 20)) p.conn.send({ t: 'fuel', f: p.jetFuel });
+      } else p.flags &= ~MF_JET;
+    }
     // "On the ground" only counts with something solid right underfoot (so fall damage can't be skipped)
     if ((p.flags & MF_GROUND) && !boxIntersectsSolid(this.world.get, b.pos.x, b.pos.y - 0.2, b.pos.z, PLAYER_HALF_WIDTH, 0.25)) p.flags &= ~MF_GROUND;
     // ...and "in water" (which also stops fall damage) only with a liquid there
@@ -460,7 +484,7 @@ export class Game {
     // (less a margin for network jitter), so no block breaks faster than it should
     const creative = p.gamemode === 'creative';
     const needs = creative ? 0 : info.time * 0.75 - 0.1;
-    if (p.dead || id === 0 || isLiquid(id) || (info.time === Infinity && !creative) || !this.inReach(p, x, y, z, REACH) || this.clock - p.lastDig < needs) {
+    if (p.dead || id === 0 || isLiquid(id) || id === BLOCK_ID.altar_core || (info.time === Infinity && !creative) || !this.inReach(p, x, y, z, REACH) || this.clock - p.lastDig < needs) {
       this.rejectBlock(p, x, y, z);
       return;
     }
@@ -870,6 +894,138 @@ export class Game {
 
   private pets(p: Player) { return [...this.mobs.values()].filter(m => m.owner === p.name); }
 
+  // ---------------------------------------------------------------- The Robot Titan (the boss)
+
+  // A player near an altar wakes its Titan (unless it's already up, or was defeated less than 30 minutes ago)
+  private wakeTitans() {
+    for (const p of this.players.values()) {
+      if (p.dead || !isRobotic(p.body.pos.x)) continue;
+      const a = nearestAltar(p.body.pos.x, p.body.pos.z, this.world.seed);
+      if (!a || Math.hypot(a.x + 0.5 - p.body.pos.x, a.z + 0.5 - p.body.pos.z) > 40) continue;
+      if ((this.titanWakes.get(a.key) ?? 0) > this.clock) continue;
+      if ([...this.mobs.values()].some(m => m.altar === a.key)) continue;
+      if (this.world.get(a.x, a.y - 1, a.z) !== BLOCK_ID.altar_core) continue;
+      const m = this.spawnMob('robot_titan', a.x + 0.5, a.y, a.z + 0.5);
+      m.altar = a.key; m.phaseT = 0; m.attackCd = 2;
+      this.tellNear(a.x, a.z, 128, 'The Robot Titan has awoken!');
+      this.log(`Robot Titan woke at altar ${a.key}`);
+    }
+  }
+
+  private titanDefeated(m: Mob) {
+    this.titanWakes.set(m.altar!, this.clock + TITAN_RESPAWN);
+    this.dirty = true;
+    this.tellNear(m.body.pos.x, m.body.pos.z, 128, 'The Robot Titan has been defeated! It will wake again in 30 minutes.');
+    this.log(`Robot Titan at altar ${m.altar} defeated`);
+  }
+
+  private tellNear(x: number, z: number, r: number, text: string) {
+    for (const p of this.players.values()) if (Math.hypot(p.body.pos.x - x, p.body.pos.z - z) < r) p.conn.send({ t: 'chat', from: null, text });
+  }
+
+  // Fires its laser from range, now and then charges with its grinder (1 heart a second), punches up close
+  private updateTitan(m: Mob, target: Player | null, dist: number, dt: number) {
+    const b = m.body, spec = MOB_SPECS.robot_titan;
+    m.phaseT = (m.phaseT ?? 0) + dt;
+    if (!target || dist > 32 || Math.abs(target.body.pos.y - b.pos.y) > 30) {
+      m.moving = false;
+      return;
+    }
+    const t = target.body.pos;
+    m.targetYaw = Math.atan2(-(t.x - b.pos.x), -(t.z - b.pos.z));
+    const reach = spec.halfW + 1.6;
+    const close = dist < reach && Math.abs(t.y - b.pos.y) < 3;
+    if (m.phaseT % 14 > 10) {
+      // Grinder charge (4 seconds of every 14)
+      m.moving = dist > reach - 0.5;
+      m.grindT = (m.grindT ?? 0) - dt;
+      if (close && m.grindT <= 0) { m.grindT = 1; this.damagePlayer(target, 2, b.pos, 'robot_titan'); }
+      return;
+    }
+    m.moving = dist > 8;
+    if (m.attackCd > 0) return;
+    if (close) { this.damagePlayer(target, spec.damage!, b.pos, 'robot_titan'); m.attackCd = 1.2; return; }
+    if (Math.hypot(dist, t.y - b.pos.y) < 32 && this.canSee(b, target)) {
+      const hit = Math.random() < 0.75;
+      const miss = hit ? 0 : 1.5;
+      this.beam(m, { x: t.x + (Math.random() - 0.5) * miss * 2, y: t.y + 1.2 + (Math.random() - 0.5) * miss, z: t.z + (Math.random() - 0.5) * miss * 2 });
+      if (hit) this.laserHit(m, target, 8);
+      m.attackCd = this.difficulty === 'hard' ? 1.8 : 2.5;
+    }
+  }
+
+  // The health bar at the top of the screen, for everyone near a Titan
+  private sendBossBars() {
+    for (const p of this.players.values()) {
+      let boss: Mob | null = null;
+      for (const m of this.mobs.values()) if (m.kind === 'robot_titan' && m.dying < 0 && Math.hypot(m.body.pos.x - p.body.pos.x, m.body.pos.z - p.body.pos.z) < 48) boss = m;
+      const hp = boss ? Math.max(0, Math.round(boss.health)) : -1;
+      if (hp === p.bossHp) continue;
+      p.bossHp = hp;
+      p.conn.send({ t: 'boss', name: 'Robot Titan', hp, max: MOB_SPECS.robot_titan.health });
+    }
+  }
+
+  // ---------------------------------------------------------------- Lasers
+
+  private holding(p: Player, type: string) {
+    return p.inv.slots[p.inv.selected]?.type === type || p.inv.slots[OFFHAND]?.type === type;
+  }
+
+  // A robot's laser hits a player. A held compass deflects it half the time, bouncing half its power back at the robot.
+  private laserHit(m: Mob, target: Player, damage: number) {
+    if (this.holding(target, 'compass') && Math.random() < 0.5) {
+      const t = target.body.pos;
+      const msg: ServerMsg = { t: 'beam', a: [t.x, t.y + 1.2, t.z], b: [m.body.pos.x, m.body.pos.y + m.body.height * 0.6, m.body.pos.z], pet: true };
+      for (const o of this.players.values()) if (Math.abs(o.body.pos.x - t.x) < VIEW_DIST && Math.abs(o.body.pos.z - t.z) < VIEW_DIST) o.conn.send(msg);
+      m.hurt = 0;
+      this.damageMob(m, Math.ceil(damage / 2), t);
+      target.conn.send({ t: 'toast', text: 'Deflected!' });
+      return;
+    }
+    this.damagePlayer(target, damage, m.body.pos, m.kind);
+  }
+
+  // Laser cannon (held, or in the offhand): 3 hearts to the first mob or player along the aim, up to 24 blocks
+  private onFire(p: Player, m: { dx: number; dy: number; dz: number }) {
+    if (p.dead || p.downed || p.fireCd > 0 || !this.holding(p, 'laser_cannon') || ![m.dx, m.dy, m.dz].every(isNum)) return;
+    const len = Math.hypot(m.dx, m.dy, m.dz);
+    if (len < 0.5 || len > 2) return;
+    const dir = { x: m.dx / len, y: m.dy / len, z: m.dz / len };
+    const eye = this.eye(p);
+    p.fireCd = 1.2;
+    p.swingUntil = this.clock + 0.25;
+    const RANGE = 24;
+    const wall = raycastBlocks(this.world.get, eye, dir, RANGE);
+    let max = wall ? wall.dist : RANGE;
+    let victim: Player | Mob | null = null;
+    for (const e of [...this.mobs.values(), ...this.players.values()]) {
+      if (e === p || (e.kind === 'player' && e.dead) || (e.kind !== 'player' && (e.dying >= 0 || e.owner))) continue;
+      const b = e.body;
+      const d = rayHitsBox(eye, dir, { x: b.pos.x - b.halfW, y: b.pos.y, z: b.pos.z - b.halfW }, { x: b.pos.x + b.halfW, y: b.pos.y + b.height, z: b.pos.z + b.halfW }, max);
+      if (d !== null && d < max) { max = d; victim = e; }
+    }
+    const end = { x: eye.x + dir.x * max, y: eye.y + dir.y * max, z: eye.z + dir.z * max };
+    const msg: ServerMsg = { t: 'beam', a: [eye.x, eye.y - 0.2, eye.z], b: [end.x, end.y, end.z], pet: true };
+    for (const o of this.players.values()) if (Math.abs(o.body.pos.x - eye.x) < VIEW_DIST && Math.abs(o.body.pos.z - eye.z) < VIEW_DIST) o.conn.send(msg);
+    if (!victim) return;
+    if (victim.kind === 'player') this.damagePlayer(victim, 6, p.body.pos, 'player', p.name);
+    else { victim.hurt = 0; this.damageMob(victim, 6, p.body.pos); }
+  }
+
+  // Right-click oil holding a jetpack: a third of a tank each time
+  private onRefuel(p: Player, m: { x: number; y: number; z: number }) {
+    const { x, y, z } = m;
+    if (p.dead || ![x, y, z].every(isInt) || p.inv.slots[p.inv.selected]?.type !== 'jetpack') return;
+    if (!this.inReach(p, x, y, z, REACH) || this.world.get(x, y, z) !== OIL) return;
+    if (p.fireCd > 0) return; // (shares the cannon's cooldown: one fill per click)
+    p.fireCd = 0.3;
+    p.jetFuel = Math.min(1, Math.round((p.jetFuel + 1 / 3) * 3) / 3);
+    p.conn.send({ t: 'fuel', f: p.jetFuel });
+    p.conn.send({ t: 'toast', text: p.jetFuel >= 1 ? 'Jetpack full!' : `Jetpack fuel ${Math.round(p.jetFuel * 3)}/3` });
+    p.swingUntil = this.clock + 0.25;
+  }
+
   // A tamed robot catches up with its owner
   private bringPet(m: Mob, p: Player) {
     const a = Math.random() * Math.PI * 2;
@@ -910,7 +1066,7 @@ export class Game {
   // A robot's laser: shown to everyone nearby, from its eye to where it hits
   private beam(m: Mob, to: { x: number; y: number; z: number }) {
     const b = m.body;
-    const msg: ServerMsg = { t: 'beam', a: [b.pos.x, b.pos.y + 1.6, b.pos.z], b: [to.x, to.y, to.z], pet: !!m.owner };
+    const msg: ServerMsg = { t: 'beam', a: [b.pos.x, b.pos.y + b.height * 0.8, b.pos.z], b: [to.x, to.y, to.z], pet: !!m.owner };
     for (const o of this.players.values()) if (Math.abs(o.body.pos.x - b.pos.x) < VIEW_DIST && Math.abs(o.body.pos.z - b.pos.z) < VIEW_DIST) o.conn.send(msg);
   }
 
@@ -962,7 +1118,7 @@ export class Game {
 
   private etheritePieces(p: Player) {
     let n = 0;
-    for (let i = 55; i <= 58; i++) if (p.inv.slots[i]?.type.startsWith('etherite_')) n++;
+    for (let i = 55; i <= 58; i++) if (/^(etherite|tungsten|obitite)_|^jetpack$/.test(p.inv.slots[i]?.type || '')) n++; // etherite and up (and the obitite jetpack)
     return n;
   }
 
@@ -1005,7 +1161,13 @@ export class Game {
     if (p.downed) { this.killPlayer(p, cause, by); return; }
     let dmg = amount;
     if (MOB_CAUSES.has(cause)) dmg *= this.difficulty === 'easy' ? 0.5 : this.difficulty === 'hard' ? 1.5 : 1;
-    if (cause !== 'fall' && cause !== 'lava' && cause !== 'void' && cause !== 'starve' && cause !== 'freeze') dmg *= 1 - Math.min(20, armorPoints(p.inv)) * 0.04;
+    if (cause !== 'fall' && cause !== 'lava' && cause !== 'void' && cause !== 'starve' && cause !== 'freeze') {
+      dmg *= 1 - Math.min(20, armorPoints(p.inv)) * 0.04;
+      // Beyond the armour cap, each tungsten piece takes off 2% more and each obitite piece 4%
+      let tough = 0;
+      for (let i = 55; i <= 58; i++) { const t = p.inv.slots[i]?.type || ''; tough += t.startsWith('obitite_') ? 0.04 : t.startsWith('tungsten_') ? 0.02 : 0; }
+      dmg *= 1 - tough;
+    }
     p.exhaustion += 0.1;
     dmg = Math.max(1, Math.round(dmg));
     p.health = Math.max(0, p.health - dmg);
@@ -1055,7 +1217,7 @@ export class Game {
     const messages: Record<string, string> = {
       fall: 'hit the ground too hard', lava: 'tried to swim in lava', zombie: 'was slain by a Zombie',
       husk: 'was slain by a Husk', frostbitten: 'was slain by a Frostbitten', spider: 'was slain by a Spider',
-      skeleton: 'was shot by a Skeleton', slime: 'was squashed by a Slime', slimelet: 'was squashed by a Slime', robot: 'was zapped by a Robot',
+      skeleton: 'was shot by a Skeleton', slime: 'was squashed by a Slime', slimelet: 'was squashed by a Slime', robot: 'was zapped by a Robot', robot_titan: 'was destroyed by the Robot Titan',
       cactus: 'was pricked to death', void: 'fell out of the world', starve: 'starved to death', freeze: 'froze to death', player: `was slain by ${by || 'a player'}`, kill: 'died',
     };
     const msg = messages[cause] || 'died';
@@ -1068,7 +1230,8 @@ export class Game {
     m.health -= amount;
     m.hurt = 0.5;
     const dx = m.body.pos.x - from.x, dz = m.body.pos.z - from.z, d = Math.hypot(dx, dz) || 1;
-    m.body.vel.x = (dx / d) * 6; m.body.vel.z = (dz / d) * 6; m.body.vel.y = 5;
+    const kb = m.kind === 'robot_titan' ? 0.15 : 1;
+    m.body.vel.x = (dx / d) * 6 * kb; m.body.vel.z = (dz / d) * 6 * kb; m.body.vel.y = 5 * kb;
     if (!MOB_SPECS[m.kind].hostile) m.flee = 4;
     if (m.health <= 0) m.dying = 0;
   }
@@ -1274,6 +1437,7 @@ export class Game {
         m.dying += dt;
         if (m.dying > 0.8) {
           for (const [type, n] of MOB_DROPS[m.kind]()) if (n > 0) this.spawnItem(type, n, b.pos.x, b.pos.y + 0.5, b.pos.z);
+          if (m.altar) this.titanDefeated(m);
           if (m.kind === 'slime') for (let k = 0; k < 2 + Math.floor(Math.random() * 2); k++) this.spawnMob('slimelet', b.pos.x + (Math.random() - 0.5), b.pos.y + 0.2, b.pos.z + (Math.random() - 0.5));
           this.mobs.delete(m.eid);
         }
@@ -1283,12 +1447,13 @@ export class Game {
       m.flee = Math.max(0, m.flee - dt);
       m.attackCd = Math.max(0, m.attackCd - dt);
 
-      let speed = spec.speed;
+      let speed = spec.speed * (m.kind === 'robot_titan' && (m.phaseT ?? 0) % 14 > 10 ? 1.8 : 1);
       const dxp = target ? target.body.pos.x - b.pos.x : 0, dzp = target ? target.body.pos.z - b.pos.z : 0;
       // Spiders only hunt in the dark (or when attacked)
       const calm = m.kind === 'spider' && day > 0.6 && m.flee <= 0 && b.pos.y > this.world.surfaceHeight(Math.floor(b.pos.x), Math.floor(b.pos.z)) - 2;
       const chasing = spec.hostile && !owner && !calm && target && distP < 18 && Math.abs(target.body.pos.y - b.pos.y) < 8;
       if (owner) this.updatePet(m, owner);
+      else if (m.kind === 'robot_titan') this.updateTitan(m, target, distP, dt);
       else if (chasing && target && m.kind === 'robot') {
         // Keeps 4-12 blocks away and fires its laser when it can see you (3 hearts; it can miss)
         m.targetYaw = Math.atan2(-dxp, -dzp);
@@ -1299,7 +1464,7 @@ export class Game {
           const hit = Math.random() < (this.difficulty === 'hard' ? 0.85 : 0.7);
           const miss = hit ? 0 : 1.2;
           this.beam(m, { x: t.x + (Math.random() - 0.5) * miss * 2, y: t.y + 1.2 + (Math.random() - 0.5) * miss, z: t.z + (Math.random() - 0.5) * miss * 2 });
-          if (hit) this.damagePlayer(target, 6, b.pos, 'robot');
+          if (hit) this.laserHit(m, target, 6);
           m.attackCd = this.difficulty === 'hard' ? 2 : 3;
         }
       } else if (chasing && target && m.kind === 'skeleton') {
@@ -1384,7 +1549,8 @@ export class Game {
     for (const p of this.players.values()) this.updatePlayer(p, dt);
     if (this.tickCount % 5 === 0) for (const p of this.players.values()) this.streamEdits(p);
     this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0) { this.spawnTimer = 1; this.trySpawnMobs(day); this.growCrops(); }
+    if (this.spawnTimer <= 0) { this.spawnTimer = 1; this.trySpawnMobs(day); this.growCrops(); this.wakeTitans(); }
+    if (this.tickCount % 4 === 0) this.sendBossBars();
     this.updateMobs(dt, day);
     this.updateItems(dt);
 
@@ -1417,6 +1583,7 @@ export class Game {
     p.chatCredit = Math.min(5, p.chatCredit + 1 * dt);     // chat lines per second
     p.invuln = Math.max(0, p.invuln - dt);
     p.attackCd = Math.max(0, p.attackCd - dt);
+    p.fireCd = Math.max(0, p.fireCd - dt);
     p.sinceDamage += dt;
     if (p.dead) return;
     const w = this.world.get;
@@ -1513,6 +1680,7 @@ export class Game {
           yaw = e.yaw;
           if (e.hurt > 0.2) flags |= EF_HURT;
           if (e.dying >= 0) flags |= EF_DYING;
+          if (e.kind === 'robot_titan' && (e.phaseT ?? 0) % 14 > 10) flags |= EF_ANGRY;
         }
         ents.push(e.eid, b.pos.x, b.pos.y, b.pos.z, yaw, pitch, flags);
       }
@@ -1580,6 +1748,7 @@ export class Game {
       ...(p.home || live), // a carried character goes back to its save; this server keeps its own
       spawn: p.spawn, homes: p.homes, token: p.token || undefined, cheated: p.cheated || undefined,
       pets: this.pets(p).filter(m => m.dying < 0).map(m => Math.round(m.health)),
+      jetFuel: p.jetFuel || undefined,
     });
   }
 
@@ -1588,6 +1757,7 @@ export class Game {
       v: 1, seed: this.world.seed, time: this.time, edits: this.world.exportEdits(), facing: this.world.exportFacing(),
       furnaces: Object.fromEntries(this.furnaces), spawn: this.spawnPoint, difficulty: this.difficulty, chests: Object.fromEntries(this.chests),
       crops: Object.fromEntries([...this.crops].map(([k, due]) => [k, Math.max(0, Math.round(due - this.clock))])),
+      titans: Object.fromEntries([...this.titanWakes].filter(([, t]) => t > this.clock).map(([k, t]) => [k, Math.round(t - this.clock)])),
     };
   }
 

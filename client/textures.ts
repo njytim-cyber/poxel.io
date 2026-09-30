@@ -496,6 +496,9 @@ function buildNewTiles(set: (i: number, t: Tile) => void, SNOW: string[], stoneB
   drawPixels(eye, ['..rrrr..', '.rRRRRr.', 'rRRwwRRr', 'rRRwwRRr', '.rRRRRr.', '..rrrr..'], 4, 5, { r: '#a01010', R: '#ff2a2a', w: '#ffe0e0' });
   set(TILE.robot_eye, eye);
   set(TILE.portal_core, storageBlock('#fff6c0', '#ffd23a', '#b06a00'));
+  const altar = storageBlock('#6e747c', '#4a5058', '#23272c');
+  drawPixels(altar, ['..oooo..', '.oOOOOo.', 'oOOyyOOo', 'oOOyyOOo', '.oOOOOo.', '..oooo..'], 4, 5, { o: '#a04000', O: '#ff7a1a', y: '#ffe060' });
+  set(TILE.altar_core, altar);
 }
 
 // ------------------------------------------------------------------ Atlas
@@ -596,6 +599,8 @@ const TIER_PALETTE: Record<string, { l: string; m: string; d: string }> = {
   diamond: { l: '#c8fff8', m: '#33ebcb', d: '#12806e' },
   moonstone: { l: '#ffffff', m: '#d6d0f5', d: '#7f76b8' },
   etherite: { l: '#8c7fa3', m: '#4f4660', d: '#1f1b28' },
+  tungsten: { l: '#f0f4fc', m: '#a4aec2', d: '#4e586c' },
+  obitite: { l: '#ff9a7a', m: '#d0304a', d: '#4a0c1c' },
 };
 
 const HEADS: Record<string, { top: number; rows: string[] }> = {
@@ -628,6 +633,11 @@ const ITEM_ART: Record<string, [string, Record<string, string>]> = {
   charcoal: ['lump', { l: '#5a4a3a', m: '#3a2e24', d: '#1a140f' }],
   moonstone: ['lump', { l: '#ffffff', m: '#e6e6fa', d: '#8f86c2' }],
   etherite: ['gem', TIER_PALETTE.etherite],
+  obitite: ['crystal', TIER_PALETTE.obitite],
+  laser_cannon_core: ['ball', { l: '#fff0a0', m: '#ff7a1a', d: '#7a2a00' }],
+  laser_cannon: ['cannon', { l: '#c8ced8', m: '#6e747c', d: '#2a2e34', h: '#ff3030' }],
+  compass: ['ball', { l: '#f0f0f0', m: '#9aa0a8', d: '#3a3e44' }],
+  jetpack: ['jetpack', { l: '#ff9a7a', m: '#d0304a', d: '#4a0c1c', h: '#ffb030' }],
   diamond: ['gem', TIER_PALETTE.diamond],
   iron_ingot: ['ingot', TIER_PALETTE.iron],
   gold_ingot: ['ingot', TIER_PALETTE.gold],
@@ -646,6 +656,8 @@ const ITEM_ART: Record<string, [string, Record<string, string>]> = {
   bone: ['bone', { l: '#ffffff', m: '#e8e4d4', d: '#a8a490' }],
   pumpkin_pie: ['pie', { l: '#f0b050', m: '#d88a2a', d: '#7a4a14', w: '#f8e0a0' }],
 };
+SHAPES.cannon = ['', '', '', '', '...dddddddddd...', '..dlllllllllmdd.', '.hdmmmmmmmmmmmmh', '..dmmmmmmmmmmdd.', '...dddmmdddddd..', '.....dmmd.......', '.....dmmd.......', '.....dddd.......'];
+SHAPES.jetpack = ['', '..dddd....dddd..', '.dllmd....dllmd.', '.dlmmdddddlmmmd.', '.dlmmdmmmmdlmmd.', '.dlmmdmmmmdlmmd.', '.dlmmdddddlmmmd.', '.dlmmd....dlmmd.', '.dmmmd....dmmmd.', '..dddd....dddd..', '...hh......hh...', '..h..h....h..h..', '...hh......hh...'];
 SHAPES.bone = ['', '', '...........dd...', '..........dlld..', '...........dmd..', '..........dmd...', '.........dmd....', '........dmd.....', '.......dmd......',
   '......dmd.......', '.....dmd........', '..dddmd.........', '.dlld...........', '..dd............'];
 SHAPES.pie = ['', '', '', '', '', '.....dddddd.....', '...ddwwwwwwdd...', '..dwllmmmmmmwd..', '..dwmmmmmmmmwd..', '..ddwwwwwwwwdd..', '..dmddddddddmd..', '...dmmmmmmmmd...', '....dddddddd....'];

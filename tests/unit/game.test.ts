@@ -883,3 +883,101 @@ test('/sethome and /tphome (one home per piece of etherite armour)', () => {
   const again = g.join(fakeConn().conn, hello('Homer'))!;
   assert.equal(again.homes[1]?.name, 'Home 2', 'saved');
 });
+
+test('the Robot Titan wakes at its altar, drops obitite, and returns 30 minutes after being defeated', async () => {
+  const { nearestAltar } = await import('../../shared/robotic.ts');
+  const { s, storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
+  const c = fakeConn();
+  const p = g.join(c.conn, hello('Hero'))!;
+  const a = nearestAltar(100000, 0, 5)!;
+  const w = (g as any).world;
+  assert.equal(w.get(a.x, a.y - 1, a.z), BLOCK_ID.altar_core, 'altar generated');
+  (g as any).teleport(p, a.x + 20.5, a.y + 1, a.z + 0.5);
+  tick(g, 25);
+  const titans = () => [...(g as any).mobs.values()].filter((m: any) => m.kind === 'robot_titan');
+  assert.equal(titans().length, 1, 'woke up');
+  assert.ok(chatReplies(c.got).some(t => t.includes('has awoken')));
+  assert.ok(c.got.some(m => m.t === 'boss' && (m as any).hp === 300), 'health bar');
+  tick(g, 25);
+  assert.equal(titans().length, 1, 'only one per altar');
+  // Defeat it
+  const t = titans()[0];
+  t.health = 1; t.hurt = 0;
+  (g as any).damageMob(t, 5, p.body.pos);
+  tick(g, 30);
+  assert.equal(titans().length, 0);
+  const obitite = [...(g as any).items.values()].filter((i: any) => i.type === 'obitite').reduce((n: number, i: any) => n + i.count, 0);
+  assert.ok(obitite >= 6, `dropped ${obitite} obitite`);
+  assert.ok(chatReplies(c.got).some(t => t.includes('defeated')));
+  tick(g, 60);
+  assert.equal(titans().length, 0, 'stays away for 30 minutes');
+  g.saveAll(true);
+  assert.ok(s.world?.titans && Object.values(s.world.titans)[0] > 1700, 'respawn time saved');
+});
+
+test('laser cannon (in hand or offhand) hits mobs; a compass bounces robot lasers back', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5, difficulty: 'hard' });
+  const w = (g as any).world;
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Gunner'))!;
+  const bx = Math.floor(p.body.pos.x), by = Math.floor(p.body.pos.y) + 30, bz = Math.floor(p.body.pos.z);
+  for (let dx = -14; dx <= 14; dx++) for (let dz = -3; dz <= 3; dz++) { w.set(bx + dx, by - 1, bz + dz, BLOCK_ID.stone); for (let dy = 0; dy < 5; dy++) w.set(bx + dx, by + dy, bz + dz, 0); }
+  p.body.pos.x = bx + 0.5; p.body.pos.y = by; p.body.pos.z = bz + 0.5;
+  const zombie = (g as any).spawnMob('zombie', bx + 8.5, by, bz + 0.5);
+  // Offhand cannon, empty hand: fire along +x at the zombie's chest height
+  p.inv.slots[60] = { type: 'laser_cannon', count: 1 };
+  const eyeY = by + 1.62, dy = (by + 1 - eyeY) / 8;
+  g.handle(p, { t: 'fire', dx: 1, dy, dz: 0 } as any);
+  assert.equal(zombie.health, 14, 'hit for 3 hearts');
+  assert.ok(got.some(m => m.t === 'beam'));
+  g.handle(p, { t: 'fire', dx: 1, dy, dz: 0 } as any);
+  assert.equal(zombie.health, 14, 'cooldown');
+  // Compass: a robot's laser bounces back at it
+  zombie.dying = 0;
+  p.inv.slots[60] = { type: 'compass', count: 1 };
+  const robot = (g as any).spawnMob('robot', bx - 8.5, by, bz + 0.5);
+  for (let i = 0; i < 1200 && robot.health >= 30; i++) { g.tick(0.05); p.health = 20; }
+  assert.ok(robot.health < 30, 'robot hurt by its own laser (deflected half the time)');
+  assert.ok(got.some(m => m.t === 'toast' && (m as any).text === 'Deflected!'));
+});
+
+test('recipes: laser cannon and compass', async () => {
+  const { recipes } = await import('../../shared/recipes.ts');
+  for (const t of ['laser_cannon', 'compass', 'tungsten_pickaxe', 'obitite_chestplate']) assert.ok(recipes.some(r => r.result.type === t), t);
+  const { armorPoints, newInv } = await import('../../shared/inventory.ts');
+  const inv = newInv();
+  inv.slots[60] = { type: 'diamond_chestplate', count: 1 };
+  assert.equal(armorPoints(inv), 0, 'offhand armour does not protect');
+});
+
+test('jetpack: three clicks on oil fill it, thrust burns fuel, and thrusting flights cause no fall damage', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
+  const w = (g as any).world;
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Rocket'))!;
+  const x = Math.floor(p.body.pos.x), y = Math.floor(p.body.pos.y), z = Math.floor(p.body.pos.z);
+  w.set(x + 2, y, z, BLOCK_ID.oil);
+  p.inv.slots[0] = { type: 'jetpack', count: 1 }; p.inv.selected = 0;
+  for (let i = 0; i < 3; i++) { g.handle(p, { t: 'refuel', x: x + 2, y, z } as any); tick(g, 8); }
+  assert.equal(p.jetFuel, 1, 'full after three clicks');
+  assert.ok(got.some(m => m.t === 'fuel' && (m as any).f === 1));
+  // Wear it and thrust straight up for a while, then land
+  p.inv.slots[56] = p.inv.slots[0]; p.inv.slots[0] = null;
+  let yy = p.body.pos.y;
+  for (let i = 0; i < 40; i++) { tick(g, 1); yy += 0.3; g.handle(p, { t: 'move', x: p.body.pos.x, y: yy, z: p.body.pos.z, yaw: 0, pitch: 0, flags: 16 } as any); }
+  assert.ok(p.jetFuel < 1 && p.jetFuel > 0.9, `burned some fuel: ${p.jetFuel}`);
+  // Gently down with thrust, then touch down: no fall damage
+  for (let i = 0; i < 40; i++) { tick(g, 1); yy -= 0.3; g.handle(p, { t: 'move', x: p.body.pos.x, y: yy, z: p.body.pos.z, yaw: 0, pitch: 0, flags: 16 } as any); }
+  tick(g, 1); g.handle(p, { t: 'move', x: p.body.pos.x, y: y, z: p.body.pos.z, yaw: 0, pitch: 0, flags: 1 } as any);
+  assert.equal(p.health, 20);
+  // Without fuel the thrust flag counts for nothing
+  p.jetFuel = 0;
+  (g as any).teleport(p, p.body.pos.x, y, p.body.pos.z);
+  yy = y;
+  for (let i = 0; i < 40; i++) { tick(g, 1); yy += 0.3; g.handle(p, { t: 'move', x: p.body.pos.x, y: yy, z: p.body.pos.z, yaw: 0, pitch: 0, flags: 16 } as any); }
+  tick(g, 1); g.handle(p, { t: 'move', x: p.body.pos.x, y: y, z: p.body.pos.z, yaw: 0, pitch: 0, flags: 1 } as any);
+  assert.ok(p.health < 20, 'fell without fuel');
+});

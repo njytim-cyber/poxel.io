@@ -22,6 +22,8 @@ export const MOB_SPECS: Record<MobKind, MobSpec> = {
   slimelet: { halfW: 0.25, height: 0.5, health: 4, speed: 2.4, hostile: true, damage: 1 },
   // The Robotic World: keeps its distance and fires a laser (3 hearts). Tungsten tames it.
   robot: { halfW: 0.45, height: 2.0, health: 30, speed: 2.0, hostile: true, damage: 0 },
+  // The boss: wakes at an altar in the Robotic World. Laser, grinder charges, punches.
+  robot_titan: { halfW: 1.1, height: 5.0, health: 300, speed: 1.8, hostile: true, damage: 5 },
 };
 
 export const MOB_KINDS = Object.keys(MOB_SPECS) as MobKind[];

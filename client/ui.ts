@@ -278,6 +278,15 @@ const FOOD_HALF = 'data:image/svg+xml;utf8,' + encodeURIComponent(
 const FOOD_EMPTY = DRUM('#3a2a1a', '#5a5048');
 
 // Creative mode hides the health and hunger bars (you can't be hurt or get hungry)
+export function setBossBar(name: string, hp: number, max: number) {
+  const bar = $('boss-bar');
+  if (!bar) return;
+  if (hp < 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+  const n = $('boss-name'); if (n) n.textContent = name;
+  const f = $('boss-fill'); if (f) f.style.width = `${Math.max(0, Math.min(100, (hp / max) * 100))}%`;
+}
+
 export function setCreativeHud(on: boolean) {
   const bars = $('status-bars');
   if (bars) bars.style.visibility = on ? 'hidden' : 'visible';
