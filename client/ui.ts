@@ -28,8 +28,8 @@ export function initUI(c: PointerLockControls) {
   controls = c;
 
   controls.addEventListener('lock', () => {
-    if (state === 'screen') closeScreen();
-    if (state === 'chat') hideChatInput();
+    // The lock is requested asynchronously (resume); if a screen, chat or death came first, keep that
+    if (state === 'screen' || state === 'chat' || state === 'dead' || state === 'menu') { controls.unlock(); return; }
     setState('playing');
     show('pause-menu', false);
     pauseHandler(false);
@@ -58,6 +58,7 @@ export function initUI(c: PointerLockControls) {
       closeChat();
     } else if (e.key === 'Escape') closeChat();
   });
+  input?.addEventListener('blur', () => { if (isMobile && state === 'chat') closeChat(); });
 }
 
 let respawnHandler: () => void = () => {};
@@ -71,6 +72,7 @@ export function startPlaying() {
 }
 
 export function resume() {
+  (document.activeElement as HTMLElement | null)?.blur?.(); // a focused slider or field would keep the keys
   show('pause-menu', false);
   show('death-screen', false);
   pauseHandler(false);
@@ -165,7 +167,8 @@ export function addChatLine(from: string | null, text: string) {
 // Multiplayer downed state: overlay with a bleed-out countdown; a tap (or the button) gives up
 let downedUntil = 0, downedTimer = 0;
 export function showDowned(seconds: number, onGiveUp: () => void) {
-  if (state === 'screen') closeScreen();
+  if (state === 'screen') closeGameScreen();
+  document.body.dataset.downed = '1';
   const el = $('downed-screen');
   if (!el) return;
   el.style.display = 'flex';
@@ -185,6 +188,7 @@ export function showDowned(seconds: number, onGiveUp: () => void) {
 }
 export function hideDowned() {
   clearInterval(downedTimer);
+  delete document.body.dataset.downed;
   const el = $('downed-screen');
   if (el) el.style.display = 'none';
   setReviveProgress(0, '');
@@ -305,7 +309,7 @@ export function flashHurt() {
   el.classList.add('flash');
 }
 
-export function setUnderwater(level: 'none' | 'water' | 'lava' | 'snow') {
+export function setUnderwater(level: 'none' | 'water' | 'lava' | 'oil' | 'snow') {
   const el = $('liquid-overlay');
   if (!el) return;
   el.className = level;

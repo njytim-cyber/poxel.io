@@ -11,12 +11,12 @@ import { ROOT, BASE, sleep, startServer } from './lib.mjs';
 
 const TEST_PORT = 8099;
 const SUITES = {
-  bot: [], sp: [], cuj: [], respawn: [], mp: [], carry: [], content: [], crash: [],
+  bot: [], sp: [], cuj: [], respawn: [], mp: [], carry: [], content: [], robotic: [], crash: [],
   phone: ['mobile.mjs', 'phone'], tablet: ['mobile.mjs', 'tablet'],
   perf: [],
   soak: ['soak.mjs', `ws://localhost:${TEST_PORT}`, process.env.SOAK_BOTS || '15', process.env.SOAK_SECONDS || '60'],
 };
-const DEFAULT = ['bot', 'sp', 'cuj', 'respawn', 'mp', 'carry', 'content', 'crash', 'phone', 'tablet', 'perf'];
+const DEFAULT = ['bot', 'sp', 'cuj', 'respawn', 'mp', 'carry', 'content', 'robotic', 'crash', 'phone', 'tablet', 'perf'];
 const wanted = process.argv.slice(2).length ? process.argv.slice(2) : DEFAULT;
 for (const w of wanted) if (!SUITES[w]) { console.error(`Unknown suite "${w}". Known: ${Object.keys(SUITES).join(', ')}`); process.exit(2); }
 
@@ -39,7 +39,7 @@ if (!(await reachable(BASE))) {
 // 2. Isolated game server
 const dataDir = join(tmpdir(), 'poxel-e2e-server');
 rmSync(dataDir, { recursive: true, force: true });
-children.push(await startServer({ port: TEST_PORT, dataDir, env: { MAX_PER_IP: '100', MAX_PLAYERS: '32', SEED: '12345' } }));
+children.push(await startServer({ port: TEST_PORT, dataDir, env: { MAX_PER_IP: '100', MAX_PLAYERS: '32', SEED: '12345', DEV_TOOLS: '1' } }));
 const env = { ...process.env, POXEL_WS: `ws://localhost:${TEST_PORT}` };
 
 // 3. Suites, one at a time (they share the GPU and the server)

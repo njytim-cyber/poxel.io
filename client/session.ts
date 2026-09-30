@@ -3,7 +3,7 @@ import type { ServerMsg } from '../shared/protocol.ts';
 import { resetWorld, importEditsFlat, importFacingFlat, loadAreaNow, setBlock, setFacing, getSeed } from './world';
 import * as player from './player';
 import { setInvState, resetInventory, setFurnaceState, setChestState, setSelectedFromServer } from './inventory';
-import { clearRemote, onSpawn, onDespawn, onSnap, onEquip, onAnim } from './remote';
+import { clearRemote, onSpawn, onDespawn, onSnap, onEquip, onAnim, showBeam } from './remote';
 import { setTimeOfDay } from './sky';
 import * as ui from './ui';
 import { send } from './net';
@@ -53,6 +53,7 @@ export function handleServerMessage(m: ServerMsg) {
     case 'snap': onSnap(m.ents); return;
     case 'spawn': onSpawn(m.ents.filter(e => e.eid !== myEid)); return;
     case 'despawn': onDespawn(m.eids); return;
+    case 'beam': showBeam(m.a, m.b, m.pet); return;
     case 'equip': onEquip(m.eid, m.held, m.armor); return;
     case 'anim': onAnim(m.eid, m.a); return;
     case 'edits': importEditsFlat(m.list); return;

@@ -6,13 +6,14 @@ import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockCont
 import { crackMaterials } from './textures';
 import { keys, isMobile, touchLookDelta, actions } from './input';
 import { getBlock, setBlock, raycast, setFacing, isLoaded, type RayHit } from './world';
-import { BLOCKS, BLOCK_ID, WATER, LAVA, POWDER_SNOW, isFacingBlock, isPlant, itemDef, miningInfo, plantCanStand } from '../shared/blocks.ts';
+import { BLOCKS, BLOCK_ID, WATER, LAVA, OIL, POWDER_SNOW, isLiquid, isFacingBlock, isPlant, itemDef, miningInfo, plantCanStand } from '../shared/blocks.ts';
 import { makeBody, moveBody, boxIntersectsSolid, hasGroundBelow, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, GRAVITY } from '../shared/physics.ts';
 import { MF_GROUND, MF_SNEAK, MF_WATER, MF_LAVA } from '../shared/protocol.ts';
-import { inventory, selectedSlotIndex, getSelectedItem, onInventoryChange, predictUseSelected, setInfiniteBlocks } from './inventory';
+import { inventory, selectedSlotIndex, getSelectedItem, onInventoryChange, predictUseSelected, setInfiniteBlocks, setCreativeInventory } from './inventory';
 import { createAvatar, makeHeldMesh, savedLook, disposeOwned, type Avatar } from './avatar';
 import { isFlatItem } from './textures';
-import { rayHitEntity, entityInBlock, isDownedPlayer } from './remote';
+import { rayHitEntity, entityInBlock, isDownedPlayer, isWildRobot } from './remote';
+import { isPortal } from '../shared/robotic.ts';
 import { send } from './net';
 import type { Look } from '../shared/protocol.ts';
 import * as ui from './ui';
@@ -38,6 +39,7 @@ export let health = MAX_HEALTH;
 let dead = false;
 export let headInWater = false;
 export let headInLava = false;
+export let headInOil = false;
 let wasOnGround = true;
 
 // ------------------------------------------------------------------ Avatar (third person)
@@ -171,6 +173,8 @@ export function initPlayer(camera: THREE.PerspectiveCamera, scene: THREE.Scene) 
     lookDir(_dir);
     const ent = rayHitEntity(eyePos(), _dir, 3.5);
     if (ent && isDownedPlayer(ent.eid)) { reviveTarget = ent.eid; reviveSendT = 0; secondaryHeld = true; return; }
+    // Taming a robot: Use on it while holding a tungsten ingot
+    if (ent && isWildRobot(ent.eid) && getSelectedItem()?.type === 'tungsten_ingot') { swing(); send({ t: 'tame', eid: ent.eid }); return; }
     secondaryHeld = true; useTimer = 0.25; useItem();
   };
   actions.secondaryUp = () => { secondaryHeld = false; reviveTarget = -1; ui.setReviveProgress(0, '', true); };
@@ -188,7 +192,11 @@ export function initPlayer(camera: THREE.PerspectiveCamera, scene: THREE.Scene) 
     const eye = eyePos();
     const entHit = rayHitEntity(eye, _dir, 3.5);
     const blockHit = raycast(eye, _dir, REACH);
-    if (entHit && (!blockHit || entHit.dist < blockHit.dist)) { onPrimaryDown(); primaryHeld = false; return; }
+    if (entHit && (!blockHit || entHit.dist < blockHit.dist)) {
+      const taming = isWildRobot(entHit.eid) && getSelectedItem()?.type === 'tungsten_ingot';
+      if (taming || isDownedPlayer(entHit.eid)) { actions.secondaryDown(); secondaryHeld = false; return; }
+      onPrimaryDown(); primaryHeld = false; return;
+    }
     actions.secondaryDown();
     secondaryHeld = false;
   };
@@ -260,6 +268,7 @@ export function onGamemode(mode: string) {
   if (!creative) flying = false;
   setInfiniteBlocks(creative);
   ui.setCreativeHud(creative);
+  setCreativeInventory(creative);
   if (!creative) ui.renderFood(difficulty === 'easy' ? -1 : food);
 }
 export const isFlying = () => flying;
@@ -378,6 +387,13 @@ function useItem() {
   const hit = raycast(eyePos(), _dir, REACH);
   const held = getSelectedItem();
 
+  // A portal: right-click its gold block (a plus of etherite blocks around it) to travel
+  const heldFood = !!(held && itemDef(held.type).food);
+  if (hit && !keys.shift && !heldFood && isPortal(getBlock, hit.x, hit.y, hit.z)) {
+    secondaryHeld = false;
+    send({ t: 'open', x: hit.x, y: hit.y, z: hit.z });
+    return;
+  }
   if (hit && !keys.shift && (hit.id === BLOCK_ID.crafting_table || hit.id === BLOCK_ID.furnace || hit.id === BLOCK_ID.chest)) {
     secondaryHeld = false;
     ui.expectScreen();
@@ -410,7 +426,7 @@ function useItem() {
   const replacePlant = isPlant(hit.id);
   const px = replacePlant ? hit.x : hit.x + hit.nx, py = replacePlant ? hit.y : hit.y + hit.ny, pz = replacePlant ? hit.z : hit.z + hit.nz;
   const existing = getBlock(px, py, pz);
-  if (existing !== 0 && existing !== WATER && existing !== LAVA && !isPlant(existing)) return;
+  if (existing !== 0 && !isLiquid(existing) && !isPlant(existing)) return;
   if (BLOCKS[def.block].plant) {
     if (!plantCanStand(def.block, getBlock(px, py - 1, pz))) return;
   } else if (playerOverlapsBlock(px, py, pz) || entityInBlock(px, py, pz)) return;
@@ -554,10 +570,12 @@ export function updatePlayer(dt: number) {
   }
   void wasOnGround;
 
-  headInWater = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z)) === WATER;
+  const headBlock = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z));
+  headInWater = headBlock === WATER;
+  headInOil = headBlock === OIL;
   headInLava = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z)) === LAVA;
   const headInSnow = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z)) === POWDER_SNOW;
-  ui.setUnderwater(headInLava ? 'lava' : headInWater ? 'water' : headInSnow ? 'snow' : 'none');
+  ui.setUnderwater(headInLava ? 'lava' : headInOil ? 'oil' : headInWater ? 'water' : headInSnow ? 'snow' : 'none');
 
   if (playing && secondaryHeld && reviveTarget >= 0) {
     // Keep telling the server we're still holding Use on them

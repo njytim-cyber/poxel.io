@@ -1,6 +1,6 @@
 // Axis-aligned box physics shared by client (prediction) and server (mobs, items, validation).
 // Worlds are passed in as a block lookup so this runs anywhere.
-import { isSolid, WATER, LAVA, POWDER_SNOW, BLOCKS } from './blocks.ts';
+import { isSolid, isLiquid, WATER, LAVA, OIL, POWDER_SNOW, BLOCKS } from './blocks.ts';
 
 export interface Vec3 { x: number; y: number; z: number }
 export type BlockSource = (x: number, y: number, z: number) => number;
@@ -96,7 +96,7 @@ export function moveBody(world: BlockSource, b: Body, dt: number) {
   }
   // Resting contact: vel.y was 0 but we're standing on something
   if (!b.onGround && b.vel.y <= 0 && boxIntersectsSolid(world, b.pos.x, b.pos.y - 0.01, b.pos.z, b.halfW, b.height)) b.onGround = true;
-  b.inWater = liquidAt(world, b, WATER);
+  b.inWater = liquidAt(world, b, WATER) || liquidAt(world, b, OIL); // oil: swim in it like (thick) water
   b.inLava = liquidAt(world, b, LAVA);
   b.inSnow = liquidAt(world, b, POWDER_SNOW);
   b.slip = b.onGround ? BLOCKS[world(Math.floor(b.pos.x), Math.floor(b.pos.y - 0.05), Math.floor(b.pos.z))]?.slippery || 0 : 0;
@@ -119,7 +119,7 @@ export function raycastBlocks(world: BlockSource, origin: Vec3, dir: Vec3, maxDi
   let nx = 0, ny = 0, nz = 0, t = 0;
   for (let i = 0; i < 256 && t <= maxDist; i++) {
     const id = world(x, y, z);
-    if (id !== 0 && id !== WATER && id !== LAVA && (!isLoaded || isLoaded(x, z))) return { x, y, z, id, nx, ny, nz, dist: t };
+    if (id !== 0 && !isLiquid(id) && (!isLoaded || isLoaded(x, z))) return { x, y, z, id, nx, ny, nz, dist: t };
     if (tmx < tmy && tmx < tmz) { x += sx; t = tmx; tmx += tdx; nx = -sx; ny = 0; nz = 0; }
     else if (tmy < tmz) { y += sy; t = tmy; tmy += tdy; nx = 0; ny = -sy; nz = 0; }
     else { z += sz; t = tmz; tmz += tdz; nx = 0; ny = 0; nz = -sz; }

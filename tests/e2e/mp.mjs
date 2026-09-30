@@ -4,7 +4,7 @@
 import { OUT, WS, GPU_ARGS, NO_THROTTLE_ARGS, launch, openGame, sleep, suite, uniqueName } from './lib.mjs';
 const url = process.argv[2] || WS;
 const browser = await launch({ args: [...GPU_ARGS, ...NO_THROTTLE_ARGS], viewport: { width: 960, height: 600 } });
-const { check, watch, finish } = suite('mp');
+const { check, info, watch, finish } = suite('mp');
 
 async function client(name) {
   const page = await openGame(browser, { ctx: true }); // separate localStorage per player
@@ -28,6 +28,7 @@ try {
   await evA(() => window.poxel.setYawPitch(0, -0.25));
   await sleep(1500);
   check('Alice sees Bob', (await evA(() => window.poxel.counts().players)) === 1);
+  info(`Bob after walking over: hp ${await evB(() => window.poxel.health())} at ${JSON.stringify(await evB(() => window.poxel.body.pos))}`);
   await A.screenshot({ path: `${OUT}/mp-alice-sees-bob.png` });
 
   // Bob walks
@@ -60,6 +61,7 @@ try {
   await Promise.all([evB(p => window.poxel.glide(p.x, p.y + 0.3, p.z - 2), pa), evA(p => window.poxel.glide(p.x, p.y + 0.3, p.z), pa)]);
   await sleep(600);
   const hp0 = await evB(() => window.poxel.health());
+  info(`before PvP: Bob hp ${hp0} at ${JSON.stringify(await evB(() => window.poxel.body.pos))}, Alice at ${JSON.stringify(await evA(() => window.poxel.body.pos))}`);
   // Lowest health right after each hit (a well-fed player heals quickly between hits)
   let hp1 = hp0;
   for (let i = 0; i < 3; i++) { await evA(id => window.poxel.send({ t: 'attack', eid: id }), bobEid); await sleep(150); hp1 = Math.min(hp1, await evB(() => window.poxel.health())); await sleep(550); }

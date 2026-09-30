@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { worldUniforms, RENDER_DIST } from './world';
+import { isRobotic } from '../shared/robotic.ts';
 
 // Day/night cycle. time: 0..1, 0.25 = noon, 0.75 = midnight.
 const DAY_LENGTH = 600; // seconds for a full cycle
@@ -12,7 +13,9 @@ const sun = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicM
 const moon = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.MeshBasicMaterial({ color: 0xe8ecff, fog: false }));
 
 const DAY = new THREE.Color(0x87ceeb), NIGHT = new THREE.Color(0x0a0f24), DUSK = new THREE.Color(0xf08a4a);
-const WATER_FOG = new THREE.Color(0x1a3a8a), LAVA_FOG = new THREE.Color(0xc83a00);
+const WATER_FOG = new THREE.Color(0x1a3a8a), LAVA_FOG = new THREE.Color(0xc83a00), OIL_FOG = new THREE.Color(0x140e08);
+// The Robotic World: always a smoggy, rust-coloured dusk
+const ROBO_SKY = new THREE.Color(0x8a5a3c);
 const sky = new THREE.Color();
 let daylight = 1;
 
@@ -31,7 +34,7 @@ export function isNight() { return daylight < 0.35; }
 const CAVE_DARK = new THREE.Color(0x050507);
 
 // depthBelowSurface: how far the camera is under the terrain surface (caves fade the sky to black)
-export function updateSky(dt: number, cameraPos: THREE.Vector3, underwater: 'none' | 'water' | 'lava', advance: boolean, depthBelowSurface = 0) {
+export function updateSky(dt: number, cameraPos: THREE.Vector3, underwater: 'none' | 'water' | 'lava' | 'oil', advance: boolean, depthBelowSurface = 0) {
   if (advance) time = (time + dt / DAY_LENGTH) % 1;
   const angle = time * Math.PI * 2;
   const sunH = Math.sin(angle);
@@ -43,16 +46,20 @@ export function updateSky(dt: number, cameraPos: THREE.Vector3, underwater: 'non
   // Orange glow around sunrise/sunset
   const dusk = Math.max(0, 1 - Math.abs(sunH) / 0.25) * 0.5;
   sky.lerp(DUSK, dusk);
+  const robotic = isRobotic(cameraPos.x);
+  if (robotic) { daylight = 0.62; worldUniforms.uDaylight.value = daylight; sky.copy(ROBO_SKY); }
   sky.lerp(CAVE_DARK, THREE.MathUtils.clamp((depthBelowSurface - 4) / 12, 0, 1));
-  sun.visible = moon.visible = depthBelowSurface < 8;
+  sun.visible = moon.visible = depthBelowSurface < 8 && !robotic;
 
   const fog = scene.fog as THREE.Fog;
   if (underwater === 'water') { fog.color.copy(WATER_FOG); fog.near = 1; fog.far = 14; scene.background = WATER_FOG; }
   else if (underwater === 'lava') { fog.color.copy(LAVA_FOG); fog.near = 0.2; fog.far = 2.5; scene.background = LAVA_FOG; }
+  else if (underwater === 'oil') { fog.color.copy(OIL_FOG); fog.near = 0.2; fog.far = 3; scene.background = OIL_FOG; }
+  else if (robotic) { fog.color.copy(sky); fog.near = RENDER_DIST * 16 * 0.3; fog.far = RENDER_DIST * 16 - 2; scene.background = sky; }
   else { fog.color.copy(sky); fog.near = RENDER_DIST * 16 * 0.55; fog.far = RENDER_DIST * 16 - 2; scene.background = sky; }
 
   ambient.intensity = 0.45 + 0.75 * daylight;
-  sunLight.intensity = 0.9 * t;
+  sunLight.intensity = robotic ? 0.25 : 0.9 * t;
   const dir = new THREE.Vector3(Math.cos(angle), Math.sin(angle), 0.25).normalize();
   sunLight.position.copy(dir).multiplyScalar(50);
   sun.position.copy(cameraPos).addScaledVector(dir, 300);

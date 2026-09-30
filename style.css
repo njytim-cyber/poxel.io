@@ -50,6 +50,7 @@ canvas { display: block; }
 #liquid-overlay, #hurt-overlay { position: absolute; inset: 0; pointer-events: none; }
 #liquid-overlay.water { background: rgba(30, 70, 200, 0.35); }
 #liquid-overlay.lava { background: rgba(230, 80, 0, 0.6); }
+#liquid-overlay.oil { background: rgba(20, 14, 8, 0.85); }
 #liquid-overlay.snow { background: rgba(235, 242, 250, 0.9); }
 #hurt-overlay { background: radial-gradient(ellipse at center, transparent 40%, rgba(200, 0, 0, 0.55)); opacity: 0; }
 #hurt-overlay.flash { animation: hurt-flash 0.45s ease-out; }
@@ -204,6 +205,7 @@ canvas { display: block; }
 }
 .pause-panel h2 { text-align: center; font-size: 36px; text-shadow: 3px 3px 0 #000; }
 .pause-panel .menu-btn { justify-content: center; }
+#recipe-book.creative #recipe-filter-label { display: none; }
 .setting-row {
   display: flex;
   align-items: center;
@@ -813,7 +815,29 @@ kbd {
   z-index: 51;
 }
 
-/* Menu button (top-left pause) */
+/* Bottom-right movement cluster (3 columns x 3 rows):
+       .     view
+       .     jump
+      run    .      <- between Jump and Sneak
+       .     sneak                                        */
+#action-buttons-right {
+  position: absolute;
+  bottom: calc(40px + env(safe-area-inset-bottom)); right: calc(22px + env(safe-area-inset-right));
+  display: grid;
+  grid-template-columns: repeat(2, var(--mbtn));
+  grid-template-rows: auto var(--mbtn) var(--mbtn);
+  grid-template-areas: ". view" "run jump" "run sneak";
+  gap: 10px 12px;
+  pointer-events: auto;
+  z-index: 55;
+  --mbtn: 54px;
+}
+#btn-mobile-view { grid-area: view; justify-self: center; }
+#btn-mobile-jump { grid-area: jump; }
+#btn-mobile-sprint { grid-area: run; align-self: center; }
+#btn-mobile-sneak { grid-area: sneak; }
+
+/* Menu button (top right) */
 .mobile-btn-menu {
   position: absolute;
   top: 10px; right: 10px;
@@ -824,24 +848,7 @@ kbd {
   border-radius: 10px;
 }
 
-/* Bottom-right movement buttons: Run, then a column with Sneak above Jump */
-#action-buttons-right {
-  position: absolute;
-  bottom: calc(32px + env(safe-area-inset-bottom)); right: calc(20px + env(safe-area-inset-right));
-  display: flex;
-  align-items: flex-end;
-  gap: 10px;
-  pointer-events: auto;
-  z-index: 55;
-}
-.mobile-btn-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-}
-
-/* Top-right toolbar (inv, shop, save) */
+/* Top-left toolbar: inventory, drop, chat */
 #mobile-toolbar {
   position: absolute;
   top: 10px; left: 10px;
@@ -858,31 +865,26 @@ kbd {
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   border-radius: 14px;
-  width: 60px; height: 60px;
+  width: var(--mbtn, 54px); height: var(--mbtn, 54px);
+  padding: 0;
   color: white; font-weight: bold; font-size: 18px;
-  text-align: center;
   user-select: none; touch-action: none;
   -webkit-touch-callout: none;
-  display: flex; flex-direction: column;
+  display: flex;
   align-items: center; justify-content: center;
-  line-height: 1.1;
   transition: transform 0.1s, background 0.1s;
 }
-.mobile-btn span {
-  font-size: 9px;
-  opacity: 0.8;
-  margin-top: 1px;
-}
+.mobile-btn svg { width: 55%; height: 55%; fill: white; }
 .mobile-btn:active {
   background: rgba(255, 255, 255, 0.4);
   transform: scale(0.92);
 }
-
-/* Large buttons (jump, mine, place) */
-.mobile-btn-lg {
-  width: 72px; height: 72px;
-  font-size: 22px;
+/* Camera view: a small round button on top of the cluster */
+.mobile-btn-view {
+  width: 38px; height: 38px;
+  border-radius: 50%;
 }
+.mobile-btn-view svg { width: 64%; height: 64%; }
 
 /* Small toolbar buttons */
 .mobile-btn-sm {
@@ -896,6 +898,7 @@ kbd {
   background: rgba(255, 255, 255, 0.45);
   border-color: #fff;
 }
+
 
 /* ===================== */
 /* MOBILE RESPONSIVE     */
@@ -1022,16 +1025,11 @@ kbd {
     width: 120px; height: 120px;
   }
   #action-buttons-right {
-    bottom: calc(24px + env(safe-area-inset-bottom)); right: calc(16px + env(safe-area-inset-right));
+    bottom: calc(26px + env(safe-area-inset-bottom)); right: calc(16px + env(safe-area-inset-right));
+    --mbtn: 46px;
+    gap: 6px 10px;
   }
-  .mobile-btn {
-    width: 52px; height: 52px;
-    font-size: 16px;
-  }
-  .mobile-btn-lg {
-    width: 62px; height: 62px;
-    font-size: 20px;
-  }
+  .mobile-btn-view { width: 32px; height: 32px; }
 }
 
 
@@ -1123,6 +1121,21 @@ select.mp-input { cursor: pointer; }
 .recipe-btn:hover { filter: brightness(1.2); }
 #recipe-hint { font-size: 10px; color: #555; text-align: center; }
 #modal-container { position: relative; }
+#inventory-close {
+  position: absolute;
+  top: 48px;
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  font-size: 18px;
+  color: #222;
+  background: #8b8b8b;
+  border: 2px solid;
+  border-color: #fff #373737 #373737 #fff;
+  cursor: pointer;
+}
+/* Downed: the full-screen touch look zone would swallow the "tap to give up" */
+body[data-downed] #touch-look-zone { pointer-events: none; }
 #recipe-book-toggle {
   position: absolute;
   top: 8px;

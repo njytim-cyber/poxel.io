@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BLOCKS, BLOCK_ID, WATER, LAVA, ATLAS_COLS, ATLAS_ROWS } from '../shared/blocks.ts';
+import { BLOCKS, BLOCK_ID, WATER, LAVA, ATLAS_COLS, ATLAS_ROWS, isFacingBlock, isLiquid } from '../shared/blocks.ts';
 import { atlasTexture } from './textures';
 import {
   CHUNK, MIN_Y, HEIGHT, MAX_Y, SECTIONS, SEA_LEVEL, idx, blocksSky, computeHeights, generateChunkData,
@@ -162,7 +162,7 @@ export function setBlock(x: number, y: number, z: number, id: number, fromNetwor
   let m = mods.get(key);
   if (!m) { m = new Map(); mods.set(key, m); }
   m.set(i, id);
-  if (!BLOCKS[id].name.match(/furnace|pumpkin/)) facingByChunk.get(key)?.delete(i);
+  if (!isFacingBlock(id)) facingByChunk.get(key)?.delete(i);
   void fromNetwork;
 
   const c = chunks.get(key);
@@ -595,7 +595,7 @@ export function raycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: numb
   let nx = 0, ny = 0, nz = 0, t = 0;
   for (let i = 0; i < 256 && t <= maxDist; i++) {
     const id = getBlock(x, y, z);
-    if (id !== 0 && id !== WATER && id !== LAVA && isLoaded(x, z)) return { x, y, z, id, nx, ny, nz, dist: t };
+    if (id !== 0 && !isLiquid(id) && isLoaded(x, z)) return { x, y, z, id, nx, ny, nz, dist: t };
     if (tmx < tmy && tmx < tmz) { x += sx; t = tmx; tmx += tdx; nx = -sx; ny = 0; nz = 0; }
     else if (tmy < tmz) { y += sy; t = tmy; tmy += tdy; nx = 0; ny = -sy; nz = 0; }
     else { z += sz; t = tmz; tmz += tdz; nx = 0; ny = 0; nz = -sz; }
@@ -644,7 +644,7 @@ export function workerStatus() { return pool.failed ? 'main thread' : 'workers';
 
 // Dev benchmark: ms per chunk generation and per chunk meshing (main thread)
 export function benchmarkWorld() {
-  const base = 5000;
+  const base = 2000; // chunks at x = 32,000: normal terrain, well away from the Robotic World (x >= 70,000)
   let t = performance.now();
   for (let i = 0; i < 25; i++) ensureChunkSync(base + (i % 5), base + Math.floor(i / 5));
   const gen = (performance.now() - t) / 25;

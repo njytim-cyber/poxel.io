@@ -1,19 +1,21 @@
 import * as THREE from 'three';
 import { worldMaterials, worldGroup, updateWorld, chunkCount, biomeAt, getBlock, setBlock, loadAreaNow, surfaceHeight, benchmarkWorld, resetWorld, workerStatus, raycast, setRenderDistance, RENDER_DIST } from './world';
 import { setupInput, isMobile, actions, releaseAllKeys, keys } from './input';
-import { initPlayer, updatePlayer, controls, updateLocalLook, body, handScene, handCamera, headInWater, headInLava,
+import { initPlayer, updatePlayer, controls, updateLocalLook, body, handScene, handCamera, headInWater, headInLava, headInOil,
   isDead, health, MAX_HEALTH, setYawPitch, setPlayerFeet, getYawPitch } from './player';
 import { applyHairGeometry, addBigEyes, savedLook } from './avatar';
 import { initInventory, inventory, setSelectedSlot } from './inventory';
 import { getSaveMeta, readSave, writeSave, deleteSave, initSaves, savesSettled, storageUsage } from './saves';
 import { store } from './store';
-import { profileName, cleanName, previousNameOn, rememberNameOn, carryFrom, startCarry, stopCarry, onCarryMessage, flushCarry, carryDebug } from './character';
-import { initRemote, updateRemote, entityCounts } from './remote';
+import { profileName, cleanName, previousNameOn, rememberNameOn, carryFrom, canCarry, startCarry, stopCarry, onCarryMessage, flushCarry, carryDebug } from './character';
+import { initRemote, updateRemote, entityCounts, entityList } from './remote';
 import { initSky, updateSky, getDaylight, getTimeOfDay } from './sky';
 import { preloadIcons } from './textures';
 import { onServerMessage, onNetStatus, startLocal, startRemote, send, disconnect, requestLocalSave, setLocalPaused, isMultiplayer, type LocalSave } from './net';
 import { handleServerMessage, onReady, resetSession, markPingSent, pingMs, onlinePlayers } from './session';
 import * as ui from './ui';
+import { boxIntersectsSolid } from '../shared/physics.ts';
+import { BLOCK_ID } from '../shared/blocks.ts';
 
 
 // ------------------------------------------------------------------ Crash protection
@@ -372,9 +374,12 @@ function refreshCharacterChoices() {
   saveButtons.forEach(btn => {
     const slot = parseInt((btn as HTMLElement).dataset.slot!);
     const meta = getSaveMeta(slot);
-    if (meta) mpCharacter.add(new Option(`Save ${slot + 1} (${meta})`, String(slot)));
+    if (!meta) return;
+    const opt = new Option(`Save ${slot + 1} (${meta})${canCarry(slot) ? '' : ' - used cheats, single player only'}`, String(slot));
+    opt.disabled = !canCarry(slot);
+    mpCharacter.add(opt);
   });
-  mpCharacter.value = [...mpCharacter.options].some(o => o.value === wanted) ? wanted : '-1';
+  mpCharacter.value = [...mpCharacter.options].some(o => o.value === wanted && !o.disabled) ? wanted : '-1';
   updateCharacterHint();
 }
 function updateCharacterHint() {
@@ -450,6 +455,7 @@ onReady(() => {
       store.set('poxel_view_distance', String(RENDER_DIST));
       showValue();
     });
+    slider.addEventListener('change', () => slider.blur()); // or the keys stay with the slider after resuming
   }
   showValue();
 }
@@ -553,9 +559,14 @@ let mpServer = '', mpJoinName = '';
 // A character carried from a save must reach the save before the page goes away
 window.addEventListener('pagehide', flushCarry);
 
+let flushedForDrop = false;
 onNetStatus((status, detail) => {
-  if (status === 'online') ui.setConnectionBanner('');
-  else if (status === 'reconnecting') ui.setConnectionBanner(detail || 'Reconnecting...');
+  if (status === 'online') { ui.setConnectionBanner(''); flushedForDrop = false; }
+  else if (status === 'reconnecting') {
+    // Rejoining sends the carried character from its save, so bring the save up to date first (once per drop)
+    if (!flushedForDrop) { flushedForDrop = true; flushCarry(); }
+    ui.setConnectionBanner(detail || 'Reconnecting...');
+  }
   else if (status === 'offline') {
     ui.setConnectionBanner(detail || 'Disconnected');
     if (mpStatus && ui.state === 'menu') mpStatus.textContent = detail || 'Disconnected';
@@ -584,6 +595,8 @@ document.getElementById('btn-save-quit')?.addEventListener('click', async () => 
     return;
   }
   disconnect();
+  // A carried character's last changes must reach its save before the page goes
+  if (mode === 'multi') { stopCarry(); await savesSettled(); }
   location.reload();
 });
 
@@ -612,7 +625,7 @@ if ((import.meta as any).env?.DEV) {
   (window as any).poxel = {
     scene, body, ui, setYawPitch, getBlock, setBlock, inv: inventory, bench: benchmarkWorld, send,
     select: setSelectedSlot, tp: (x: number, y: number, z: number) => { loadAreaNow(x, z, 1); setPlayerFeet({ x, y, z }); },
-    health: () => health, counts: entityCounts, startSingle: (seed?: number, difficulty?: string) => startSingle(4, null, seed, difficulty),
+    health: () => health, counts: entityCounts, entities: entityList, blockId: (name: string) => BLOCK_ID[name], startSingle: (seed?: number, difficulty?: string) => startSingle(4, null, seed, difficulty),
     connect: (url: string, name: string) => { mode = 'multi'; resetSession(); startRemote(url, name, savedLook(), playerToken()); },
     online: () => onlinePlayers,
     saveNow, readSave, deleteSave, savesSettled,
@@ -625,15 +638,33 @@ if ((import.meta as any).env?.DEV) {
     yaw: () => getYawPitch().yaw,
     // Moves the player smoothly (like fast walking/flying) so the server's movement checks accept it
     // Time-based (blocks per second at any frame rate), under the server's movement limit
+    // When the straight line is blocked (the server refuses moves into blocks), it teleports instead,
+    // which only servers with dev tools accept (dev single player and the test server).
     glide: (x: number, y: number, z: number, speed = 8) => new Promise<void>(res => {
+      const from = { ...body.pos };
+      const blocked = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+        for (let t = 0; t <= 1; t += 0.02) {
+          if (boxIntersectsSolid(getBlock, ax + (bx - ax) * t, ay + (by - ay) * t + 0.05, az + (bz - az) * t, 0.22, 1.65)) return true;
+        }
+        return false;
+      };
+      const route = [{ x, y, z }];
+      if (blocked(from.x, from.y, from.z, x, y, z)) {
+        send({ t: 'dev', tp: { x, y, z } });
+        loadAreaNow(x, z, 1);
+        setPlayerFeet({ x, y, z });
+        setTimeout(res, 300);
+        return;
+      }
       const started = performance.now();
       let last = started;
       const step = () => {
         const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000);
         last = now;
-        const p = body.pos, dx = x - p.x, dy = y - p.y, dz = z - p.z, d = Math.hypot(dx, dy, dz);
-        if (d < 0.2 || now - started > 8000) { body.vel.set(0, 0, 0); res(); return; }
-        const k = Math.min(1, (speed * dt) / d);
+        const goal = route[0], p = body.pos, dx = goal.x - p.x, dy = goal.y - p.y, dz = goal.z - p.z, d = Math.hypot(dx, dy, dz);
+        if (d < 0.2) route.shift();
+        if (!route.length || now - started > 12000) { body.vel.set(0, 0, 0); res(); return; }
+        const k = d < 0.2 ? 0 : Math.min(1, (speed * dt) / d);
         setPlayerFeet({ x: p.x + dx * k, y: p.y + dy * k, z: p.z + dz * k });
         requestAnimationFrame(step);
       };
@@ -670,7 +701,7 @@ function frame() {
     updateRemote(dt);
     const t3 = performance.now();
 
-    const liquid = headInLava ? 'lava' : headInWater ? 'water' : 'none';
+    const liquid = headInLava ? 'lava' : headInOil ? 'oil' : headInWater ? 'water' : 'none';
     const eye = controls.object.position;
     const depth = surfaceHeight(Math.floor(eye.x), Math.floor(eye.z)) - eye.y;
     const worldRunning = !inMenu && !(mode === 'single' && ui.state === 'paused');

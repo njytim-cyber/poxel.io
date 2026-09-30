@@ -68,10 +68,18 @@ const storage: Storage = {
   deletePlayer: name => { for (const f of [playerFile(name), `${playerFile(name)}.bak`]) rmSync(f, { force: true }); },
 };
 
+// Operators (/give, /gamemode): OPS=name1,name2, or one name per line in DATA_DIR/ops.txt. Nobody by default.
+function readOps(): string[] {
+  let list = process.env.OPS || '';
+  if (!list) { try { list = readFileSync(join(DATA_DIR, 'ops.txt'), 'utf8'); } catch { /* no file: no operators */ } }
+  return list.split(/[\s,]+/).map(s => s.trim()).filter(Boolean);
+}
+
 const game = new Game(storage, { seed: process.env.SEED ? Number(process.env.SEED) : undefined, log, maxPlayers: MAX_PLAYERS,
   allowCarry: process.env.ALLOW_CARRY !== '0',
+  devTools: process.env.DEV_TOOLS === '1', // test servers only: anyone may teleport, give items and spawn mobs
   difficulty: (['easy', 'medium', 'hard'].includes(process.env.DIFFICULTY || '') ? process.env.DIFFICULTY : 'medium') as 'easy' | 'medium' | 'hard', // DIFFICULTY for a new world
-  ops: process.env.OPS ? process.env.OPS.split(',').map(s => s.trim()).filter(Boolean) : undefined }); // OPS=name1,name2 (default player9989) // ALLOW_CARRY=0: players can't bring characters from single-player saves
+  ops: readOps() }); // ALLOW_CARRY=0: players can't bring characters from single-player saves
 
 // ------------------------------------------------------------------ HTTP (health check) + WebSocket
 
@@ -140,7 +148,11 @@ function allow(c: Client): boolean {
 }
 
 wss.on('connection', (ws, req) => {
-  const ip = (req.headers['fly-client-ip'] || req.headers['cf-connecting-ip'] || req.socket.remoteAddress || '?') as string;
+  // Proxy headers can be forged by anyone who reaches the port directly, so they only count when the
+  // connection comes from a proxy on this machine (cloudflared) or when running on Fly
+  const direct = req.socket.remoteAddress || '?';
+  const viaProxy = /^(127\.|::1$|::ffff:127\.)/.test(direct) || !!process.env.FLY_APP_NAME;
+  const ip = (viaProxy && (req.headers['fly-client-ip'] || req.headers['cf-connecting-ip'])) as string || direct;
   // One household/host can't take every slot
   if ([...clients].filter(o => o.ip === ip).length >= MAX_PER_IP) { ws.close(4000, 'Too many connections from your network'); return; }
   const c: Client = { ws, ip, player: null, tokens: RATE_BURST, lastRefill: Date.now(), strikes: 0, alive: true, pingSent: 0 };

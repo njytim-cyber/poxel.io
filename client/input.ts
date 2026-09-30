@@ -54,7 +54,11 @@ export function setupInput() {
   document.addEventListener('contextmenu', e => e.preventDefault());
 
   document.addEventListener('keydown', e => {
-    if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+    const tag = (e.target as HTMLElement)?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') {
+      if (e.code === 'Escape' && (e.target as HTMLElement).id === 'recipe-search') { (e.target as HTMLElement).blur(); actions.escape(); }
+      return;
+    }
     const k = MOVE_KEYS[e.code];
     if (k) { keys[k] = true; if (e.code === 'Space') e.preventDefault(); }
     if (e.repeat) return;
@@ -190,6 +194,7 @@ function setupMobileInput() {
   bindBtn('btn-mobile-drop', h => { if (h) actions.drop(false); });
   bindBtn('btn-mobile-view', h => { if (h) actions.toggleView(); });
   bindBtn('btn-mobile-menu', h => { if (h) actions.escape(); });
+  bindBtn('btn-mobile-chat', h => { if (h) actions.chat(''); });
 
   document.body.addEventListener('touchmove', e => {
     if ((e.target as HTMLElement)?.closest('#full-inventory-modal, #shop-screen, #main-menu, #pause-menu')) return;

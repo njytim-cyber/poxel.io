@@ -151,9 +151,11 @@ export function createAvatar(look: Look = DEFAULT_LOOK): Avatar {
   const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.5, 0.15), new THREE.MeshLambertMaterial({ color: 0xaa2222 }));
   backpack.position.set(0, 0, 0.2);
   torso.add(backpack);
+  (backpack.material as THREE.Material).userData.owned = true;
   const ninja = new THREE.Mesh(new THREE.BoxGeometry(0.51, 0.51, 0.51), black);
   const slit = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.1, 0.52), new THREE.MeshLambertMaterial({ color: 0xffcc99 }));
   slit.position.set(0, 0.1, 0); ninja.add(slit);
+  (slit.material as THREE.Material).userData.owned = true;
   head.add(ninja);
 
   let held: THREE.Object3D | null = null, heldType = '';

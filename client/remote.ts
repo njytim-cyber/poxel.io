@@ -14,7 +14,7 @@ interface MobModel { model: THREE.Group; parts: { mesh: THREE.Mesh; swing: numbe
 interface View {
   eid: number; kind: EntityKind; obj: THREE.Object3D; samples: Sample[];
   pos: THREE.Vector3; yaw: number; pitch: number; flags: number; hspeed: number;
-  avatar?: Avatar; mob?: MobModel; name?: string;
+  avatar?: Avatar; mob?: MobModel; name?: string; owner?: string;
   swing: number; walk: number; age: number; dying: number;
 }
 
@@ -77,7 +77,7 @@ function eyes(parent: THREE.Object3D, z: number, y: number, spread: number, size
 }
 
 // Models face -z with y=0 at the feet; outer sizes match MOB_SPECS hitboxes
-function buildMob(kind: MobKind): MobModel {
+function buildMob(kind: MobKind, owner?: string): MobModel {
   const model = new THREE.Group();
   const parts: MobModel['parts'] = [];
   const mats: THREE.MeshLambertMaterial[] = [];
@@ -142,6 +142,23 @@ function buildMob(kind: MobKind): MobModel {
     box(s * 0.5, s * 0.5, s * 0.5, core, 0, 0, 0, body);
     eyes(body, -s / 2 - 0.01, s * 0.12, s * 0.2, s * 0.14, 0x1a3a10);
     parts.push({ mesh: body, swing: 0 });
+  } else if (kind === 'robot') {
+    // A boxy robot, 2 blocks tall, with a laser cannon for a right arm. Tamed: green eyes.
+    const steel = mat(0x8a9098), darkSteel = mat(0x4a5058), rust = mat(0x8a4a28);
+    const glow = new THREE.MeshBasicMaterial({ color: owner ? 0x40ff60 : 0xff2020 }); glow.userData.owned = true;
+    const head = box(0.5, 0.42, 0.46, steel, 0, 1.76, 0, model);
+    box(0.34, 0.08, 0.02, glow, 0, 0.02, -0.24, head);                   // visor
+    box(0.04, 0.2, 0.04, darkSteel, 0.12, 0.3, 0, head);                  // antenna
+    box(0.08, 0.08, 0.08, glow, 0.12, 0.42, 0, head);
+    box(0.7, 0.72, 0.42, steel, 0, 1.18, 0, model);                       // body
+    box(0.3, 0.2, 0.02, rust, -0.12, 1.3, -0.22, model);                  // a rusty patch
+    box(0.12, 0.12, 0.02, glow, 0.18, 1.3, -0.22, model);                 // chest light
+    const left = box(0.16, 0.7, 0.16, darkSteel, -0.44, 1.5, 0, model, true);
+    parts.push({ mesh: left, swing: 0.4 });
+    const cannon = box(0.2, 0.2, 0.62, darkSteel, 0.46, 1.3, -0.2, model); // laser cannon, pointed ahead
+    box(0.1, 0.1, 0.04, glow, 0, 0, -0.32, cannon);
+    for (const [x, s] of [[-0.17, -1], [0.17, 1]]) parts.push({ mesh: box(0.24, 0.82, 0.26, darkSteel, x, 0.82, 0, model, true), swing: s });
+    if (owner) { const tag = nametag(`${owner}'s robot`); tag.position.y = 2.3; tag.scale.multiplyScalar(0.8); model.add(tag); }
   } else {
     // Zombie family: same proportions as the player (0.72 wide, 1.8 tall), arms held out in front
     const [skinC, shirtC, pantsC] = kind === 'husk' ? [0xa89868, 0x8a6a3a, 0x5a4a2a]
@@ -197,7 +214,8 @@ export function onSpawn(list: SpawnInfo[]) {
     } else if (s.kind === 'item' && s.item) {
       obj = itemMesh(s.item.type);
     } else {
-      v.mob = buildMob(s.kind as MobKind);
+      v.mob = buildMob(s.kind as MobKind, s.owner);
+      v.owner = s.owner;
       obj = new THREE.Group();
       obj.add(v.mob.model);
     }
@@ -237,6 +255,7 @@ export function onAnim(eid: number, a: 'swing' | 'hurt') {
 const lerpAngle = (a: number, b: number, t: number) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
 export function updateRemote(dt: number) {
+  updateBeams(dt);
   const renderT = performance.now() - INTERP_DELAY;
   for (const v of views.values()) {
     v.age += dt;
@@ -253,7 +272,7 @@ export function updateRemote(dt: number) {
         v.pitch = a.pitch + (b.pitch - a.pitch) * k;
         v.flags = b.flags;
       } else {
-        const a = s[s.length - 1];
+        const a = s[0];
         v.pos.set(a.x, a.y, a.z); v.yaw = a.yaw; v.pitch = a.pitch; v.flags = a.flags;
       }
       const inst = dt > 0 ? Math.hypot(v.pos.x - prevX, v.pos.z - prevZ) / dt : 0;
@@ -325,12 +344,41 @@ export function entityInBlock(x: number, y: number, z: number): boolean {
 }
 
 // Is this entity a downed player (who can be revived)?
+// A wild (untamed) robot: Use on it with a tungsten ingot tames it
+export function isWildRobot(eid: number): boolean {
+  const v = views.get(eid);
+  return !!v && v.kind === 'robot' && !v.owner && !(v.flags & EF_DYING);
+}
+
+// A robot's laser: a glowing line that fades out quickly
+const beams: { line: THREE.Line; life: number }[] = [];
+export function showBeam(a: [number, number, number], b: [number, number, number], pet?: boolean) {
+  const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
+  const mat = new THREE.LineBasicMaterial({ color: pet ? 0x50ff70 : 0xff3030, transparent: true, opacity: 1, fog: false });
+  const line = new THREE.Line(geo, mat);
+  scene.add(line);
+  beams.push({ line, life: 0.25 });
+}
+function updateBeams(dt: number) {
+  for (let i = beams.length - 1; i >= 0; i--) {
+    const bm = beams[i];
+    bm.life -= dt;
+    (bm.line.material as THREE.LineBasicMaterial).opacity = Math.max(0, bm.life / 0.25);
+    if (bm.life <= 0) { scene.remove(bm.line); bm.line.geometry.dispose(); (bm.line.material as THREE.Material).dispose(); beams.splice(i, 1); }
+  }
+}
+
 export function isDownedPlayer(eid: number): boolean {
   const v = views.get(eid);
   return !!v && v.kind === 'player' && !!(v.flags & EF_DOWNED);
 }
 export function entityName(eid: number): string {
   return (views.get(eid) as any)?.name || '';
+}
+
+// For tests (window.poxel.entities)
+export function entityList() {
+  return [...views.values()].map(v => ({ eid: v.eid, kind: v.kind, x: v.pos.x, y: v.pos.y, z: v.pos.z, owner: v.owner }));
 }
 
 export function entityCounts() {

@@ -474,6 +474,28 @@ function buildNewTiles(set: (i: number, t: Tile) => void, SNOW: string[], stoneB
   set(TILE.chest_front, chestFace('front'));
   set(TILE.chest_side, chestFace('side'));
   set(TILE.chest_top, chestFace('top'));
+  // The Robotic World (appended last: every tile above keeps its random pattern)
+  set(TILE.etherite_block, storageBlock('#c9a0ff', '#6a5488', '#241c30'));
+  const RUST = ['#6a3a24', '#7a4428', '#5a3020', '#84502e', '#4e2a1a'];
+  set(TILE.rust_rock, blotchTile(RUST, 0.45));
+  const scrapTop = blotchTile(['#6e6e72', '#7c7c80', '#5e5e62', '#8a6a4a', '#666668'], 0.35);
+  for (let i = 0; i < 12; i++) scrapTop[at(Math.floor(rand() * 16), Math.floor(rand() * 16))] = pick(['#b0b0b4', '#a05a2a', '#3a3a3e']);
+  set(TILE.scrap_top, scrapTop);
+  const scrapSide = blotchTile(RUST, 0.45);
+  for (let x = 0; x < 16; x++) { const depth = 2 + Math.floor(rand() * 3); for (let y = 0; y < depth; y++) scrapSide[at(x, y)] = pick(['#6e6e72', '#7c7c80', '#5e5e62']); }
+  set(TILE.scrap_side, scrapSide);
+  set(TILE.tungsten_ore, sprinkleOre(blotchTile(RUST, 0.45), ['#e8ecf4', '#9aa4b8', '#5c667a'], 5));
+  set(TILE.oil, blotchTile(['#1a1410', '#221a14', '#140f0b', '#2a2018', '#3a2c20'], 0.7));
+  const plate = polished(['#8e949c', '#868c94', '#969ca4'], '#b8bec6', '#50565e');
+  for (const [x, y] of [[2, 2], [13, 2], [2, 13], [13, 13]]) plate[at(x, y)] = '#3a3e44'; // rivets
+  set(TILE.metal_plate, plate);
+  const rustyMetal = polished(['#8e949c', '#868c94'], '#b8bec6', '#50565e');
+  for (let i = 0; i < 256; i++) if (rand() < 0.45) rustyMetal[i] = pick(RUST);
+  set(TILE.rusty_metal, rustyMetal);
+  const eye = storageBlock('#5e646c', '#4a5058', '#2a2e34');
+  drawPixels(eye, ['..rrrr..', '.rRRRRr.', 'rRRwwRRr', 'rRRwwRRr', '.rRRRRr.', '..rrrr..'], 4, 5, { r: '#a01010', R: '#ff2a2a', w: '#ffe0e0' });
+  set(TILE.robot_eye, eye);
+  set(TILE.portal_core, storageBlock('#fff6c0', '#ffd23a', '#b06a00'));
 }
 
 // ------------------------------------------------------------------ Atlas
@@ -648,6 +670,7 @@ Object.assign(ITEM_ART, {
   slime_ball: ['ball', { l: '#b8f0a0', m: '#78d060', d: '#3a8a2a' }],
   frost_crystal: ['crystal', { l: '#f0fcff', m: '#8ee0ff', d: '#2a88c0' }],
   copper_ingot: ['ingot', { l: '#f8b888', m: '#d87a48', d: '#8a4a28' }],
+  tungsten_ingot: ['ingot', { l: '#f0f4fc', m: '#a4aec2', d: '#4e586c' }],
   string: ['string', { d: '#e8e8e8' }],
   red_dye: ['dye', { l: '#f05050', m: '#c82828', d: '#6a1010', w: '#8a6a4a' }],
   yellow_dye: ['dye', { l: '#fff070', m: '#f0c828', d: '#8a6a10', w: '#8a6a4a' }],

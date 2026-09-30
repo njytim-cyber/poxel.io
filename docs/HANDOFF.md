@@ -1,31 +1,20 @@
-# Poxel.io — Session Handoff (2026-09-27)
+# Poxel.io — Session Handoff (2026-09-30)
 
 Poxel.io is a browser voxel sandbox game (its own game — never describe it as a clone of anything) with single player and a self-hosted multiplayer server. Latest commit: `36a65c5` on `master`, pushed to https://github.com/njytim-cyber/poxel.io.
 
-## Next session: priorities (requested by the owner)
+## Status (2026-09-30)
 
-The owner asked for **more stability and performance management**. Start there, before new features:
+- **Done since the last handoff:** tests in `tests/` (`npm test`, `test:unit`, `test:e2e`, `test:perf`, `test:soak`, budgets in `tests/e2e/budgets.json`); health log (`data/health.log`); edits streamed per chunk; single-player saves in IndexedDB; view-distance slider in the pause menu.
+- **Bug sweep (this session):** item dupes when carrying a single-player character (the server now keeps its own character separately), leaving while downed, no default operator (see below), cheated saves can't be carried, IndexedDB/localStorage save rollback, facing of chests and jack o'lanterns, and anti-cheat: walking through blocks, 1-second digging, chests used from far away, faked ground/water to skip fall damage, downed players running or /spawn-ing away. Also death loot deleted when the inventory was full, spoofable per-IP headers, furnace stack sizes, `/give constructor`, the downed inventory freeze, mobile give-up, Esc in the recipe search, an inventory close button, and GPU/material leaks.
+- **Operators:** nobody by default. List names in `OPS=a,b` or one per line in `DATA_DIR/ops.txt` (this PC has `data/ops.txt` with player9989). An operator's old name stays locked when they rename. Single player allows cheats, but `/give`, creative or dev tools mark the save `cheated`, and cheated saves can't be taken into a server.
+- **New: The Robotic World** (stage 1 of 2; design in `docs/robotic-world.md`, code in `shared/robotic.ts`). It's a far-off strip of the same world (x 70,000 to 130,000, bedrock walls), so saves, streaming and multiplayer are unchanged. Stage 2 is still to do: boss and altar, obitite, laser cannon and offhand, compass deflecting lasers, jetpack.
 
-1. **Put the test suites in the repo and make them repeatable.** Everything in "Testing" below currently lives in a temporary folder that disappears with this session. Move the scripts into `tests/e2e/`, and fix the hardcoded paths (the relative `ws` import path, the absolute Chrome path). Add `npm run test:e2e` plus a short README. Use fixed seeds (`startSingle(12345)`) and unique player names per run; see the test pitfalls below.
-2. **Continuous health monitoring.**
-   - Log `/health` stats (tickMs, tickMaxMs, rssMB, players, mobs, items, chunks) to a rolling file every minute.
-   - Warn in the log when tickMaxMs > 25 ms or rss keeps growing.
-   - Consider a tiny admin page that shows them.
-3. **Performance budgets with regression checks.**
-   - Baseline on the owner's PC (real GPU, headless `--use-angle=d3d11`): 60 FPS vsync while running across new terrain, p99 frame < 18 ms, no frames > 50 ms, about 90 world draw calls.
-   - Server: about 3 ms average tick with 15 bots, worst case about 11 ms, memory plateaus around 215–230 MB under the 10-minute soak.
-   - Make the perf/soak scripts fail when these regress.
-4. **Known scaling limits to fix before real player growth.**
-   - **The welcome message sends the entire edit list** (`world.exportEdits()`). It gets big on long-lived worlds. Stream edits per chunk as the client loads chunks, and drop edits that match the generated terrain.
-   - **The server re-serializes the whole world JSON on every autosave** (10 s when changed). Move to per-chunk region files, or at least incremental writes.
-   - **Single-player saves the whole world to localStorage every 10 s.** This will hit the quota on big worlds. Consider IndexedDB, and show storage usage.
-   - `client/world.ts` `buildSectionInput` string-parses every `facing` entry for every section mesh. Index facing by chunk.
-   - Item entity cap is 600 (oldest evicted). Death loot can be evicted by spam in busy servers.
-5. **Longer soak and device matrix.**
-   - Run a 60-minute soak; the old code froze after about 30 minutes, and the new code has only been proven for 10 minutes.
-   - Test real Android/iOS devices over the tunnel.
-   - Test a low-end GPU with render distance 2–3.
-   - Consider adding a render-distance setting in the pause menu: `setRenderDistance` exists in `client/world.ts` but has no UI.
+## Next session: priorities
+
+1. **Robotic World stage 2** (see `docs/robotic-world.md`).
+2. **Performance:** chunk meshing is about 17 ms against the 12 ms budget. The new terrain is more varied, so greedy meshing merges less. Meshing runs on workers, so the budget may need a deliberate re-baseline, or the mesher needs optimising. One 70-150 ms GPU-process stall about 3 s into the perf run has no cause found yet: it isn't a shader compile, and chunk uploads are already capped at 2 per frame. Run perf with other Chrome windows closed: with the owner's Chrome open, even the previous commit dropped to 30 FPS.
+3. **Server autosave** still rewrites the whole `world.json` (logged as a warning when a save takes over 100 ms). Move to per-chunk region files before worlds get big.
+4. **Still to test by hand:** a 60-minute soak, real phones and tablets over the tunnel, and a low-end GPU at view distance 2-3.
 
 ## How to run
 
@@ -74,7 +63,7 @@ client/
 - **Single player** runs the same server code in a worker, so there is one set of rules. It pauses when the pause menu is open.
 - **Identity:** player names are owned by a random token stored in the browser (`poxel_token`). Clearing browser data or switching devices means picking a new name on that server.
 
-## Testing (scripts are in the temp scratchpad; move them, see priority 1)
+## Testing
 
 - The scripts use `puppeteer-core` with the local Chrome. For real GPU numbers use `--use-angle=d3d11`. For two-tab multiplayer tests add `--disable-renderer-backgrounding --disable-background-timer-throttling --disable-backgrounding-occluded-windows`.
 - **Suites:**
@@ -83,7 +72,9 @@ client/
   - `crash.mjs`: hard-kills the server and checks reconnect and consistency.
   - `mobile.mjs phone|tablet`, `tunnel.mjs <url>`.
   - `soak.mjs <ws-url> <bots> <seconds>`: flood and fuzz; set `MAX_PER_IP=100` on the target server.
-  - `perf.mjs` / `perfgpu.mjs`.
+  - `content.mjs` (loot chests, farming, ice, new mobs) and `robotic.mjs` (portal, taming, the trip home).
+  - `perf.mjs`.
+- `npm run test:e2e` starts the Vite dev client and a test server (with `DEV_TOOLS=1`, so `window.poxel.glide` can teleport when the straight path is blocked; the server refuses moves into blocks). Never set `DEV_TOOLS` on a real server.
 - **Last results:**
 
   | Suite | Result |
@@ -97,6 +88,8 @@ client/
   | Tunnel with two players | pass, 15 ms ping |
 
 - **Test pitfalls learned the hard way:**
+  - Blocks set only on the client (`window.poxel.setBlock`) aren't on the server, which now refuses moves into its solid blocks. Also send `{ t: 'dev', blocks: [x, y, z, id, ...] }`.
+  - Don't edit code while a suite runs: Vite hot-reloads it mid-test.
   - Teleporting the player is rejected by the server's movement budget. Use `window.poxel.glide()`.
   - Moving the mouse while pointer-locked turns the camera. Park the mouse before aiming.
   - Plants get replaced when you place onto them.

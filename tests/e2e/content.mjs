@@ -72,6 +72,7 @@ try {
   await aimAt(plot.x + 0.5, plot.y + 1, plot.z + 0.5);
   await rightClick();
   await sleep(400);
+  info('after planting: ' + JSON.stringify(await ev(p => ({ me: window.poxel.body.pos, plot: window.poxel.getBlock(p.x, p.y, p.z), above: window.poxel.getBlock(p.x, p.y + 1, p.z), aim: window.poxel.lookTarget(), held: window.poxel.inv[window.poxel.inv.findIndex(s => s && s.type === 'seeds')] }), plot)));
   check('seeds plant wheat on farmland', (await ev(p => window.poxel.getBlock(p.x, p.y + 1, p.z), plot)) === 85);
   check('planting used a seed', (await ev(() => window.poxel.inv.filter(s => s && s.type === 'seeds').reduce((a, s) => a + s.count, 0))) === 3);
 
@@ -86,7 +87,13 @@ try {
   };
   const grassCoast = await coast();
   const base = await ev(() => { const b = window.poxel.body.pos; return { x: Math.floor(b.x), y: Math.floor(b.y) - 1, z: Math.floor(b.z) }; });
-  await ev(b => { for (let k = -1; k < 16; k++) for (const dx of [-1, 0, 1]) { window.poxel.setBlock(b.x + dx, b.y, b.z - k, 40); for (let h = 1; h <= 3; h++) window.poxel.setBlock(b.x + dx, b.y + h, b.z - k, 0); } }, base);
+  // An ice runway with clear air above, on the server too (it refuses moves into blocks it still has)
+  await ev(b => {
+    const list = [];
+    for (let k = -1; k < 16; k++) for (const dx of [-1, 0, 1]) { list.push(b.x + dx, b.y, b.z - k, 40); for (let h = 1; h <= 3; h++) list.push(b.x + dx, b.y + h, b.z - k, 0); }
+    for (let i = 0; i < list.length; i += 4) window.poxel.setBlock(list[i], list[i + 1], list[i + 2], list[i + 3]);
+    window.poxel.send({ t: 'dev', blocks: list });
+  }, base);
   await sleep(300);
   const iceCoast = await coast();
   check('you slide much further on ice than on grass', iceCoast > grassCoast * 2 + 0.5, `ice ${iceCoast.toFixed(2)} vs grass ${grassCoast.toFixed(2)} blocks`);
@@ -98,6 +105,18 @@ try {
   await ev(() => window.poxel.send({ t: 'chat', text: '/gamemode creative' }));
   await sleep(500);
   check('/gamemode creative hides the health and hunger bars', await ev(() => document.getElementById('status-bars').style.visibility === 'hidden'));
+  // Creative: the recipe book is a list of every item, free
+  await page.keyboard.press('Tab');
+  await sleep(500);
+  const listed = await ev(() => document.querySelectorAll('#recipe-grid .recipe-btn').length);
+  check('creative: the book lists every item', listed > 150, `${listed} items`);
+  await ev(() => { const b = [...document.querySelectorAll('#recipe-grid .recipe-btn')].find(el => el.title === 'Diamond'); b.dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true })); });
+  await sleep(400);
+  check('creative: shift-click takes a full stack', await ev(() => { const c = document.getElementById('cursor-item')?.textContent || ''; return c.includes('64'); }), await ev(() => document.getElementById('cursor-item')?.outerHTML.slice(0, 200)));
+  await page.screenshot({ path: `${OUT}/content-creative-items.png` });
+  await page.keyboard.press('Tab');
+  await sleep(500);
+  await ev(() => window.poxel.ui.forcePlaying());
   // Fly in the open, away from the cabin roof
   await walkTo(cabin.x + 0.5, cabin.y + 1.1, cabin.z + 14.5);
   await sleep(600);

@@ -8,7 +8,7 @@ export const PROTOCOL_VERSION = 1;
 export const TICK_RATE = 20;
 export const MAX_PLAYERS = 16;
 
-export type MobKind = 'pig' | 'cow' | 'chicken' | 'zombie' | 'husk' | 'frostbitten' | 'spider' | 'skeleton' | 'slime' | 'slimelet';
+export type MobKind = 'pig' | 'cow' | 'chicken' | 'zombie' | 'husk' | 'frostbitten' | 'spider' | 'skeleton' | 'slime' | 'slimelet' | 'robot';
 export type EntityKind = 'player' | 'item' | MobKind;
 
 export interface Look {
@@ -24,6 +24,7 @@ export interface SpawnInfo {
   x: number; y: number; z: number;
   player?: PlayerInfo & { held: string; armor: (string | null)[] };
   item?: { type: string; count: number };
+  owner?: string; // a tamed mob's owner
 }
 
 // ack = last inventory action (seq) the server has applied, so the client knows when its prediction is confirmed
@@ -40,8 +41,9 @@ export interface InvState { slots: Stack[]; cursor: Stack; selected: number; ack
 export type ClientMsg =
   | { t: 'till'; x: number; y: number; z: number }       // hoe on grass/dirt -> farmland
   | { t: 'revive'; eid: number }                          // sent repeatedly while holding Use on a downed player
+  | { t: 'tame'; eid: number }                            // Use on a robot while holding a tungsten ingot
   | { t: 'giveup' }                                       // a downed player chooses to die now
-  | { t: 'dev'; give?: string; count?: number; spawn?: string; time?: number } // test builds only (Game option devTools)
+  | { t: 'dev'; give?: string; count?: number; spawn?: string; time?: number; tp?: { x: number; y: number; z: number }; blocks?: number[] } // test builds only (Game option devTools)
   | { t: 'hello'; v: number; name: string; look: Look; token?: string;
       prevName?: string;                                  // renaming: the name this player had on this server
       carry?: { inv: unknown; health: number; food?: number } } // character brought from a single-player save
@@ -76,6 +78,7 @@ export type ServerMsg =
   | { t: 'downed'; seconds: number }               // multiplayer: you're down; others can revive you before this runs out
   | { t: 'revive_progress'; progress: number; name: string } // 0..1, shown to the downed player and the reviver
   | { t: 'revived' }
+  | { t: 'beam'; a: [number, number, number]; b: [number, number, number]; pet?: boolean } // a robot's laser, from a to b
   | { t: 'snap'; ents: number[] }                 // [eid, x, y, z, yaw, pitch, flags] * n
   | { t: 'spawn'; ents: SpawnInfo[] }
   | { t: 'despawn'; eids: number[] }

@@ -1,7 +1,8 @@
 // Pure world generation + chunk meshing. No DOM or three.js, so it runs inside Web Workers
 // (keeping the main thread free for rendering, input and networking) and on the main thread as a fallback.
-import { BLOCKS, BLOCK_ID, WATER, LAVA, isOccluding, isFacingBlock } from './blocks.ts';
+import { BLOCKS, BLOCK_ID, WATER, LAVA, OIL, isOccluding, isFacingBlock } from './blocks.ts';
 import { Noise, hash3 } from './noise.ts';
+import { isRobotic, roboticHeight, generateRoboticChunk } from './robotic.ts';
 
 export const CHUNK = 16;
 export const MIN_Y = -104;
@@ -26,9 +27,10 @@ function G(seed: number): Gen {
 
 // ------------------------------------------------------------------ Terrain
 
-export type Biome = 'plains' | 'forest' | 'pine' | 'desert' | 'snowy' | 'mountains';
+export type Biome = 'plains' | 'forest' | 'pine' | 'desert' | 'snowy' | 'mountains' | 'robotic';
 
 export function columnInfo(x: number, z: number, seed: number): { h: number; biome: Biome } {
+  if (isRobotic(x)) return { h: roboticHeight(x, z, seed), biome: 'robotic' };
   const { n, nb, nc } = G(seed);
   const temp = nb.fbm2(x / 300, z / 300, 2);
   const humid = nc.fbm2(x / 260 + 50, z / 260 + 50, 2);
@@ -48,7 +50,17 @@ export function columnInfo(x: number, z: number, seed: number): { h: number; bio
 
 const CAVE_STEP = 4;
 
+// Trilinear interpolation, split in two: the x/z part once per column at every grid height (column()),
+// then a single lerp in y per block (sample()). Same result as interpolating each block from scratch.
+function column(arr: Float32Array, out: Float64Array, c00: number, c10: number, c01: number, c11: number, tx: number, tz: number) {
+  for (let iy = 0; iy < out.length; iy++) {
+    const a = arr[c00 + iy] + (arr[c10 + iy] - arr[c00 + iy]) * tx, b = arr[c01 + iy] + (arr[c11 + iy] - arr[c01 + iy]) * tx;
+    out[iy] = a + (b - a) * tz;
+  }
+}
+
 export function generateChunkData(cx: number, cz: number, seed: number): Uint8Array {
+  if (isRobotic(cx * CHUNK)) return generateRoboticChunk(cx, cz, seed);
   const { n: noise, nb: noiseB, nc: noiseC } = G(seed);
   const d = new Uint8Array(CHUNK_VOLUME);
   const x0 = cx * CHUNK, z0 = cz * CHUNK;
@@ -65,19 +77,22 @@ export function generateChunkData(cx: number, cz: number, seed: number): Uint8Ar
     cheese[gi] = noise.noise3(wx / 52, wy / 30, wz / 52);
     blobs[gi] = noise.noise3(wx / 14 + 700, wy / 10, wz / 14 + 700);
   }
-  const sample = (arr: Float32Array, lx: number, y: number, lz: number) => {
-    const fx = lx / CAVE_STEP, fz = lz / CAVE_STEP, fy = (y - MIN_Y) / CAVE_STEP;
-    const ix = Math.min(gx - 2, fx | 0), iz = Math.min(gx - 2, fz | 0), iy = Math.min(gy - 2, fy | 0);
-    const tx = fx - ix, tz = fz - iz, ty = fy - iy;
-    const g = (a: number, b: number, c2: number) => arr[((ix + a) * gx + iz + b) * gy + iy + c2];
-    const l = (a: number, b: number, t: number) => a + (b - a) * t;
-    return l(
-      l(l(g(0, 0, 0), g(1, 0, 0), tx), l(g(0, 1, 0), g(1, 1, 0), tx), tz),
-      l(l(g(0, 0, 1), g(1, 0, 1), tx), l(g(0, 1, 1), g(1, 1, 1), tx), tz), ty);
+  const colA = new Float64Array(gy), colB = new Float64Array(gy), colC = new Float64Array(gy), colBlob = new Float64Array(gy);
+  const sample = (col: Float64Array, y: number) => {
+    const fy = (y - MIN_Y) / CAVE_STEP, iy = Math.min(gy - 2, fy | 0), ty = fy - iy;
+    return col[iy] + (col[iy + 1] - col[iy]) * ty;
   };
 
   for (let lx = 0; lx < 16; lx++) for (let lz = 0; lz < 16; lz++) {
     const x = x0 + lx, z = z0 + lz;
+    // This column's cell in the coarse grid (the per-block lookups below only vary in y)
+    const fx = lx / CAVE_STEP, fz = lz / CAVE_STEP;
+    const ix = Math.min(gx - 2, fx | 0), iz = Math.min(gx - 2, fz | 0), tx = fx - ix, tz = fz - iz;
+    const c00 = (ix * gx + iz) * gy, c10 = ((ix + 1) * gx + iz) * gy, c01 = (ix * gx + iz + 1) * gy, c11 = ((ix + 1) * gx + iz + 1) * gy;
+    column(tunnelA, colA, c00, c10, c01, c11, tx, tz);
+    column(tunnelB, colB, c00, c10, c01, c11, tx, tz);
+    column(cheese, colC, c00, c10, c01, c11, tx, tz);
+    column(blobs, colBlob, c00, c10, c01, c11, tx, tz);
     const { h, biome } = columnInfo(x, z, seed);
     const underwater = h < SEA_LEVEL;
     const beach = h <= SEA_LEVEL + 1 && biome !== 'snowy';
@@ -112,7 +127,7 @@ export function generateChunkData(cx: number, cz: number, seed: number): Uint8Ar
       else {
         id = oreAt(x, y, z, h, seed, biome);
         // Big pockets of granite/diorite/andesite in plain stone (noise looked up only where it matters)
-        if (id === B.stone && sample(blobs, lx, y, lz) > 0.55) {
+        if (id === B.stone && sample(colBlob, y) > 0.55) {
           const kind = hash3(x >> 4, y >> 4, z >> 4, seed + 24);
           id = kind < 0.34 ? B.granite : kind < 0.67 ? B.diorite : B.andesite;
         }
@@ -120,11 +135,11 @@ export function generateChunkData(cx: number, cz: number, seed: number): Uint8Ar
 
       // Carve caves (keep a solid roof under water so lakes don't drain visually)
       if (id !== WATER && id !== B.bedrock && y > MIN_Y + 5 && !(underwater && depth < 5) && !(beach && depth < 3)) {
-        const a = sample(tunnelA, lx, y, lz), b2 = sample(tunnelB, lx, y, lz);
+        const a = sample(colA, y), b2 = sample(colB, y);
         // Tunnels get wider near ravine floors so ravines connect into the cave network
         const nearRavine = ravineFloor !== Infinity && y < ravineFloor + 6;
         const tunnel = a * a + b2 * b2 < (nearRavine ? 0.02 : 0.0045);
-        const room = y < h - 10 && sample(cheese, lx, y, lz) > 0.42;
+        const room = y < h - 10 && sample(colC, y) > 0.42;
         if (tunnel || room || y >= ravineFloor) id = y <= MIN_Y + 18 ? LAVA : 0;
       }
       d[idx(lx, y, lz)] = id;
@@ -164,16 +179,18 @@ export function generateChunkData(cx: number, cz: number, seed: number): Uint8Ar
 }
 
 function oreAt(x: number, y: number, z: number, h: number, seed: number, biome: Biome): number {
-  const r = hash3(x, y, z, seed + 3);
-  const vein = (salt: number, p: number) => hash3(x >> 1, y >> 1, z >> 1, seed + salt) < p && r < 0.7;
-  if (y < -92 && vein(11, 0.018)) return B.etherite_ore;
-  if (y < -80 && vein(12, 0.022)) return B.moonstone_ore;
-  if (y < -64 && vein(13, 0.028)) return B.diamond_ore;
-  if (y < -32 && vein(14, 0.035)) return B.gold_ore;
-  if (y < h - 6 && y > -95 && vein(15, 0.06)) return B.iron_ore;
-  if (y < h - 4 && y > -60 && vein(16, 0.08)) return B.coal_ore;
-  if (y < h - 4 && y > -30 && vein(18, 0.05)) return B.copper_ore;
-  if ((biome === 'snowy' || biome === 'mountains') && y < h - 8 && y > -40 && vein(19, 0.03)) return B.frost_crystal_ore;
+  // Ores only where r < 0.7 (a ragged edge to every vein), so the vein lookups are skipped otherwise
+  if (hash3(x, y, z, seed + 3) < 0.7) {
+    const vx = x >> 1, vy = y >> 1, vz = z >> 1;
+    if (y < -92 && hash3(vx, vy, vz, seed + 11) < 0.018) return B.etherite_ore;
+    if (y < -80 && hash3(vx, vy, vz, seed + 12) < 0.022) return B.moonstone_ore;
+    if (y < -64 && hash3(vx, vy, vz, seed + 13) < 0.028) return B.diamond_ore;
+    if (y < -32 && hash3(vx, vy, vz, seed + 14) < 0.035) return B.gold_ore;
+    if (y < h - 6 && y > -95 && hash3(vx, vy, vz, seed + 15) < 0.06) return B.iron_ore;
+    if (y < h - 4 && y > -60 && hash3(vx, vy, vz, seed + 16) < 0.08) return B.coal_ore;
+    if (y < h - 4 && y > -30 && hash3(vx, vy, vz, seed + 18) < 0.05) return B.copper_ore;
+    if ((biome === 'snowy' || biome === 'mountains') && y < h - 8 && y > -40 && hash3(vx, vy, vz, seed + 19) < 0.03) return B.frost_crystal_ore;
+  }
   if (y < h - 8 && hash3(x >> 2, y >> 2, z >> 2, seed + 17) < 0.02) return B.gravel;
   // Deep layers: slate below -40 (with a ragged edge), basalt and obsidian near the bottom
   const deep = y < -44 || (y < -36 && y < -40 + Math.floor(hash3(x, 0, z, seed + 20) * 4));
@@ -203,7 +220,7 @@ function placeFeatures(data: Uint8Array, cx: number, cz: number, seed: number) {
     const r = hash3(x, 7, z, seed);
     if (r > 0.04) continue; // quick reject before computing terrain
     const { h, biome } = columnInfo(x, z, seed);
-    if (h < SEA_LEVEL + 1) continue;
+    if (h < SEA_LEVEL + 1 || biome === 'robotic') continue;
     if (Math.abs(x) < 4 && Math.abs(z) < 4) continue; // clear spawn
     const r2 = hash3(x, 8, z, seed);
     if (biome === 'desert') {
@@ -263,6 +280,7 @@ export function structureInRegion(rx: number, rz: number, seed: number, undergro
   const x = rx * REGION + 8 + Math.floor(hash3(rx, salt + 1, rz, seed) * (REGION - 16));
   const z = rz * REGION + 8 + Math.floor(hash3(rx, salt + 2, rz, seed) * (REGION - 16));
   if (Math.abs(x) < 24 && Math.abs(z) < 24) return null; // keep the world spawn clear
+  if (isRobotic(x)) return null;
   const { h, biome } = columnInfo(x, z, seed);
   if (underground) {
     if (r > 0.55) return null;
@@ -468,7 +486,7 @@ export function meshSection(input: SectionInput): SectionOutput {
         const nx = lx + face.n[0], ny = ly + face.n[1], nz = lz + face.n[2];
         const nid = get(nx, ny, nz);
         const isWater = id === WATER, isLava = id === LAVA;
-        const liquidBlock = isWater || isLava;
+        const liquidBlock = isWater || isLava || id === OIL;
         const lowered = liquidBlock && get(lx, ly + 1, lz) !== id;
         if (liquidBlock) {
           if (nid === id || (OCCLUDES[nid] && !(f === 2 && lowered))) continue;

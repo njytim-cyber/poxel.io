@@ -13,19 +13,18 @@
     <div id="mobile-hud" style="display: none;">
         <div id="joystick-zone"></div>
         <div id="touch-look-zone"></div>
-        <button class="mobile-btn mobile-btn-menu" id="btn-mobile-menu">☰</button>
-        <!-- Bottom right: Run to the left of the Sneak/Jump column. Tap the view to use, long-press to mine. -->
+        <!-- Bottom right: camera view on top, Jump above Sneak, Run to their left. Tap the view to use, long-press to mine. -->
         <div id="action-buttons-right">
-            <button class="mobile-btn" id="btn-mobile-sprint">🏃<br><span>Run</span></button>
-            <div class="mobile-btn-col">
-                <button class="mobile-btn" id="btn-mobile-sneak">🐾<br><span>Sneak</span></button>
-                <button class="mobile-btn mobile-btn-lg" id="btn-mobile-jump">⬆<br><span>Jump</span></button>
-            </div>
+            <button class="mobile-btn mobile-btn-view" id="btn-mobile-view" aria-label="Camera view"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2.6"/><path d="M5 9h14v2.5h-5V21h-2.5v-5h-1v5H8v-9.5H5z"/></svg></button>
+            <button class="mobile-btn" id="btn-mobile-jump" aria-label="Jump"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 11h5v5h6v-5h5z"/><rect x="5" y="18" width="14" height="3"/></svg></button>
+            <button class="mobile-btn" id="btn-mobile-sprint" aria-label="Run"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5l7 7-7 7V5zm9 0l7 7-7 7V5z"/></svg></button>
+            <button class="mobile-btn" id="btn-mobile-sneak" aria-label="Sneak"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21l8-8h-5V8H9v5H4z"/><rect x="5" y="3" width="14" height="3"/></svg></button>
         </div>
+        <button class="mobile-btn mobile-btn-menu" id="btn-mobile-menu" aria-label="Menu">☰</button>
         <div id="mobile-toolbar">
-            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-inv">📦</button>
-            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-drop">⤵</button>
-            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-view">👁</button>
+            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-inv" aria-label="Inventory">📦</button>
+            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-drop" aria-label="Drop item">⤵</button>
+            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-chat" aria-label="Chat">💬</button>
         </div>
     </div>
 
@@ -100,6 +99,7 @@
         </div>
         <div id="modal-container">
             <button id="recipe-book-toggle" title="Recipe Book">📗</button>
+            <button id="inventory-close" title="Close" aria-label="Close">✕</button>
             <div id="modal-top">
                 <div id="armor-area">
                     <h3>Armor</h3>

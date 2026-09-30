@@ -13,7 +13,7 @@ export const SAVE_SLOTS = 5;
 const key = (slot: number) => `poxel_save_${slot}`;
 const metaKey = (slot: number) => `poxel_meta_${slot}`;
 
-interface Stored { save: LocalSave; meta: string }
+interface Stored { save: LocalSave; meta: string; at?: number } // at: when it was written (ms)
 const cache = new Map<number, Stored>();
 let db: IDBDatabase | null = null;          // null: IndexedDB unavailable, fall back to localStorage
 let lastWrite: Promise<boolean> = Promise.resolve(true);
@@ -49,6 +49,12 @@ function parseLegacy(raw: string): LocalSave | null {
   }
 }
 
+// When a localStorage save was written (0: by an older version, before times were kept)
+function savedAt(raw: string): number {
+  const m = /^\{"v":3,"at":(\d+)/.exec(raw);
+  return m ? Number(m[1]) : 0;
+}
+
 function lsGet(k: string) { try { return localStorage.getItem(k); } catch { return null; } }
 
 // Loads every slot. Call once (and await it) before using the other functions.
@@ -57,11 +63,17 @@ export async function initSaves() {
     db = await openDb();
     for (let slot = 0; slot < SAVE_SLOTS; slot++) {
       const got = await tx<Stored | undefined>('readonly', s => s.get(slot));
-      if (got?.save) { cache.set(slot, got); continue; }
+      // A save in localStorage is either from an older version, or was written by a session that couldn't
+      // open IndexedDB: use it if it's newer than the database copy
       const raw = lsGet(key(slot));
-      const save = raw && parseLegacy(raw);
-      if (!save) continue;
-      const moved: Stored = { save, meta: lsGet(metaKey(slot)) || new Date().toLocaleString() };
+      const lsAt = raw ? savedAt(raw) : 0;
+      const save = raw && (!got?.save || lsAt > (got.at || 0)) ? parseLegacy(raw) : null;
+      if (!save) {
+        if (got?.save) cache.set(slot, got);
+        if (raw) try { localStorage.removeItem(key(slot)); localStorage.removeItem(metaKey(slot)); } catch { /* ignore */ }
+        continue;
+      }
+      const moved: Stored = { save, meta: lsGet(metaKey(slot)) || new Date().toLocaleString(), at: lsAt || Date.now() };
       await tx('readwrite', s => s.put(moved, slot));
       cache.set(slot, moved);
       try { localStorage.removeItem(key(slot)); localStorage.removeItem(metaKey(slot)); } catch { /* ignore */ }
@@ -73,7 +85,7 @@ export async function initSaves() {
     for (let slot = 0; slot < SAVE_SLOTS; slot++) {
       const raw = lsGet(key(slot));
       const save = raw && parseLegacy(raw);
-      if (save) cache.set(slot, { save, meta: lsGet(metaKey(slot)) || '' });
+      if (save) cache.set(slot, { save, meta: lsGet(metaKey(slot)) || '', at: savedAt(raw!) });
     }
   }
 }
@@ -94,11 +106,11 @@ export function deleteSave(slot: number) {
 
 // Resolves to false when the browser refused to store it (storage full or blocked)
 export function writeSave(slot: number, save: LocalSave): Promise<boolean> {
-  const stored: Stored = { save, meta: new Date().toLocaleString() };
+  const stored: Stored = { save, meta: new Date().toLocaleString(), at: Date.now() };
   cache.set(slot, stored);
   if (!db) {
     try {
-      localStorage.setItem(key(slot), JSON.stringify({ v: 3, ...save }));
+      localStorage.setItem(key(slot), JSON.stringify({ v: 3, at: stored.at, ...save }));
       localStorage.setItem(metaKey(slot), stored.meta);
       return lastWrite = Promise.resolve(true);
     } catch (e) {

@@ -1,7 +1,7 @@
 // Inventory rules shared by client (instant prediction) and server (authority).
 // Every change goes through applyAction(), which is deterministic: the same action on the
 // same state gives the same result on both sides.
-import { itemDef } from './blocks.ts';
+import { itemDef, ITEMS } from './blocks.ts';
 import { checkCraftingRecipe, recipes, type Recipe } from './recipes.ts';
 import type { FurnaceState, Stack } from './furnace.ts';
 
@@ -37,6 +37,7 @@ export type InvAction =
   | { a: 'click'; slot: number; button: 0 | 2; shift: boolean }
   | { a: 'book'; result: string; shift: boolean }
   | { a: 'outside'; button: 0 | 2 } // click outside the window: drop cursor stack (or one)
+  | { a: 'creative'; type: string | null; all: boolean } // creative item list: take one (or a stack); null deletes the held stack. Server checks the game mode.
   | { a: 'close' };
 
 export type DropFn = (type: string, count: number) => void;
@@ -376,6 +377,16 @@ export function applyAction(inv: Inv, screen: Screen, action: InvAction, drop: D
         else { drop(inv.cursor.type, inv.cursor.count); inv.cursor = null; }
       }
       break;
+    case 'creative': {
+      const type = action.type;
+      if (type === null) { inv.cursor = null; break; }
+      if (typeof type !== 'string' || !Object.prototype.hasOwnProperty.call(ITEMS, type)) break;
+      const max = maxStack(type);
+      if (action.all) inv.cursor = { type, count: max };
+      else if (inv.cursor?.type === type) inv.cursor.count = Math.min(max, inv.cursor.count + 1);
+      else inv.cursor = { type, count: 1 };
+      break;
+    }
     case 'close':
       closeScreen(inv, drop);
       break;

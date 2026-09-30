@@ -1,6 +1,6 @@
 // Inventory UI. The rules live in shared/inventory.ts: every click is applied here immediately
 // (prediction) and sent to the server, whose confirmed state replaces ours once it catches up.
-import { itemDef } from '../shared/blocks.ts';
+import { itemDef, ITEMS } from '../shared/blocks.ts';
 import {
   newInv, applyAction, recipeGroups, recipeNeeds, available, fitsGrid, maxSets, refreshCrafting,
   GRID_2, GRID_3, RESULT, FURNACE_INPUT, FURNACE_FUEL, FURNACE_OUTPUT, CHEST_START, CHEST_SIZE,
@@ -324,10 +324,63 @@ function renderFurnace() {
 
 let bookOpen = (() => { try { return localStorage.getItem('poxel_book') !== '0'; } catch { return true; } })();
 
+// Creative: the recipe book becomes a list of every item, free and unlimited
+let creativeList = false;
+export function setCreativeInventory(on: boolean) {
+  creativeList = on;
+  document.getElementById('recipe-book')?.classList.toggle('creative', on);
+  const search = document.getElementById('recipe-search') as HTMLInputElement | null;
+  if (search) search.placeholder = on ? 'Search items...' : 'Search...';
+  const hint = document.getElementById('recipe-hint');
+  if (hint) hint.textContent = on ? 'Click: take one · Shift/right-click: a stack · Click here holding something: delete it' : 'Click: fill grid · Shift+click: craft max';
+  if (isOpen) renderRecipeBook();
+}
+const ALL_ITEMS = Object.keys(ITEMS);
+
+function renderCreativeList(gridEl: HTMLElement) {
+  const search = (document.getElementById('recipe-search') as HTMLInputElement)?.value.trim().toLowerCase() || '';
+  gridEl.innerHTML = '';
+  for (const type of ALL_ITEMS) {
+    const name = itemDef(type).name;
+    if (search && !name.toLowerCase().includes(search)) continue;
+    const btn = document.createElement('div');
+    btn.className = 'recipe-btn craftable';
+    const img = document.createElement('img');
+    img.src = getIconURL(type);
+    img.draggable = false;
+    btn.appendChild(img);
+    btn.title = name;
+    let longPress = 0, pressedLong = false;
+    btn.addEventListener('pointerdown', ev => {
+      ev.stopPropagation();
+      pressedLong = false;
+      if (ev.pointerType === 'touch') longPress = window.setTimeout(() => { pressedLong = true; perform({ a: 'creative', type, all: true }); }, 450);
+    });
+    const cancel = () => clearTimeout(longPress);
+    btn.addEventListener('pointerup', cancel);
+    btn.addEventListener('pointerleave', cancel);
+    btn.addEventListener('mousedown', ev => ev.stopPropagation());
+    btn.addEventListener('contextmenu', ev => { ev.preventDefault(); ev.stopPropagation(); perform({ a: 'creative', type, all: true }); });
+    btn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      if (pressedLong) return;
+      // Holding something that isn't this item: clicking the list throws it away
+      if (inv.cursor && inv.cursor.type !== type) { perform({ a: 'creative', type: null, all: false }); return; }
+      perform({ a: 'creative', type, all: ev.shiftKey });
+    });
+    gridEl.appendChild(btn);
+  }
+}
+
 function renderRecipeBook() {
   const book = document.getElementById('recipe-book');
   const gridEl = document.getElementById('recipe-grid');
   if (!book || !gridEl || !screen) return;
+  if (creativeList && screen.mode !== 'furnace' && screen.mode !== 'chest') {
+    book.style.display = bookOpen ? 'flex' : 'none';
+    if (bookOpen) renderCreativeList(gridEl);
+    return;
+  }
   book.style.display = bookOpen && screen.mode !== 'furnace' && screen.mode !== 'chest' ? 'flex' : 'none';
   if (!bookOpen || screen.mode === 'furnace' || screen.mode === 'chest') return;
   const search = (document.getElementById('recipe-search') as HTMLInputElement)?.value.trim().toLowerCase() || '';
@@ -411,6 +464,9 @@ export function initInventory() {
     perform({ a: 'outside', button: e.button === 2 ? 2 : 0 });
   });
   modal?.addEventListener('contextmenu', e => e.preventDefault());
+  const closeBtn = document.getElementById('inventory-close');
+  closeBtn?.addEventListener('mousedown', e => e.stopPropagation());
+  closeBtn?.addEventListener('click', e => { e.stopPropagation(); closeHandler(); });
 
   const search = document.getElementById('recipe-search') as HTMLInputElement | null;
   search?.addEventListener('input', renderRecipeBook);

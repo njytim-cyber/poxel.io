@@ -21,7 +21,7 @@ function canSmelt(f: FurnaceState): string | null {
   if (!f.input) return null;
   const out = itemDef(f.input.type).smelt;
   if (!out) return null;
-  if (f.output && (f.output.type !== out || f.output.count >= 64)) return null;
+  if (f.output && (f.output.type !== out || f.output.count >= itemDef(out).stack)) return null;
   return out;
 }
 

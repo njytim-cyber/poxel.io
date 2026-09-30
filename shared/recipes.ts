@@ -46,6 +46,9 @@ for (const [item, block] of [['copper_ingot', 'copper_block'], ['iron_ingot', 'i
   add([[item, item, item], [item, item, item], [item, item, item]], block);
   add([[block]], item, 9);
 }
+// Etherite blocks (4 etherite each): four around a gold block make a portal to the Robotic World
+add(square('etherite'), 'etherite_block');
+add([['etherite_block']], 'etherite', 4);
 
 // Light
 add([['coal'], ['stick']], 'torch', 4);

@@ -36,11 +36,12 @@ try {
   check('game started', await ev(() => window.poxel.ui.state === 'playing'), await ev(() => window.poxel.ui.state));
   await page.screenshot({ path: `${OUT}/${which}-hud.png` });
 
-  // Layout (like Minecraft): joystick bottom-left; Jump bottom-right with Sneak above it and Run to its left
+  // Layout: joystick bottom-left; bottom right, Jump above Sneak with Run to their left and the camera-view button on top
   const [js, jump, sneak, run] = [await center('#joystick-zone'), await center('#btn-mobile-jump'), await center('#btn-mobile-sneak'), await center('#btn-mobile-sprint')];
   check('joystick at the bottom left', js.x < dev.w * 0.25 && js.y > dev.h * 0.6, JSON.stringify(js));
-  check('jump at the bottom right', jump.x > dev.w * 0.8 && jump.y > dev.h * 0.7, JSON.stringify(jump));
-  check('sneak above jump, run left of jump', Math.abs(sneak.x - jump.x) < 5 && sneak.y < jump.y && run.x < jump.x && run.y > sneak.y);
+  check('jump at the bottom right', jump.x > dev.w * 0.8 && jump.y > dev.h * 0.5, JSON.stringify(jump));
+  const view = await center('#btn-mobile-view');
+  check('sneak below jump, run to their left, view on top', Math.abs(sneak.x - jump.x) < 5 && sneak.y > jump.y && run.x < jump.x && run.y > jump.y && run.y < sneak.y && view.y < jump.y && Math.abs(view.x - jump.x) < 5);
   const offscreen = await ev(() => [...document.querySelectorAll('#mobile-hud button, #joystick-zone')].filter(el => { const r = el.getBoundingClientRect(); return r.width && (r.left < 0 || r.top < 0 || r.right > innerWidth || r.bottom > innerHeight); }).map(el => el.id));
   check('all touch controls fully on screen', offscreen.length === 0, offscreen.join(','));
 

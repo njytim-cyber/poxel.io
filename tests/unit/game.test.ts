@@ -128,6 +128,58 @@ test('a character carried from a save replaces the server inventory and health',
   assert.deepEqual(p.inv.slots.slice(0, 3), [{ type: 'diamond', count: 3 }, null, { type: 'stick', count: 5 }]);
 });
 
+test('a carried character is never saved as the server character (no duplicating items between them)', () => {
+  const { s, storage } = memoryStorage();
+  const g = new Game(storage, { seed: 3 });
+  // The server's own character for this name has 2 sticks
+  const own = g.join(fakeConn().conn, hello('Traveller'))!;
+  own.inv.slots[0] = { type: 'stick', count: 2 };
+  g.leave(own);
+  // Join carrying 64 diamonds from a single-player save, then leave
+  const p = g.join(fakeConn().conn, { ...hello('Traveller'), carry: { inv: { slots: [{ type: 'diamond', count: 64 }] }, health: 20 } })!;
+  assert.equal(p.inv.slots[0]?.type, 'diamond');
+  g.leave(p);
+  // The server still has its own character, not a copy of the diamonds
+  const saved = s.players['Traveller'].inv.slots.filter(Boolean);
+  assert.deepEqual(saved, [{ type: 'stick', count: 2 }]);
+  const back = g.join(fakeConn().conn, hello('Traveller'))!;
+  assert.deepEqual(back.inv.slots.filter(Boolean), [{ type: 'stick', count: 2 }]);
+});
+
+test('using /give or creative marks the character as cheated (it stays in single player)', () => {
+  const { s, storage } = memoryStorage();
+  const g = new Game(storage, { seed: 3, ops: ['*'] });
+  const p = g.join(fakeConn().conn, hello('Solo'))!;
+  g.handle(p, { t: 'chat', text: '/give diamond 5' } as any);
+  g.leave(p);
+  assert.equal(s.players['Solo'].cheated, true);
+  const honest = g.join(fakeConn().conn, hello('Honest'))!;
+  g.leave(honest);
+  assert.ok(!s.players['Honest'].cheated);
+});
+
+test('nobody is an operator unless the server names them', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { seed: 3 });
+  const c = fakeConn();
+  const p = g.join(c.conn, { ...hello('player9989'), token: 'x' })!;
+  g.handle(p, { t: 'chat', text: '/give diamond 64' } as any);
+  g.handle(p, { t: 'chat', text: '/gamemode creative' } as any);
+  assert.equal(p.inv.slots.filter(Boolean).length, 0);
+  assert.equal(p.gamemode, 'survival');
+});
+
+test('an operator who renames keeps their old name locked', () => {
+  const { s, storage } = memoryStorage();
+  (storage as any).deletePlayer = (n: string) => { delete s.players[n]; };
+  const g = new Game(storage, { seed: 3, ops: ['Boss'] });
+  g.leave(g.join(fakeConn().conn, { ...hello('Boss'), token: 'boss' })!);
+  g.leave(g.join(fakeConn().conn, { ...hello('Chief'), token: 'boss', prevName: 'Boss' } as any)!);
+  assert.ok(s.players['Boss'], 'old name still claimed');
+  const c = fakeConn();
+  assert.equal(g.join(c.conn, { ...hello('Boss'), token: 'intruder' }), null);
+});
+
 test('servers can refuse carried characters', () => {
   const { storage } = memoryStorage();
   const g = new Game(storage, { seed: 3, allowCarry: false });
@@ -453,15 +505,15 @@ test('while downed: can only crawl; mobs leave you alone; another hit finishes y
 
 function chatReplies(got: ServerMsg[]) { return got.filter(m => m.t === 'chat').map(m => (m as any).text as string); }
 
-test('/give and /gamemode work for player9989 only', () => {
+test('/give and /gamemode work for operators only (none by default)', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 3 });
+  const g = new Game(storage, { seed: 3, ops: ['player9989'] });
   const op = fakeConn(), other = fakeConn();
   const owner = g.join(op.conn, { ...hello('player9989'), token: 'o' })!;
   const guest = g.join(other.conn, { ...hello('Guest'), token: 'g' })!;
   g.handle(guest, { t: 'chat', text: '/give diamond 64' } as any);
   assert.equal(guest.inv.slots.filter(Boolean).length, 0);
-  assert.ok(chatReplies(other.got).some(t => t.includes('Only player9989')));
+  assert.ok(chatReplies(other.got).some(t => t.includes('Only server operators')));
   g.handle(owner, { t: 'chat', text: '/give diamond 70' } as any);
   assert.equal(owner.inv.slots.filter(s => s?.type === 'diamond').reduce((a, s) => a + s!.count, 0), 70);
   g.handle(owner, { t: 'chat', text: '/give oak_log 3 Guest' } as any); // by display name, to another player
@@ -477,7 +529,7 @@ test('/give and /gamemode work for player9989 only', () => {
 
 test('creative: no damage, instant breaking without drops, blocks never run out, mobs ignore you', () => {
   const { storage } = memoryStorage();
-  const g = new Game(storage, { seed: 12345, maxPlayers: 8 });
+  const g = new Game(storage, { seed: 12345, maxPlayers: 8, ops: ['player9989'] });
   const gm = g as any;
   const p = g.join(fakeConn().conn, { ...hello('player9989'), token: 'o' })!;
   for (let i = 0; i < 60; i++) g.tick(0.05);
@@ -509,7 +561,7 @@ test('creative: no damage, instant breaking without drops, blocks never run out,
 
 test('creative mode is saved for the owner (and never for anyone else)', () => {
   const { s, storage } = memoryStorage();
-  const g = new Game(storage, { seed: 3 });
+  const g = new Game(storage, { seed: 3, ops: ['player9989'] });
   const p = g.join(fakeConn().conn, { ...hello('player9989'), token: 'o' })!;
   g.handle(p, { t: 'chat', text: '/gamemode creative' } as any);
   g.leave(p);
@@ -550,4 +602,227 @@ test('item spam evicts ordinary drops before death loot', () => {
   for (let i = 0; i < 700; i++) g.spawnItem('dirt', 1, i * 2, 200, 0, { x: 0, y: 0, z: 0 });
   assert.ok(items.size <= 601);
   assert.ok([...items.values()].some(it => it.type === 'diamond'));
+});
+
+// ------------------------------------------------------------------ Anti-cheat
+
+test('digging a slow block takes its real time (no 1-second cap)', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5 });
+  const w = (g as any).world;
+  const p = g.join(fakeConn().conn, hello('Miner'))!;
+  const x = Math.floor(p.body.pos.x) + 1, y = Math.floor(p.body.pos.y), z = Math.floor(p.body.pos.z);
+  for (let i = 0; i < 3; i++) w.set(x, y + i, z, 3); // stone: 7.5s by hand
+  tick(g, 40);
+  g.handle(p, { t: 'dig', x, y, z } as any);
+  assert.equal(w.get(x, y, z), 0, 'first break allowed');
+  tick(g, 40); // 2s later: far too soon for stone by hand
+  g.handle(p, { t: 'dig', x, y: y + 1, z } as any);
+  assert.equal(w.get(x, y + 1, z), 3, 'second break refused');
+  tick(g, 120); // 8s in total
+  g.handle(p, { t: 'dig', x, y: y + 1, z } as any);
+  assert.equal(w.get(x, y + 1, z), 0, 'allowed after the real mining time');
+});
+
+test('moving into solid blocks is refused', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5 });
+  const w = (g as any).world;
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Ghost'))!;
+  const b = p.body.pos, x = Math.floor(b.x) + 1, z = Math.floor(b.z);
+  for (let y = Math.floor(b.y); y < Math.floor(b.y) + 3; y++) w.set(x, y, z, 3);
+  g.handle(p, { t: 'move', x: x + 0.5, y: b.y, z: z + 0.5, yaw: 0, pitch: 0, flags: 1 } as any);
+  assert.notEqual(Math.floor(p.body.pos.x), x);
+  assert.ok(got.some(m => m.t === 'pos'), 'client told to go back');
+});
+
+test('a chest stops working when you walk away from it', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5 });
+  const w = (g as any).world;
+  const p = g.join(fakeConn().conn, hello('Reacher'))!;
+  const x = Math.floor(p.body.pos.x) + 1, y = Math.floor(p.body.pos.y), z = Math.floor(p.body.pos.z);
+  w.set(x, y, z, 90);
+  g.handle(p, { t: 'open', x, y, z } as any);
+  assert.equal(p.screen?.mode, 'chest');
+  p.body.pos.x += 50;
+  g.handle(p, { t: 'inv', seq: 1, action: { a: 'click', slot: 0 } } as any);
+  assert.equal(p.screen, null);
+});
+
+test('dying with a full inventory and a stack on the cursor drops the cursor stack too', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5 });
+  const p = g.join(fakeConn().conn, hello('Hoarder'))!;
+  g.handle(p, { t: 'screen', mode: 'inventory' } as any);
+  for (let i = 0; i < 36; i++) p.inv.slots[i] = { type: 'dirt', count: 64 };
+  p.inv.cursor = { type: 'diamond', count: 5 };
+  const before = g.stats().items;
+  g.handle(p, { t: 'chat', text: '/kill' } as any);
+  assert.equal(g.stats().items - before, 37);
+});
+
+test('/give ignores names that are not items', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5, ops: ['*'] });
+  const p = g.join(fakeConn().conn, hello('Op'))!;
+  g.handle(p, { t: 'chat', text: '/give constructor 5' } as any);
+  assert.equal(p.inv.slots.filter(Boolean).length, 0);
+});
+
+// ------------------------------------------------------------------ The Robotic World
+
+import { generateChunkData, idx as blockIdx } from '../../shared/worldgen.ts';
+import { ROBO_MIN_X, isRobotic, roboticStructureInRegion } from '../../shared/robotic.ts';
+import { BLOCK_ID } from '../../shared/blocks.ts';
+
+test('robotic world terrain: walls at its edge, rust rock, tungsten, oil pools and structures', () => {
+  const edge = generateChunkData(ROBO_MIN_X / 16, 0, 12345);
+  assert.equal(edge[blockIdx(0, 20, 0)], BLOCK_ID.bedrock, 'wall at the edge');
+  const counts: Record<number, number> = {};
+  for (let i = 0; i < 12; i++) for (const v of generateChunkData(ROBO_MIN_X / 16 + 1000 + i * 3, i * 5, 12345)) counts[v] = (counts[v] || 0) + 1;
+  for (const name of ['rust_rock', 'scrap_ground', 'tungsten_ore', 'oil']) assert.ok(counts[BLOCK_ID[name]] > 0, `${name} appears`);
+  const kinds = new Set<string>();
+  for (let rx = 1800; rx < 1840; rx++) for (let rz = 0; rz < 10; rz++) { const s = roboticStructureInRegion(rx, rz, 12345); if (s) kinds.add(s.kind); }
+  assert.deepEqual([...kinds].sort(), ['giant_robot', 'ruin']);
+});
+
+// A portal (plus of etherite blocks around gold) built just in front of the player
+function buildPortal(g: Game, p: { body: { pos: { x: number; y: number; z: number } } }) {
+  const w = (g as any).world;
+  const x = Math.floor(p.body.pos.x) + 2, y = Math.floor(p.body.pos.y), z = Math.floor(p.body.pos.z);
+  w.set(x, y, z, BLOCK_ID.gold_block);
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) w.set(x + dx, y, z + dz, BLOCK_ID.etherite_block);
+  return { x, y, z };
+}
+
+test('a portal takes you to the Robotic World and back', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5 });
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Traveller'))!;
+  const home = { x: p.body.pos.x, z: p.body.pos.z };
+  const w = (g as any).world;
+  const portal = buildPortal(g, p);
+  // Not a portal without all four etherite blocks
+  w.set(portal.x + 1, portal.y, portal.z, BLOCK_ID.stone);
+  g.handle(p, { t: 'open', ...portal } as any);
+  assert.ok(!isRobotic(p.body.pos.x), 'incomplete portal does nothing');
+  w.set(portal.x + 1, portal.y, portal.z, BLOCK_ID.etherite_block);
+  g.handle(p, { t: 'open', ...portal } as any);
+  assert.ok(isRobotic(p.body.pos.x), `arrived at x=${p.body.pos.x}`);
+  assert.ok(got.some(m => m.t === 'pos'), 'client moved');
+  // Arrived next to a return portal that can't be mined
+  const core = { x: Math.floor(p.body.pos.x), y: Math.floor(p.body.pos.y) - 1, z: Math.floor(p.body.pos.z) - 1 };
+  assert.equal(w.get(core.x, core.y, core.z), BLOCK_ID.portal_core);
+  tick(g, 80); // portal cooldown
+  g.handle(p, { t: 'open', ...core } as any);
+  assert.ok(!isRobotic(p.body.pos.x), 'back in the overworld');
+  assert.ok(Math.hypot(p.body.pos.x - home.x, p.body.pos.z - home.z) < 6, 'next to the portal you left from');
+});
+
+test('a robot fires its laser at you (3 hearts), and a tungsten ingot tames it', () => {
+  const { s, storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5 });
+  const w = (g as any).world;
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Tamer'))!;
+  // A flat, clear arena in the air so line of sight is certain
+  const bx = Math.floor(p.body.pos.x), by = Math.floor(p.body.pos.y) + 30, bz = Math.floor(p.body.pos.z);
+  for (let dx = -12; dx <= 12; dx++) for (let dz = -3; dz <= 3; dz++) { w.set(bx + dx, by - 1, bz + dz, BLOCK_ID.stone); for (let dy = 0; dy < 4; dy++) w.set(bx + dx, by + dy, bz + dz, 0); }
+  p.body.pos.x = bx + 0.5; p.body.pos.y = by; p.body.pos.z = bz + 0.5;
+  const robot = (g as any).spawnMob('robot', bx + 8.5, by, bz + 0.5);
+  for (let i = 0; i < 200 && p.health >= 20; i++) g.tick(0.05);
+  assert.ok(p.health <= 14, `laser hurt: health ${p.health}`);
+  assert.ok(got.some(m => m.t === 'beam'), 'beam shown');
+  // Tame it
+  p.health = 20;
+  robot.body.pos.x = bx + 2.5;
+  p.inv.slots[0] = { type: 'tungsten_ingot', count: 2 }; p.inv.selected = 0;
+  g.handle(p, { t: 'tame', eid: robot.eid } as any);
+  assert.equal(robot.owner, 'Tamer');
+  assert.equal(p.inv.slots[0]?.count, 1, 'used one ingot');
+  for (let i = 0; i < 100; i++) g.tick(0.05);
+  assert.equal(p.health, 20, 'a tamed robot does not shoot you');
+  // It fights for you: a zombie nearby gets lasered
+  const zombie = (g as any).spawnMob('zombie', bx - 6.5, by, bz + 0.5);
+  for (let i = 0; i < 100 && zombie.health >= 20; i++) g.tick(0.05);
+  assert.ok(zombie.health < 20 || zombie.dying >= 0, 'pet attacked the zombie');
+  // Saved with you, and back when you return
+  g.leave(p);
+  assert.deepEqual(s.players['Tamer'].pets?.length, 1);
+  assert.ok(![...(g as any).mobs.values()].some((m: any) => m.owner === 'Tamer'), 'left with its owner');
+  g.join(fakeConn().conn, hello('Tamer'))!;
+  assert.equal([...(g as any).mobs.values()].filter((m: any) => m.owner === 'Tamer').length, 1);
+});
+
+test('a quick block right after a slow one is not refused (log by hand, then leaves)', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5 });
+  const w = (g as any).world;
+  const p = g.join(fakeConn().conn, hello('Lumberjack'))!;
+  const x = Math.floor(p.body.pos.x) + 1, y = Math.floor(p.body.pos.y), z = Math.floor(p.body.pos.z);
+  w.set(x, y, z, BLOCK_ID.wood); w.set(x, y + 1, z, BLOCK_ID.leaves);
+  tick(g, 60); // the time it takes to punch the log
+  g.handle(p, { t: 'dig', x, y, z } as any);
+  assert.equal(w.get(x, y, z), 0, 'log broken');
+  tick(g, 6); // 0.3s later
+  g.handle(p, { t: 'dig', x, y: y + 1, z } as any);
+  assert.equal(w.get(x, y + 1, z), 0, 'leaves broken');
+});
+
+test('landing in powder snow breaks the fall', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5 });
+  const w = (g as any).world;
+  const p = g.join(fakeConn().conn, hello('Skier'))!;
+  const x = Math.floor(p.body.pos.x), z = Math.floor(p.body.pos.z), y = Math.floor(p.body.pos.y) + 40;
+  w.set(x, y - 1, z, BLOCK_ID.stone); w.set(x, y, z, BLOCK_ID.powder_snow); w.set(x, y + 1, z, BLOCK_ID.powder_snow);
+  for (let yy = y + 2; yy < y + 26; yy++) w.set(x, yy, z, 0);
+  (g as any).teleport(p, x + 0.5, y + 24, z + 0.5);
+  // Fall down through the air (the client reports water-like flags inside the snow), then land on the stone
+  for (let yy = y + 23; yy >= y + 2; yy -= 2) { tick(g, 4); g.handle(p, { t: 'move', x: x + 0.5, y: yy, z: z + 0.5, yaw: 0, pitch: 0, flags: 0 } as any); }
+  tick(g, 4); g.handle(p, { t: 'move', x: x + 0.5, y: y + 1, z: z + 0.5, yaw: 0, pitch: 0, flags: 4 } as any);
+  tick(g, 4); g.handle(p, { t: 'move', x: x + 0.5, y, z: z + 0.5, yaw: 0, pitch: 0, flags: 1 | 4 } as any);
+  assert.equal(p.health, 20);
+});
+
+test('a teleport never lands inside blocks, and a return portal never destroys a chest', () => {
+  const { s, storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5 });
+  const w = (g as any).world;
+  const p = g.join(fakeConn().conn, hello('Builder'))!;
+  const sx = Math.floor(p.spawn[0]), sy = Math.floor(p.spawn[1]), sz = Math.floor(p.spawn[2]);
+  for (let dy = 0; dy < 3; dy++) w.set(sx, sy + dy, sz, BLOCK_ID.stone); // spawn point built over
+  (g as any).teleport(p, sx + 0.5, sy, sz + 0.5);
+  assert.ok(p.body.pos.y >= sy + 3, `lifted out: y=${p.body.pos.y}`);
+  // A chest right where a return portal would go (x + 100000 of the portal)
+  const portal = buildPortal(g, p);
+  const tx = portal.x + 100000, tz = portal.z;
+  const top = w.surfaceHeight(tx, tz);
+  (g as any).setBlock(tx, top + 1, tz, BLOCK_ID.chest);
+  (g as any).chests.set(`${tx},${top + 1},${tz}`, [{ type: 'diamond', count: 5 }]);
+  tick(g, 80);
+  g.handle(p, { t: 'open', ...portal } as any);
+  assert.ok(isRobotic(p.body.pos.x), 'travelled');
+  assert.equal(w.get(tx, top + 1, tz), BLOCK_ID.chest, 'chest still there');
+  void s;
+});
+
+test('creative item list: any item, only in creative', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { seed: 5, ops: ['*'] });
+  const p = g.join(fakeConn().conn, hello('Maker'))!;
+  g.handle(p, { t: 'screen', mode: 'inventory' } as any);
+  g.handle(p, { t: 'inv', seq: 1, action: { a: 'creative', type: 'diamond', all: true } } as any);
+  assert.equal(p.inv.cursor, null, 'refused in survival');
+  g.handle(p, { t: 'chat', text: '/gamemode creative' } as any);
+  g.handle(p, { t: 'screen', mode: 'inventory' } as any);
+  g.handle(p, { t: 'inv', seq: 2, action: { a: 'creative', type: 'diamond', all: true } } as any);
+  assert.deepEqual(p.inv.cursor, { type: 'diamond', count: 64 });
+  g.handle(p, { t: 'inv', seq: 3, action: { a: 'creative', type: 'constructor', all: true } } as any);
+  assert.deepEqual(p.inv.cursor, { type: 'diamond', count: 64 }, 'not an item: ignored');
+  g.handle(p, { t: 'inv', seq: 4, action: { a: 'creative', type: null, all: false } } as any);
+  assert.equal(p.inv.cursor, null, 'deleted');
 });

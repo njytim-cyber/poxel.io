@@ -1,6 +1,7 @@
 // Authoritative game simulation. Environment-agnostic: runs in Node (multiplayer) and in a Web Worker
 // (single player). Transports hand it decoded messages and deliver what it sends.
-import { BLOCKS, BLOCK_ID, ITEMS, WATER, LAVA, POWDER_SNOW, CHEST, isFacingBlock, isLeaves, isPlant, isSolid, itemDef, miningInfo, plantCanStand, CROP_NEXT, CROP_GROW_SECONDS } from '../../shared/blocks.ts';
+import { BLOCKS, BLOCK_ID, ITEMS, WATER, LAVA, OIL, POWDER_SNOW, CHEST, isLiquid, isFacingBlock, isLeaves, isPlant, isSolid, itemDef, miningInfo, plantCanStand, CROP_NEXT, CROP_GROW_SECONDS } from '../../shared/blocks.ts';
+import { isRobotic, isPortal, portalDestination, roboticStructureAt, ROBO_DAYLIGHT } from '../../shared/robotic.ts';
 import { makeBody, moveBody, boxIntersectsSolid, boxTouchesBlock, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, type Body } from '../../shared/physics.ts';
 import {
   newInv, sanitizeInv, addItem, applyAction, closeScreen, removeFromSlot, armorPoints, attackBonus,
@@ -20,7 +21,6 @@ import { ServerWorld } from './world.ts';
 export const MAX_HEALTH = 20;
 const VIEW_DIST = 72;
 const CAVE_DEPTH = 6;
-const DEFAULT_OPS = ['player9989']; // who may use /give and /gamemode (override with the OPS env var)
 const DOWNED_SECONDS = 60;   // multiplayer: how long a downed player waits for help
 const REVIVE_SECONDS = 3;    // how long a friend must hold Use to revive
 export const MAX_FOOD = 20;
@@ -28,7 +28,7 @@ const clampFood = (v: unknown) => (isNum(v) ? Math.max(0, Math.min(MAX_FOOD, Mat
 // Damage causes that come from mobs (scaled by difficulty)
 // ------------------------------------------------------------------ Loot
 
-type LootKind = 'dungeon' | 'temple' | 'igloo' | 'cabin';
+type LootKind = 'dungeon' | 'temple' | 'igloo' | 'cabin' | 'ruin' | 'giant_robot';
 // [item, min, max, chance]
 const LOOT: Record<LootKind, [string, number, number, number][]> = {
   dungeon: [['iron_ingot', 1, 5, 0.7], ['gold_ingot', 1, 3, 0.4], ['diamond', 1, 2, 0.15], ['bread', 1, 3, 0.6], ['bone', 2, 6, 0.6],
@@ -40,6 +40,11 @@ const LOOT: Record<LootKind, [string, number, number, number][]> = {
     ['iron_pickaxe', 1, 1, 0.12], ['wool', 2, 6, 0.4], ['lantern', 1, 1, 0.3], ['baked_potato', 2, 5, 0.5]],
   cabin: [['apple', 1, 4, 0.7], ['bread', 1, 3, 0.6], ['wheat', 2, 6, 0.5], ['seeds', 2, 8, 0.6], ['carrot', 1, 4, 0.5], ['potato', 1, 4, 0.5],
     ['torch', 4, 12, 0.6], ['iron_ingot', 1, 2, 0.35], ['stone_pickaxe', 1, 1, 0.3], ['planks', 4, 16, 0.4], ['bowl', 1, 2, 0.3], ['string', 1, 3, 0.3]],
+  // The Robotic World
+  ruin: [['tungsten_ingot', 1, 4, 0.7], ['iron_ingot', 2, 6, 0.6], ['coal', 2, 8, 0.5], ['robot_eye', 1, 2, 0.35], ['bread', 1, 3, 0.5],
+    ['torch', 4, 10, 0.5], ['etherite', 1, 2, 0.08], ['golden_apple', 1, 1, 0.08], ['metal_plate', 2, 6, 0.4]],
+  giant_robot: [['tungsten_ingot', 2, 6, 0.8], ['robot_eye', 1, 3, 0.6], ['iron_ingot', 3, 9, 0.6], ['diamond', 1, 2, 0.2], ['etherite', 1, 3, 0.12],
+    ['gold_ingot', 1, 4, 0.4]],
 };
 function rollLoot(kind: LootKind): Stack[] {
   const c = newChest();
@@ -55,7 +60,7 @@ function rollLoot(kind: LootKind): Stack[] {
 function findItem(raw: string): string | null {
   const q = raw.toLowerCase().replace(/[\s-]+/g, '_');
   if (!q) return null;
-  if (ITEMS[q]) return q;
+  if (Object.prototype.hasOwnProperty.call(ITEMS, q)) return q;
   const byName = Object.keys(ITEMS).find(k => ITEMS[k].name.toLowerCase().replace(/[\s-]+/g, '_').replace(/[^a-z0-9_]/g, '') === q);
   return byName || null;
 }
@@ -69,7 +74,8 @@ function sanitizeChest(c: unknown[]): Stack[] {
   return out;
 }
 
-const MOB_CAUSES = new Set(['zombie', 'husk', 'frostbitten', 'spider', 'skeleton', 'slime']);        // blocks below the natural ground where zombies may spawn in daylight
+const MOB_CAUSES = new Set(['zombie', 'husk', 'frostbitten', 'spider', 'skeleton', 'slime', 'robot']);
+const MAX_PETS = 3;          // tamed robots per player        // blocks below the natural ground where zombies may spawn in daylight
 const MAX_ITEMS = 600;        // item entities (drops and arrows); see makeRoomForItem
 const EDIT_RADIUS = 12;      // chunks around a player whose saved edits it receives (render distance is at most 10)
 const REACH = 6.5;          // server allows a little more than the client's 5 for latency
@@ -88,6 +94,8 @@ export interface PlayerSave {
   x: number; y: number; z: number; yaw: number; pitch: number; health: number; food?: number; saturation?: number; gamemode?: GameMode;
   inv: InvState; spawn?: [number, number, number]; homes?: { x: number; y: number; z: number; name: string }[];
   token?: string; // proves ownership of the name
+  cheated?: boolean; // used /give, creative mode or dev tools: this character can't be carried into a server
+  pets?: number[];   // tamed robots (their health), which come back with the player
 }
 export interface Storage {
   loadWorld(): WorldSave | null;
@@ -112,17 +120,24 @@ interface Player {
   downed: boolean; downT: number; downCause: string; downBy?: string; revive: number; reviveAt: number; reviverName: string;
   gamemode: GameMode;
   inv: Inv; screen: Screen | null; furnaceKey: string | null; // furnaceKey: position of the furnace or chest that's open
+  screenAt: { x: number; y: number; z: number; id: number } | null; // the block whose screen is open (table, furnace, chest)
   spawn: [number, number, number]; homes: { x: number; y: number; z: number; name: string }[];
-  attackCd: number; digCredit: number; swingUntil: number; invSeq: number;
+  attackCd: number; lastDig: number; swingUntil: number; invSeq: number;
   moveBudget: number; climbBudget: number; dropCredit: number; chatCredit: number; token: string;
   seen: Set<number>;         // entity ids this client currently knows about
   ping: number;
   editChunks: Set<string>;   // chunks whose saved edits this client has (later changes arrive as 'blocks')
   editCenter: string;        // chunk the edits were last streamed around
+  // Playing a character carried from a single-player save: this server's own character for the name,
+  // saved in place of the carried inventory/health (which belong to that save, not to this server)
+  home?: { inv: InvState; health: number; food?: number; saturation?: number };
+  cheated: boolean;
+  portalCd: number;          // game time before the next portal trip
 }
 interface Mob {
   kind: MobKind; eid: number; body: Body; yaw: number; targetYaw: number; health: number;
   wander: number; moving: boolean; hurt: number; flee: number; attackCd: number; dying: number; burnT: number; lavaT: number;
+  owner?: string;            // a tamed robot: follows this player and fights for them
 }
 // arrow: set while an arrow is flying (it hurts the first player it hits, then lands as a normal item)
 interface Item { kind: 'item'; eid: number; type: string; count: number; body: Body; age: number; pickupDelay: number; arrow?: { damage: number }; keep?: boolean }
@@ -139,16 +154,17 @@ const MOB_DROPS: Record<MobKind, () => [string, number][]> = {
   skeleton: () => [['bone', rnd(0, 2)], ['arrow', rnd(0, 2)]],
   slime: () => [],
   slimelet: () => [['slime_ball', rnd(0, 2)]],
+  robot: () => [['iron_ingot', rnd(0, 1)], ...(Math.random() < 0.15 ? [['tungsten_ingot', 1] as [string, number]] : []), ...(Math.random() < 0.25 ? [['robot_eye', 1] as [string, number]] : [])],
 };
 
 // allowCarry: players may bring their character (inventory + health) from a single-player save
 // devTools: accept 'dev' messages (give items, spawn mobs, set time). Only the dev build's single player turns it on.
-// ops: player names allowed to use /give and /gamemode
+// ops: player names allowed to use /give and /gamemode ('*': everyone, as in single player). None by default.
 export interface GameOptions { seed?: number; log?: (msg: string) => void; maxPlayers?: number; allowCarry?: boolean; difficulty?: Difficulty; devTools?: boolean; ops?: string[] }
 
 function sanitizeFurnace(f: any): FurnaceState | null {
   if (!f || typeof f !== 'object') return null;
-  const stack = (s: any) => (s && typeof s.type === 'string' && Number.isInteger(s.count) && s.count > 0 ? { type: s.type, count: Math.min(64, s.count) } : null);
+  const stack = (s: any) => (s && typeof s.type === 'string' && Number.isInteger(s.count) && s.count > 0 ? { type: s.type, count: Math.min(maxStack(s.type), s.count) } : null);
   const num = (v: any) => (isNum(v) && v >= 0 ? Math.min(v, 1000) : 0);
   return { input: stack(f.input), fuel: stack(f.fuel), output: stack(f.output), burnLeft: num(f.burnLeft), burnTotal: num(f.burnTotal), progress: num(f.progress) };
 }
@@ -184,7 +200,7 @@ export class Game {
     this.maxPlayers = opts.maxPlayers || MAX_PLAYERS;
     this.allowCarry = opts.allowCarry ?? true;
     this.devTools = !!opts.devTools;
-    this.ops = new Set((opts.ops ?? DEFAULT_OPS).map(n => n.toLowerCase()));
+    this.ops = new Set((opts.ops ?? []).map(n => n.toLowerCase()));
     const save = storage.loadWorld();
     this.difficulty = DIFFICULTIES.includes(save?.difficulty as Difficulty) ? save!.difficulty! : DIFFICULTIES.includes(opts.difficulty!) ? opts.difficulty! : 'medium';
     const seed = save?.seed ?? opts.seed ?? ((Math.random() * 2 ** 31) | 0);
@@ -249,16 +265,28 @@ export class Game {
       food: this.difficulty === 'easy' ? MAX_FOOD : clampFood(carry && isNum(carry.food) ? carry.food : saved?.food), sat: isNum(saved?.saturation) ? Math.max(0, Math.min(MAX_FOOD, saved!.saturation!)) : 5,
       exhaustion: 0, foodT: 0, freezeT: 0,
       downed: false, downT: 0, downCause: '', revive: 0, reviveAt: -1, reviverName: '',
-      gamemode: saved?.gamemode === 'creative' && this.ops.has(name.toLowerCase()) ? 'creative' : 'survival',
-      inv: carry ? { ...sanitizeInv(carry.inv), cursor: null } : saved ? sanitizeInv(saved.inv) : newInv(), screen: null, furnaceKey: null,
+      gamemode: saved?.gamemode === 'creative' && this.isOp(name) ? 'creative' : 'survival',
+      inv: carry ? { ...sanitizeInv(carry.inv), cursor: null } : saved ? sanitizeInv(saved.inv) : newInv(), screen: null, furnaceKey: null, screenAt: null,
       spawn: [...spawn] as [number, number, number], homes: Array.isArray(saved?.homes) ? saved!.homes!.slice(0, 4) : [],
-      attackCd: 0, digCredit: 1, swingUntil: 0, invSeq: 0, seen: new Set(), ping: 0,
+      attackCd: 0, lastDig: -99, swingUntil: 0, invSeq: 0, seen: new Set(), ping: 0,
       moveBudget: 3, climbBudget: 3, dropCredit: 8, chatCredit: 5, token,
       editChunks: new Set(), editCenter: '',
+      home: carry ? (saved ? { inv: saved.inv, health: saved.health, food: saved.food, saturation: saved.saturation } : { inv: { slots: [], cursor: null, selected: 0, ack: 0 }, health: MAX_HEALTH }) : undefined,
+      cheated: !!saved?.cheated, portalCd: 0,
     };
     this.players.set(p.eid, p);
+    if (Array.isArray(saved?.pets)) for (const hp of saved!.pets!.slice(0, MAX_PETS)) {
+      if (!isNum(hp)) continue;
+      const m = this.spawnMob('robot', pos.x + (Math.random() - 0.5) * 2, pos.y, pos.z + (Math.random() - 0.5) * 2);
+      m.owner = p.name; m.health = Math.max(1, Math.min(MOB_SPECS.robot.health, hp));
+    }
     if (renamedFrom) {
-      this.safe(() => { this.savePlayer(p); this.storage.deletePlayer?.(renamedFrom!); }, `renaming ${renamedFrom}`);
+      // An operator's old name stays locked to them, so nobody else can claim it (and its powers)
+      this.safe(() => {
+        this.savePlayer(p);
+        if (!this.isOp(renamedFrom!)) this.storage.deletePlayer?.(renamedFrom!);
+        else this.storage.savePlayer(renamedFrom!, { ...saved!, inv: { slots: [], cursor: null, selected: 0, ack: 0 }, pets: [] });
+      }, `renaming ${renamedFrom}`);
       this.log(`${renamedFrom} is now called ${name}`);
     }
     // Only the edits around the player: the rest stream in as they move (see streamEdits),
@@ -282,6 +310,7 @@ export class Game {
     this.players.delete(p.eid);
     if (p.screen) closeScreen(p.inv, (t, n) => this.dropFrom(p, t, n));
     this.safe(() => this.savePlayer(p), `saving ${p.name}`);
+    for (const m of this.pets(p)) this.mobs.delete(m.eid); // they leave with their owner (saved above)
     // Save the world too, so nothing a player took can reappear if the server dies before the next autosave
     if (this.dirty) this.safe(() => { this.storage.saveWorld(this.worldSave()); this.dirty = false; }, 'saving world');
     for (const o of this.players.values()) if (o.seen.delete(p.eid)) o.conn.send({ t: 'despawn', eids: [p.eid] });
@@ -294,9 +323,10 @@ export class Game {
 
   handle(p: Player, msg: ClientMsg) {
     if (!msg || typeof msg !== 'object' || !this.players.has(p.eid)) return;
-    if (p.downed && !['move', 'chat', 'giveup', 'ping', 'select', 'screen'].includes(msg.t)) return;
+    if (p.downed && !['move', 'chat', 'giveup', 'ping', 'select', 'screen', 'inv'].includes(msg.t)) return;
     switch (msg.t) {
       case 'revive': return this.onRevive(p, msg.eid);
+      case 'tame': return this.onTame(p, msg.eid);
       case 'dev': return this.onDev(p, msg);
       case 'giveup': if (p.downed) this.killPlayer(p, p.downCause, p.downBy); return;
       case 'move': return this.onMove(p, msg);
@@ -328,7 +358,11 @@ export class Game {
     const horiz = Math.hypot(dx, dz);
     // Movement budget refills with time (see updatePlayer), so batching or holding back moves can't
     // buy extra speed. Generous enough for sprinting, knockback and lag bursts.
-    if (horiz > p.moveBudget || dy > p.climbBudget || m.y < MIN_Y - 60 || m.y > 400) {
+    // Walking through blocks: the box (slightly shrunk, for rounding and blocks placed next to you) must be clear
+    const shrunk = (x: number, y: number, z: number) => boxIntersectsSolid(this.world.get, x, y + 0.05, z, PLAYER_HALF_WIDTH - 0.08, PLAYER_HEIGHT - 0.15);
+    // Already stuck (terrain changed around them): they may wiggle a little, or move out into clear space
+    const insideBlocks = p.gamemode !== 'creative' && shrunk(m.x, m.y, m.z) && (!shrunk(b.pos.x, b.pos.y, b.pos.z) || Math.hypot(dx, dy, dz) > 0.5);
+    if (insideBlocks || horiz > p.moveBudget || dy > p.climbBudget || m.y < MIN_Y - 60 || m.y > 400) {
       p.conn.send({ t: 'pos', x: b.pos.x, y: b.pos.y, z: b.pos.z });
       p.lastMove = this.clock;
       return;
@@ -343,6 +377,10 @@ export class Game {
     p.lastMove = this.clock;
     const wasGround = !!(p.flags & MF_GROUND);
     p.flags = m.flags | 0;
+    // "On the ground" only counts with something solid right underfoot (so fall damage can't be skipped)
+    if ((p.flags & MF_GROUND) && !boxIntersectsSolid(this.world.get, b.pos.x, b.pos.y - 0.2, b.pos.z, PLAYER_HALF_WIDTH, 0.25)) p.flags &= ~MF_GROUND;
+    // ...and "in water" (which also stops fall damage) only with a liquid there
+    if ((p.flags & MF_WATER) && ![WATER, OIL, LAVA, POWDER_SNOW].some(id => boxTouchesBlock(this.world.get, b, id, 0.05))) p.flags &= ~MF_WATER;
     const ground = !!(p.flags & MF_GROUND), water = !!(p.flags & MF_WATER);
 
     // Fall damage from the movement stream
@@ -374,6 +412,12 @@ export class Game {
     const out: number[] = [];
     if (center === p.editCenter) return out;
     p.editCenter = center;
+    if (p.editChunks.size > 4 * (2 * EDIT_RADIUS + 1) ** 2) {
+      for (const key of p.editChunks) {
+        const [kx, kz] = key.split(',').map(Number);
+        if (Math.abs(kx - cx) > EDIT_RADIUS + 4 || Math.abs(kz - cz) > EDIT_RADIUS + 4) p.editChunks.delete(key);
+      }
+    }
     for (let dx = -EDIT_RADIUS; dx <= EDIT_RADIUS; dx++) for (let dz = -EDIT_RADIUS; dz <= EDIT_RADIUS; dz++) {
       const key = `${cx + dx},${cz + dz}`;
       if (p.editChunks.has(key)) continue;
@@ -403,14 +447,15 @@ export class Game {
     const id = this.world.get(x, y, z);
     const heldType = p.inv.slots[p.inv.selected]?.type || null;
     const info = miningInfo(id, heldType);
-    // Mining speed check: each break spends credit proportional to how long it should take
+    // Mining speed check: the time since the previous break must cover this block's mining time
+    // (less a margin for network jitter), so no block breaks faster than it should
     const creative = p.gamemode === 'creative';
-    const cost = creative ? 0 : Math.min(1, info.time * 0.6);
-    if (p.dead || id === 0 || id === WATER || id === LAVA || (info.time === Infinity && !creative) || !this.inReach(p, x, y, z, REACH) || p.digCredit < cost) {
+    const needs = creative ? 0 : info.time * 0.75 - 0.1;
+    if (p.dead || id === 0 || isLiquid(id) || (info.time === Infinity && !creative) || !this.inReach(p, x, y, z, REACH) || this.clock - p.lastDig < needs) {
       this.rejectBlock(p, x, y, z);
       return;
     }
-    p.digCredit -= cost;
+    p.lastDig = this.clock;
     p.exhaustion += 0.005;
     this.setBlock(x, y, z, 0);
     const cx = x + 0.5, cy = y + 0.3, cz = z + 0.5;
@@ -457,14 +502,19 @@ export class Game {
   private flowInto(x: number, y: number, z: number) {
     const g = this.world.get;
     const nbs = [g(x, y + 1, z), g(x + 1, y, z), g(x - 1, y, z), g(x, y, z + 1), g(x, y, z - 1)];
-    const liquid = nbs.includes(LAVA) ? LAVA : nbs.includes(WATER) ? WATER : 0;
+    const liquid = nbs.includes(LAVA) ? LAVA : nbs.includes(OIL) ? OIL : nbs.includes(WATER) ? WATER : 0;
     if (!liquid) return;
     for (let i = 0, yy = y; i < 24 && g(x, yy, z) === 0; i++, yy--) this.setBlock(x, yy, z, liquid);
   }
 
-  private onDev(p: Player, m: { give?: string; count?: number; spawn?: string; time?: number }) {
+  private onDev(p: Player, m: { give?: string; count?: number; spawn?: string; time?: number; tp?: { x: number; y: number; z: number }; blocks?: number[] }) {
     if (!this.devTools) return;
-    if (typeof m.give === 'string' && ITEMS[m.give]) { addItem(p.inv, m.give, isInt(m.count) ? Math.min(64, Math.max(1, m.count)) : 1); this.sendInv(p); }
+    if (Array.isArray(m.blocks)) for (let i = 0; i + 3 < m.blocks.length; i += 4) {
+      const [x, y, z, id] = m.blocks.slice(i, i + 4);
+      if ([x, y, z].every(isInt) && isInt(id) && BLOCKS[id]) this.setBlock(x, y, z, id);
+    }
+    if (m.tp && [m.tp.x, m.tp.y, m.tp.z].every(isNum)) this.teleport(p, m.tp.x, m.tp.y, m.tp.z);
+    if (typeof m.give === 'string' && Object.prototype.hasOwnProperty.call(ITEMS, m.give)) { p.cheated = true; addItem(p.inv, m.give, isInt(m.count) ? Math.min(64, Math.max(1, m.count)) : 1); this.sendInv(p); }
     if (typeof m.spawn === 'string' && (MOB_KINDS as string[]).includes(m.spawn)) {
       const a = p.yaw, x = p.body.pos.x - Math.sin(a) * 4, z = p.body.pos.z - Math.cos(a) * 4;
       this.spawnMob(m.spawn as MobKind, x, this.world.surfaceHeight(Math.floor(x), Math.floor(z)) + 1, z);
@@ -491,6 +541,7 @@ export class Game {
   // Which loot a generated chest holds, from where it is
   private lootKind(x: number, y: number, z: number): LootKind {
     const { h, biome } = columnInfo(x, z, this.world.seed);
+    if (biome === 'robotic') return roboticStructureAt(x, z, this.world.seed)?.kind === 'giant_robot' ? 'giant_robot' : 'ruin';
     if (y < h - 8) return 'dungeon';
     if (biome === 'desert') return 'temple';
     if (biome === 'snowy' || biome === 'mountains') return 'igloo';
@@ -524,7 +575,7 @@ export class Game {
     const def = held?.plants ? { ...held, block: BLOCK_ID[held.plants] } : held;
     const existing = this.world.get(x, y, z);
     const ok = !p.dead && def && def.block !== undefined && this.inReach(p, x, y, z, REACH + 0.5) &&
-      (existing === 0 || existing === WATER || existing === LAVA || isPlant(existing)) &&
+      (existing === 0 || isLiquid(existing) || isPlant(existing)) &&
       !this.entityInBlock(x, y, z) && this.hasSupport(x, y, z) &&
       (!BLOCKS[def.block].plant || plantCanStand(def.block, this.world.get(x, y - 1, z)));
     if (!ok) { this.rejectBlock(p, x, y, z); this.sendInv(p); return; }
@@ -538,7 +589,7 @@ export class Game {
 
   private hasSupport(x: number, y: number, z: number) {
     const g = this.world.get;
-    return [g(x + 1, y, z), g(x - 1, y, z), g(x, y + 1, z), g(x, y - 1, z), g(x, y, z + 1), g(x, y, z - 1)].some(id => id !== 0 && id !== WATER && id !== LAVA);
+    return [g(x + 1, y, z), g(x - 1, y, z), g(x, y + 1, z), g(x, y - 1, z), g(x, y, z + 1), g(x, y, z - 1)].some(id => id !== 0 && !isLiquid(id));
   }
 
   private entityInBlock(x: number, y: number, z: number): boolean {
@@ -553,7 +604,9 @@ export class Game {
     const { x, y, z } = m;
     if (p.dead || ![x, y, z].every(isInt) || !this.inReach(p, x, y, z, REACH)) { p.conn.send({ t: 'screen', mode: null }); return; }
     const id = this.world.get(x, y, z);
+    if (id === BLOCK_ID.gold_block || id === BLOCK_ID.portal_core) { if (isPortal(this.world.get, x, y, z)) this.travel(p, x, z); return; }
     if (p.screen) closeScreen(p.inv, (t, n) => this.dropFrom(p, t, n));
+    p.screenAt = { x, y, z, id };
     if (id === BLOCK_ID.crafting_table) {
       p.screen = { mode: 'table', furnace: null }; p.furnaceKey = null;
       p.conn.send({ t: 'screen', mode: 'table' });
@@ -570,7 +623,7 @@ export class Game {
       p.screen = { mode: 'chest', furnace: null, chest: c }; p.furnaceKey = key;
       p.conn.send({ t: 'screen', mode: 'chest', chest: c });
     } else {
-      p.screen = null; p.furnaceKey = null;
+      p.screen = null; p.furnaceKey = null; p.screenAt = null;
       p.conn.send({ t: 'screen', mode: null });
     }
     this.sendInv(p);
@@ -579,7 +632,7 @@ export class Game {
   private onScreen(p: Player, mode: 'inventory' | null) {
     if (p.screen) closeScreen(p.inv, (t, n) => this.dropFrom(p, t, n));
     p.screen = mode === 'inventory' && !p.dead ? { mode: 'inventory', furnace: null } : null;
-    p.furnaceKey = null;
+    p.furnaceKey = null; p.screenAt = null;
     this.sendInv(p);
     this.broadcastEquip(p);
   }
@@ -587,15 +640,21 @@ export class Game {
   private forceCloseScreen(p: Player) {
     if (!p.screen) return;
     closeScreen(p.inv, (t, n) => this.dropFrom(p, t, n));
-    p.screen = null; p.furnaceKey = null;
+    p.screen = null; p.furnaceKey = null; p.screenAt = null;
     p.conn.send({ t: 'screen', mode: null });
     this.sendInv(p);
   }
 
   private onInv(p: Player, action: InvAction) {
-    if (!p.screen || !action || typeof action !== 'object') { this.sendInv(p); return; }
+    if (!p.screen || !action || typeof action !== 'object' || (p.downed && action.a !== 'close') || (action.a === 'creative' && p.gamemode !== 'creative')) { this.sendInv(p); return; }
+    // A table, furnace or chest only works while it's still there and within reach
+    const at = p.screenAt;
+    if (at && action.a !== 'close' && (this.world.get(at.x, at.y, at.z) !== at.id || !this.inReach(p, at.x, at.y, at.z, REACH + 2))) {
+      this.forceCloseScreen(p);
+      return;
+    }
     applyAction(p.inv, p.screen, action, (t, n) => this.dropFrom(p, t, n));
-    if (action.a === 'close') { p.screen = null; p.furnaceKey = null; }
+    if (action.a === 'close') { p.screen = null; p.furnaceKey = null; p.screenAt = null; }
     this.sendInv(p);
     this.broadcastEquip(p);
     if (p.furnaceKey) { this.sendFurnace(p.furnaceKey); this.sendChest(p.furnaceKey); }
@@ -668,7 +727,7 @@ export class Game {
     const held = p.inv.slots[p.inv.selected];
     const dmg = (held ? itemDef(held.type).damage || 1 : 1) + attackBonus(p.inv);
     if (target.kind === 'player') this.damagePlayer(target, dmg, p.body.pos, 'player', p.name);
-    else this.damageMob(target, dmg, p.body.pos);
+    else if (!target.owner) this.damageMob(target, dmg, p.body.pos);
   }
 
   private onChat(p: Player, raw: unknown) {
@@ -681,21 +740,23 @@ export class Game {
       return;
     }
     if (text === '/help') {
-      const op = this.ops.has(p.name.toLowerCase());
+      const op = this.isOp(p.name);
       p.conn.send({ t: 'chat', from: null, text: `Commands: /players, /spawn, /kill${op ? ', /give <item> [amount] [player], /gamemode <creative|survival> [player]' : ''}` });
       return;
     }
     if (text.startsWith('/give ') || text === '/give' || text.startsWith('/gamemode') || text.startsWith('/gm ')) { this.opCommand(p, text); return; }
     if (text === '/kill') { if (!p.dead) { p.health = 0; p.conn.send({ t: 'health', hp: 0 }); this.killPlayer(p, 'kill'); } return; }
-    if (text === '/spawn') { this.teleport(p, p.spawn[0], p.spawn[1], p.spawn[2]); return; }
+    if (text === '/spawn') { if (p.downed) { p.conn.send({ t: 'chat', from: null, text: "You can't do that while you're down." }); return; } this.teleport(p, p.spawn[0], p.spawn[1], p.spawn[2]); return; }
     this.broadcast({ t: 'chat', from: p.name, text });
     this.log(`<${p.name}> ${text}`);
   }
 
+  private isOp(name: string) { return this.ops.has('*') || this.ops.has(name.toLowerCase()); }
+
   // /give and /gamemode: operators only (see GameOptions.ops)
   private opCommand(p: Player, text: string) {
     const say = (t: string) => p.conn.send({ t: 'chat', from: null, text: t });
-    if (!this.ops.has(p.name.toLowerCase())) { say(`Only ${[...this.ops].join(', ') || 'operators'} can use that command.`); return; }
+    if (!this.isOp(p.name)) { say('Only server operators can use that command.'); return; }
     const args = text.trim().split(/\s+/);
     const findPlayer = (name: string | undefined) => name ? [...this.players.values()].find(o => o.name.toLowerCase() === name.toLowerCase()) : p;
     if (args[0] === '/give') {
@@ -705,6 +766,7 @@ export class Game {
       const count = Math.max(1, Math.min(64 * 36, Math.floor(Number(args[2]) || 1)));
       const target = findPlayer(args[3]);
       if (!target) { say(`No player called ${args[3]} is online.`); return; }
+      target.cheated = true;
       const left = addItem(target.inv, type, count);
       if (left > 0) this.spawnItem(type, left, target.body.pos.x, target.body.pos.y + 1, target.body.pos.z);
       this.sendInv(target);
@@ -725,6 +787,7 @@ export class Game {
   setGamemode(p: Player, mode: GameMode) {
     p.gamemode = mode;
     if (mode === 'creative') {
+      p.cheated = true;
       if (p.downed) { p.downed = false; p.conn.send({ t: 'revived' }); }
       p.health = MAX_HEALTH; p.food = MAX_FOOD; p.sat = 5;
       p.conn.send({ t: 'health', hp: p.health });
@@ -745,7 +808,130 @@ export class Game {
     this.sendFood(p);
   }
 
+  // ---------------------------------------------------------------- The Robotic World
+
+  // Through a portal: to the matching spot in the other world, next to a portal there (built if missing)
+  private travel(p: Player, fromX: number, fromZ: number) {
+    if (p.dead || p.downed || this.clock < p.portalCd) return;
+    p.portalCd = this.clock + 3;
+    const { x: tx, z: tz } = portalDestination(fromX, fromZ);
+    let core: [number, number, number] | null = null;
+    for (let r = 0; r <= 8 && !core; r++) for (let dx = -r; dx <= r && !core; dx++) for (let dz = -r; dz <= r && !core; dz++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+      const top = this.world.surfaceHeight(tx + dx, tz + dz);
+      for (let y = top; y >= top - 3 && !core; y--) if (isPortal(this.world.get, tx + dx, y, tz + dz)) core = [tx + dx, y, tz + dz];
+    }
+    // No portal there: build a return portal, but only on untouched ground (never over anyone's chests or builds).
+    // Its blocks drop nothing when mined, so travelling can't make free etherite and gold.
+    for (let r = 0; r <= 8 && !core; r++) for (let dx = -r; dx <= r && !core; dx++) for (let dz = -r; dz <= r && !core; dz++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+      const x = tx + dx, z = tz + dz, y = Math.min(MAX_Y - 4, this.world.surfaceHeight(x, z));
+      let untouched = true;
+      for (let i = -1; i <= 1 && untouched; i++) for (let k = -1; k <= 1 && untouched; k++) for (let j = 0; j <= 3 && untouched; j++) {
+        untouched = this.world.isGenerated(x + i, y + j, z + k, this.world.get(x + i, y + j, z + k));
+      }
+      if (!untouched) continue;
+      for (let i = -1; i <= 1; i++) for (let k = -1; k <= 1; k++) for (let j = 1; j <= 3; j++) this.setBlock(x + i, y + j, z + k, 0);
+      this.setBlock(x, y, z, BLOCK_ID.portal_core);
+      for (const [i, k] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) this.setBlock(x + i, y, z + k, BLOCK_ID.portal_frame);
+      core = [x, y, z];
+    }
+    if (core) this.teleport(p, core[0] + 0.5, core[1] + 1, core[2] + 1.5); // standing on the frame beside the core
+    else this.teleport(p, tx + 0.5, this.world.surfaceHeight(tx, tz) + 1, tz + 0.5); // all built up: just arrive
+    const cx = core ? core[0] : tx;
+    for (const m of this.mobs.values()) if (m.owner === p.name) this.bringPet(m, p);
+    const there = isRobotic(cx) ? 'the Robotic World' : 'the Overworld';
+    p.conn.send({ t: 'chat', from: null, text: `You travelled to ${there}.` });
+    this.log(`${p.name} travelled to ${there}`);
+  }
+
+  private playerByName(name: string) { for (const p of this.players.values()) if (p.name === name) return p; return null; }
+
+  private pets(p: Player) { return [...this.mobs.values()].filter(m => m.owner === p.name); }
+
+  // A tamed robot catches up with its owner
+  private bringPet(m: Mob, p: Player) {
+    const a = Math.random() * Math.PI * 2;
+    const x = p.body.pos.x + Math.cos(a) * 1.5, z = p.body.pos.z + Math.sin(a) * 1.5;
+    m.body.pos.x = x; m.body.pos.z = z; m.body.pos.y = Math.max(p.body.pos.y, this.world.surfaceHeight(Math.floor(x), Math.floor(z)) + 1);
+    m.body.vel.x = m.body.vel.y = m.body.vel.z = 0;
+  }
+
+  // Use on a robot while holding a tungsten ingot: it becomes yours (up to MAX_PETS)
+  private onTame(p: Player, eid: unknown) {
+    if (p.dead || p.downed || !isInt(eid)) return;
+    const m = this.mobs.get(eid);
+    const held = p.inv.slots[p.inv.selected];
+    if (!m || m.kind !== 'robot' || m.owner || m.dying >= 0 || held?.type !== 'tungsten_ingot') return;
+    if (Math.hypot(m.body.pos.x - p.body.pos.x, m.body.pos.y - p.body.pos.y, m.body.pos.z - p.body.pos.z) > 5) return;
+    const say = (text: string) => p.conn.send({ t: 'chat', from: null, text });
+    const have = this.pets(p).length;
+    if (have >= MAX_PETS) { say(`You already have ${MAX_PETS} robot friends.`); return; }
+    held.count--;
+    if (held.count <= 0) p.inv.slots[p.inv.selected] = null;
+    this.sendInv(p);
+    this.broadcastEquip(p);
+    m.owner = p.name;
+    m.health = MOB_SPECS.robot.health;
+    m.attackCd = 1;
+    this.refreshMob(m);
+    say(`You tamed a robot! It will follow you and defend you. (${have + 1}/${MAX_PETS})`);
+    p.swingUntil = this.clock + 0.25;
+    this.dirty = true;
+  }
+
+  // Resend a mob to everyone who sees it (its looks changed, e.g. tamed)
+  private refreshMob(m: Mob) {
+    const info = this.spawnInfo(m);
+    for (const o of this.players.values()) if (o.seen.has(m.eid)) o.conn.send({ t: 'spawn', ents: [info] });
+  }
+
+  // A robot's laser: shown to everyone nearby, from its eye to where it hits
+  private beam(m: Mob, to: { x: number; y: number; z: number }) {
+    const b = m.body;
+    const msg: ServerMsg = { t: 'beam', a: [b.pos.x, b.pos.y + 1.6, b.pos.z], b: [to.x, to.y, to.z], pet: !!m.owner };
+    for (const o of this.players.values()) if (Math.abs(o.body.pos.x - b.pos.x) < VIEW_DIST && Math.abs(o.body.pos.z - b.pos.z) < VIEW_DIST) o.conn.send(msg);
+  }
+
+  private canSeeMob(from: Body, to: Body): boolean {
+    const ax = from.pos.x, ay = from.pos.y + from.height * 0.85, az = from.pos.z;
+    const bx = to.pos.x, by = to.pos.y + to.height * 0.5, bz = to.pos.z;
+    const n = Math.ceil(Math.hypot(bx - ax, by - ay, bz - az) * 2);
+    for (let i = 1; i < n; i++) {
+      const t = i / n;
+      if (isSolid(this.world.get(Math.floor(ax + (bx - ax) * t), Math.floor(ay + (by - ay) * t), Math.floor(az + (bz - az) * t)))) return false;
+    }
+    return true;
+  }
+
+  // A tamed robot: stays near its owner, and lasers hostile mobs that come close
+  private updatePet(m: Mob, owner: Player) {
+    const b = m.body;
+    const dOwner = Math.hypot(owner.body.pos.x - b.pos.x, owner.body.pos.z - b.pos.z);
+    if (dOwner > 24 || Math.abs(owner.body.pos.y - b.pos.y) > 12) { this.bringPet(m, owner); return; }
+    let foe: Mob | null = null, fd = Infinity;
+    for (const o of this.mobs.values()) {
+      if (o === m || o.owner || o.dying >= 0 || !MOB_SPECS[o.kind].hostile) continue;
+      const d = Math.hypot(o.body.pos.x - b.pos.x, o.body.pos.z - b.pos.z);
+      if (d < 14 && d < fd && Math.abs(o.body.pos.y - b.pos.y) < 8) { fd = d; foe = o; }
+    }
+    if (foe && dOwner < 18) {
+      m.targetYaw = Math.atan2(-(foe.body.pos.x - b.pos.x), -(foe.body.pos.z - b.pos.z));
+      m.moving = fd > 7;
+      if (m.attackCd <= 0 && this.canSeeMob(b, foe.body)) {
+        this.beam(m, { x: foe.body.pos.x, y: foe.body.pos.y + foe.body.height * 0.5, z: foe.body.pos.z });
+        this.damageMob(foe, 6, b.pos);
+        m.attackCd = 1.6;
+      }
+    } else {
+      m.targetYaw = Math.atan2(-(owner.body.pos.x - b.pos.x), -(owner.body.pos.z - b.pos.z));
+      m.moving = dOwner > 4;
+    }
+  }
+
   private teleport(p: Player, x: number, y: number, z: number) {
+    // Never into blocks (a spawn point or home may have been built over since)
+    if (boxIntersectsSolid(this.world.get, x, y, z, PLAYER_HALF_WIDTH, PLAYER_HEIGHT)) y = this.world.surfaceHeight(Math.floor(x), Math.floor(z)) + 1;
     p.body.pos.x = x; p.body.pos.y = y; p.body.pos.z = z;
     p.fallStart = y;
     p.moveBudget = p.climbBudget = 3;
@@ -825,18 +1011,19 @@ export class Game {
   private killPlayer(p: Player, cause: string, by?: string) {
     p.dead = true;
     p.downed = false; p.health = 0;
-    if (p.screen) { closeScreen(p.inv, () => {}); p.screen = null; p.furnaceKey = null; }
     const { x, y, z } = p.body.pos;
+    const spill = (type: string, count: number) => this.spawnItem(type, count, x, y + 1, z, { x: (Math.random() - 0.5) * 6, y: 4, z: (Math.random() - 0.5) * 6 }, 1, true);
+    if (p.screen) { closeScreen(p.inv, spill); p.screen = null; p.furnaceKey = null; p.screenAt = null; } // what doesn't fit back is dropped too
     for (let i = 0; i < p.inv.slots.length; i++) {
       const it = p.inv.slots[i];
-      if (it && i !== 54) this.spawnItem(it.type, it.count, x, y + 1, z, { x: (Math.random() - 0.5) * 6, y: 4, z: (Math.random() - 0.5) * 6 }, 1, true);
+      if (it && i !== 54) spill(it.type, it.count);
     }
     p.inv = newInv();
     this.sendInv(p);
     const messages: Record<string, string> = {
       fall: 'hit the ground too hard', lava: 'tried to swim in lava', zombie: 'was slain by a Zombie',
       husk: 'was slain by a Husk', frostbitten: 'was slain by a Frostbitten', spider: 'was slain by a Spider',
-      skeleton: 'was shot by a Skeleton', slime: 'was squashed by a Slime', slimelet: 'was squashed by a Slime',
+      skeleton: 'was shot by a Skeleton', slime: 'was squashed by a Slime', slimelet: 'was squashed by a Slime', robot: 'was zapped by a Robot',
       cactus: 'was pricked to death', void: 'fell out of the world', starve: 'starved to death', freeze: 'froze to death', player: `was slain by ${by || 'a player'}`, kill: 'died',
     };
     const msg = messages[cause] || 'died';
@@ -959,12 +1146,13 @@ export class Game {
     return r < 0.45 ? 'zombie' : r < 0.75 ? 'skeleton' : 'spider';
   }
 
-  private spawnMob(kind: MobKind, x: number, y: number, z: number) {
+  private spawnMob(kind: MobKind, x: number, y: number, z: number): Mob {
     const s = MOB_SPECS[kind];
     const yaw = Math.random() * Math.PI * 2;
     const m: Mob = { kind, eid: this.nextEid++, body: makeBody(s.halfW, s.height, { x, y, z }), yaw, targetYaw: yaw, health: s.health,
       wander: 0, moving: false, hurt: 0, flee: 0, attackCd: 0, dying: -1, burnT: 0, lavaT: 0 };
     this.mobs.set(m.eid, m);
+    return m;
   }
 
   private trySpawnMobs(daylightNow: number) {
@@ -972,9 +1160,21 @@ export class Game {
     if (!players.length) return;
     const p = players[Math.floor(Math.random() * players.length)];
     let passive = 0, hostile = 0;
-    for (const m of this.mobs.values()) { if (MOB_SPECS[m.kind].hostile) hostile++; else passive++; }
+    for (const m of this.mobs.values()) { if (m.owner) continue; if (MOB_SPECS[m.kind].hostile) hostile++; else passive++; }
     const cap = Math.min(4, players.length) * (this.difficulty === 'easy' ? 0.5 : this.difficulty === 'hard' ? 1.5 : 1);
     const w = this.world;
+
+    if (isRobotic(p.body.pos.x)) {
+      // The Robotic World: robots roam the scrap, at any time
+      if (hostile >= 6 * cap) return;
+      const a = Math.random() * Math.PI * 2, r = 16 + Math.random() * 24;
+      const x = Math.floor(p.body.pos.x + Math.cos(a) * r), z = Math.floor(p.body.pos.z + Math.sin(a) * r);
+      if (!w.isLoaded(x, z) || !isRobotic(x)) return;
+      const top = w.surfaceHeight(x, z);
+      if (!isSolid(w.get(x, top, z))) return; // not on oil
+      if (!boxIntersectsSolid(w.get, x + 0.5, top + 1, z + 0.5, MOB_SPECS.robot.halfW, MOB_SPECS.robot.height)) this.spawnMob('robot', x + 0.5, top + 1, z + 0.5);
+      return;
+    }
 
     if (passive < 10 * cap && daylightNow > 0.3) {
       const a = Math.random() * Math.PI * 2, r = 20 + Math.random() * 28;
@@ -1020,11 +1220,14 @@ export class Game {
     }
   }
 
-  private updateMobs(dt: number, day: number) {
+  private updateMobs(dt: number, dayNow: number) {
     const players = [...this.players.values()].filter(p => !p.dead && !p.downed && p.gamemode !== 'creative');
     for (const m of this.mobs.values()) {
       const spec = MOB_SPECS[m.kind];
       const b = m.body;
+      const day = isRobotic(b.pos.x) ? ROBO_DAYLIGHT : dayNow;
+      const owner = m.owner ? this.playerByName(m.owner) : null;
+      if (m.owner && !owner) { this.mobs.delete(m.eid); continue; }
       // Nearest living player
       let target: Player | null = null, distP = Infinity;
       for (const p of players) {
@@ -1033,7 +1236,7 @@ export class Game {
       }
       let nearAny = Infinity;
       for (const p of this.players.values()) nearAny = Math.min(nearAny, Math.hypot(p.body.pos.x - b.pos.x, p.body.pos.z - b.pos.z));
-      if (nearAny > 96 || (spec.hostile && day > 0.6 && nearAny > 40 && Math.random() < dt * 0.1)) { this.mobs.delete(m.eid); continue; }
+      if (!owner && (nearAny > 96 || (spec.hostile && day > 0.6 && nearAny > 40 && Math.random() < dt * 0.1))) { this.mobs.delete(m.eid); continue; }
 
       if (m.dying >= 0) {
         m.dying += dt;
@@ -1052,8 +1255,22 @@ export class Game {
       const dxp = target ? target.body.pos.x - b.pos.x : 0, dzp = target ? target.body.pos.z - b.pos.z : 0;
       // Spiders only hunt in the dark (or when attacked)
       const calm = m.kind === 'spider' && day > 0.6 && m.flee <= 0 && b.pos.y > this.world.surfaceHeight(Math.floor(b.pos.x), Math.floor(b.pos.z)) - 2;
-      const chasing = spec.hostile && !calm && target && distP < 18 && Math.abs(target.body.pos.y - b.pos.y) < 8;
-      if (chasing && target && m.kind === 'skeleton') {
+      const chasing = spec.hostile && !owner && !calm && target && distP < 18 && Math.abs(target.body.pos.y - b.pos.y) < 8;
+      if (owner) this.updatePet(m, owner);
+      else if (chasing && target && m.kind === 'robot') {
+        // Keeps 4-12 blocks away and fires its laser when it can see you (3 hearts; it can miss)
+        m.targetYaw = Math.atan2(-dxp, -dzp);
+        m.moving = distP > 12 || distP < 4;
+        if (distP < 4) m.targetYaw += Math.PI;
+        if (m.attackCd <= 0 && distP < 16 && this.canSee(b, target)) {
+          const t = target.body.pos;
+          const hit = Math.random() < (this.difficulty === 'hard' ? 0.85 : 0.7);
+          const miss = hit ? 0 : 1.2;
+          this.beam(m, { x: t.x + (Math.random() - 0.5) * miss * 2, y: t.y + 1.2 + (Math.random() - 0.5) * miss, z: t.z + (Math.random() - 0.5) * miss * 2 });
+          if (hit) this.damagePlayer(target, 6, b.pos, 'robot');
+          m.attackCd = this.difficulty === 'hard' ? 2 : 3;
+        }
+      } else if (chasing && target && m.kind === 'skeleton') {
         // Archer: keep 5-11 blocks away and shoot when it can see you
         m.targetYaw = Math.atan2(-dxp, -dzp);
         m.moving = distP > 11 || distP < 5;
@@ -1161,13 +1378,13 @@ export class Game {
 
   private updatePlayer(p: Player, dt: number) {
     const creative = p.gamemode === 'creative'; // flying: up to ~22 blocks/s
-    p.moveBudget = Math.min(creative ? 6 : 3, p.moveBudget + (creative ? 24 : 11) * dt);   // ~11 blocks/s sustained, small burst
+    p.moveBudget = p.downed ? Math.min(1.5, p.moveBudget + 2.5 * dt)                         // downed: a crawl
+      : Math.min(creative ? 6 : 3, p.moveBudget + (creative ? 24 : 11) * dt);                 // ~11 blocks/s sustained, small burst
     p.climbBudget = Math.min(creative ? 6 : 3, p.climbBudget + (creative ? 24 : 13) * dt);
     p.dropCredit = Math.min(8, p.dropCredit + 4 * dt);     // item drops per second
     p.chatCredit = Math.min(5, p.chatCredit + 1 * dt);     // chat lines per second
     p.invuln = Math.max(0, p.invuln - dt);
     p.attackCd = Math.max(0, p.attackCd - dt);
-    p.digCredit = Math.min(1, p.digCredit + dt);
     p.sinceDamage += dt;
     if (p.dead) return;
     const w = this.world.get;
@@ -1279,7 +1496,7 @@ export class Game {
     const { x, y, z } = e.body.pos;
     if (e.kind === 'player') return { eid: e.eid, kind: 'player', x, y, z, player: { name: e.name, look: e.look, ...this.equipOf(e) } };
     if (e.kind === 'item') return { eid: e.eid, kind: 'item', x, y, z, item: { type: e.type, count: e.count } };
-    return { eid: e.eid, kind: e.kind, x, y, z };
+    return { eid: e.eid, kind: e.kind, x, y, z, owner: e.owner };
   }
 
   // ---------------------------------------------------------------- Sending helpers
@@ -1323,10 +1540,14 @@ export class Game {
     const inv = { slots: p.inv.slots.map(s => (s ? { ...s } : null)), cursor: null, selected: p.inv.selected };
     if (p.inv.cursor) addItem({ ...p.inv, slots: inv.slots }, p.inv.cursor.type, p.inv.cursor.count);
     const b = p.body.pos;
+    const live = {
+      health: p.dead ? MAX_HEALTH : p.health, food: p.dead ? MAX_FOOD : p.food, saturation: p.dead ? 5 : p.sat, inv,
+    };
     this.storage.savePlayer(p.name, {
-      x: b.x, y: b.y, z: b.z, yaw: p.yaw, pitch: p.pitch, health: p.dead ? MAX_HEALTH : p.health,
-      food: p.dead ? MAX_FOOD : p.food, saturation: p.dead ? 5 : p.sat, gamemode: p.gamemode,
-      inv, spawn: p.spawn, homes: p.homes, token: p.token || undefined,
+      x: b.x, y: b.y, z: b.z, yaw: p.yaw, pitch: p.pitch, gamemode: p.gamemode,
+      ...(p.home || live), // a carried character goes back to its save; this server keeps its own
+      spawn: p.spawn, homes: p.homes, token: p.token || undefined, cheated: p.cheated || undefined,
+      pets: this.pets(p).filter(m => m.dying < 0).map(m => Math.round(m.health)),
     });
   }
 

@@ -27,8 +27,11 @@ export const TILE = {
   mossy_stone_bricks: 94, cracked_stone_bricks: 95, smooth_stone: 96, farmland: 97,
   wheat_0: 98, wheat_1: 99, wheat_2: 100, carrot_crop: 101, potato_crop: 102,
   chest_front: 103, chest_side: 104, chest_top: 105,
+  // The Robotic World
+  etherite_block: 106, rust_rock: 107, scrap_top: 108, scrap_side: 109, tungsten_ore: 110, oil: 111,
+  metal_plate: 112, rusty_metal: 113, robot_eye: 114, portal_core: 115,
 } as const;
-export const TILE_COUNT = 106;
+export const TILE_COUNT = 116;
 export const ATLAS_COLS = 16;
 export const ATLAS_ROWS = Math.ceil(TILE_COUNT / ATLAS_COLS);
 
@@ -166,18 +169,32 @@ export const BLOCKS: BlockDef[] = [
   // Storage
   { id: 90, name: 'chest', hardness: 2.5, tool: 'axe', harvestTier: -1, drop: 'chest',
     tiles: [TILE.chest_side, TILE.chest_side, TILE.chest_top, TILE.chest_top, TILE.chest_front, TILE.chest_side] },
+  // The Robotic World (see shared/robotic.ts). A plus of etherite blocks around a gold block is a portal there.
+  { id: 91, name: 'etherite_block', hardness: 8, tool: 'pickaxe', harvestTier: 4, drop: 'etherite_block', tiles: all(TILE.etherite_block) },
+  { id: 92, name: 'rust_rock', hardness: 1.5, tool: 'pickaxe', harvestTier: 0, drop: 'rust_rock', tiles: all(TILE.rust_rock) },
+  { id: 93, name: 'scrap_ground', hardness: 0.7, tool: 'shovel', harvestTier: -1, drop: 'scrap_ground', tiles: sided(TILE.scrap_side, TILE.scrap_top, TILE.rust_rock) },
+  { id: 94, name: 'tungsten_ore', hardness: 4, tool: 'pickaxe', harvestTier: 2, drop: 'tungsten_ore', tiles: all(TILE.tungsten_ore) },
+  { id: 95, name: 'oil', hardness: Infinity, tool: null, harvestTier: -1, drop: null, liquid: true, tiles: all(TILE.oil) },
+  { id: 96, name: 'metal_plate', hardness: 5, tool: 'pickaxe', harvestTier: 1, drop: 'metal_plate', tiles: all(TILE.metal_plate) },
+  { id: 97, name: 'rusty_metal', hardness: 3, tool: 'pickaxe', harvestTier: 0, drop: 'rusty_metal', tiles: all(TILE.rusty_metal) },
+  { id: 98, name: 'robot_eye', hardness: 2, tool: 'pickaxe', harvestTier: 0, drop: 'robot_eye', glow: true, tiles: all(TILE.robot_eye) },
+  // The return portals the game builds on arrival: they can be mined away but drop nothing (or travelling would make free etherite and gold)
+  { id: 99, name: 'portal_frame', hardness: 5, tool: 'pickaxe', harvestTier: 0, drop: null, glow: true, tiles: all(TILE.etherite_block) },
+  { id: 100, name: 'portal_core', hardness: 5, tool: 'pickaxe', harvestTier: 0, drop: null, glow: true, tiles: all(TILE.portal_core) },
 ];
 
 export const WATER = 21;
 export const LAVA = 26;
+export const OIL = 95;
 export const isPlant = (id: number) => !!BLOCKS[id]?.plant;
 export const isSolid = (id: number) => id !== 0 && !BLOCKS[id].liquid && !BLOCKS[id].plant && !BLOCKS[id].soft;
 export const POWDER_SNOW = 42;
 export const CHEST = 90;
-export const isLiquid = (id: number) => id === WATER || id === LAVA;
+export const isLiquid = (id: number) => id === WATER || id === LAVA || id === OIL;
 export const isLeaves = (id: number) => id === 7 || id === 24 || id === 25;
 // Hides the face of a neighbouring block
-export const isOccluding = (id: number) => id !== 0 && id !== WATER && !BLOCKS[id].transparent;
+// (not surface liquids: their tops sit lower, so the land beside them must still draw its side)
+export const isOccluding = (id: number) => id !== 0 && id !== WATER && id !== OIL && !BLOCKS[id].transparent;
 // Blocks whose +z "front" texture turns to face the player when placed
 export const isFacingBlock = (id: number) => id === 10 || id === 32 || id === 80 || id === 90;
 // Where a plant may stand: crops need farmland, torches/mushrooms any solid block, others soil
@@ -319,6 +336,15 @@ export const ITEMS: Record<string, ItemDef> = {
   torch: { name: 'Torch', stack: 64, block: 71 },
   jack_o_lantern: { name: 'Jack o’Lantern', stack: 64, block: 80 },
   chest: { name: 'Chest', stack: 64, block: 90, fuel: 15 },
+  // The Robotic World
+  etherite_block: { name: 'Block of Etherite', stack: 64, block: 91 },
+  rust_rock: { name: 'Rust Rock', stack: 64, block: 92 },
+  scrap_ground: { name: 'Scrap Ground', stack: 64, block: 93 },
+  tungsten_ore: { name: 'Tungsten Ore', stack: 64, block: 94, smelt: 'tungsten_ingot' },
+  tungsten_ingot: { name: 'Tungsten Ingot', stack: 64 },
+  metal_plate: { name: 'Metal Plate', stack: 64, block: 96 },
+  rusty_metal: { name: 'Rusty Metal', stack: 64, block: 97 },
+  robot_eye: { name: 'Robot Eye', stack: 64, block: 98 },
   string: { name: 'String', stack: 64 },
   red_dye: { name: 'Red Dye', stack: 64 },
   yellow_dye: { name: 'Yellow Dye', stack: 64 },
