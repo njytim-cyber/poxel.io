@@ -89,6 +89,24 @@ try {
     await page.screenshot({ path: `${OUT}/robotic-tamed.png` });
   }
 
+  // A second robot can be tamed with the first pet crowding round (aiming passes through your own pets)
+  await ev(() => window.poxel.send({ t: 'dev', spawn: 'robot' }));
+  await sleep(1500);
+  const second = await ev(() => window.poxel.entities().find(e => e.kind === 'robot' && !e.owner));
+  if (second) {
+    await hold('tungsten_ingot');
+    for (let k = 0; k < 4; k++) {
+      const r = await ev(eid => window.poxel.entities().find(e => e.eid === eid), second.eid);
+      if (!r || r.owner) break;
+      await ev(r => window.poxel.glide(r.x + 2, r.y + 0.1, r.z), r);
+      const r2 = await ev(eid => window.poxel.entities().find(e => e.eid === eid), second.eid);
+      await aimAt(r2.x, r2.y + 1.2, r2.z);
+      await rightClick();
+      await sleep(800);
+    }
+  }
+  check('a second robot can be tamed too', !!second && (await ev(eid => window.poxel.entities().find(e => e.eid === eid)?.owner, second.eid)) === (await ev(() => localStorage.getItem('poxel_name'))));
+
   // 2b. The Robot Titan (summoned here for the picture) and its health bar
   await ev(() => window.poxel.send({ t: 'dev', spawn: 'robot_titan' }));
   await sleep(2000);

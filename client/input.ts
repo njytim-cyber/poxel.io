@@ -11,6 +11,9 @@ export let isMobile = (() => {
   return hasTouch && (isMobileUA || !hasFinePointer);
 })();
 export const touchLookDelta = { x: 0, y: 0 };
+// Touch screens: taps and long-presses act where the finger is (screen position, -1..1), not at a crosshair
+export const touchAim = { x: 0, y: 0, active: false };
+const setAim = (cx: number, cy: number) => { touchAim.x = (cx / innerWidth) * 2 - 1; touchAim.y = 1 - (cy / innerHeight) * 2; touchAim.active = true; };
 
 export const keys = {
   forward: false, backward: false, left: false, right: false,
@@ -129,6 +132,7 @@ function switchToTouch() {
 }
 
 function setupMobileInput() {
+  document.body.classList.add('touch-ui'); // no crosshair: you touch what you want to hit
   const hud = document.getElementById('mobile-hud');
   if (hud) hud.style.display = 'block';
 
@@ -166,6 +170,7 @@ function setupMobileInput() {
       if (lookId !== null) return; // a second finger on the view doesn't restart the gesture
       const t = e.changedTouches[0];
       lookId = t.identifier; lastX = startX = t.clientX; lastY = startY = t.clientY;
+      setAim(t.clientX, t.clientY);
       startT = performance.now(); moved = false; holding = false;
       clearTimeout(holdTimer);
       holdTimer = setTimeout(() => { if (lookId !== null && !moved) { holding = true; actions.touchHold(true); } }, HOLD_MS);
@@ -176,6 +181,7 @@ function setupMobileInput() {
         touchLookDelta.x += t.clientX - lastX;
         touchLookDelta.y += t.clientY - lastY;
         lastX = t.clientX; lastY = t.clientY;
+        setAim(t.clientX, t.clientY);
         // Once the finger travels it's a look drag (a hold that already started keeps mining while aiming)
         if (Math.hypot(t.clientX - startX, t.clientY - startY) > TAP_SLOP_PX) moved = true;
       }

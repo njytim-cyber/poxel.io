@@ -21,7 +21,7 @@ const center = sel => ev(s => { const el = document.querySelector(s); if (!el) r
 const tap = async sel => { const c = await center(sel); await page.touchscreen.touchStart(c.x, c.y); await sleep(80); await page.touchscreen.touchEnd(); };
 const hold = async (sel, ms) => { const c = await center(sel); await page.touchscreen.touchStart(c.x, c.y); await sleep(ms); await page.touchscreen.touchEnd(); };
 // Gestures on the game view (away from the buttons): tap = use/place, long-press = mine
-const viewPoint = () => ({ x: dev.w * 0.55, y: dev.h * 0.35 });
+const viewPoint = () => ({ x: dev.w * 0.5, y: dev.h * 0.5 }); // the middle of the screen (taps act where they land)
 const tapView = async () => { const p = viewPoint(); await page.touchscreen.touchStart(p.x, p.y); await sleep(80); await page.touchscreen.touchEnd(); };
 const holdView = async ms => { const p = viewPoint(); await page.touchscreen.touchStart(p.x, p.y); await sleep(ms); await page.touchscreen.touchEnd(); };
 
@@ -105,6 +105,22 @@ try {
   await sleep(2000);
   const got = await ev(() => window.poxel.inv.filter(Boolean).map(s => s.type + 'x' + s.count));
   check('broken block picked up', got.length > 0, JSON.stringify(got));
+
+  // No crosshair: a long-press mines the block under the finger, not the one in the middle of the screen
+  check('no crosshair on touch screens', await ev(() => getComputedStyle(document.getElementById('crosshair')).display === 'none'));
+  await ev(() => window.poxel.setYawPitch(0, -0.45)); // looking ahead and down a little
+  const px = dev.w * 0.3, py = dev.h * 0.72;
+  await page.touchscreen.touchStart(px, py);
+  await sleep(100);
+  const aimed = await ev(() => window.poxel.aimTarget());
+  const centre = await ev(() => window.poxel.lookTarget());
+  await sleep(2600);
+  await page.touchscreen.touchEnd();
+  await sleep(800);
+  // (a different ray from the centre's: another block, or the same one at another distance)
+  const differs = aimed && (!centre || centre.x !== aimed.x || centre.y !== aimed.y || centre.z !== aimed.z || Math.abs(centre.dist - aimed.dist) > 0.05);
+  check('long-press mines where you touch', !!aimed && differs && (await ev(t => window.poxel.getBlock(t.x, t.y, t.z), aimed)) === 0,
+    `touched ${JSON.stringify(aimed)} centre ${JSON.stringify(centre)}`);
 
   // Use/place the block back: climb out of the hole onto open ground and aim a couple of blocks ahead
   await ev(() => window.poxel.select(0));

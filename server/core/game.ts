@@ -1,6 +1,7 @@
 // Authoritative game simulation. Environment-agnostic: runs in Node (multiplayer) and in a Web Worker
 // (single player). Transports hand it decoded messages and deliver what it sends.
 import { BLOCKS, BLOCK_ID, ITEMS, WATER, LAVA, OIL, POWDER_SNOW, CHEST, isLiquid, isFacingBlock, isLeaves, isPlant, isSolid, itemDef, miningInfo, plantCanStand, CROP_NEXT, CROP_GROW_SECONDS } from '../../shared/blocks.ts';
+import { ACHIEVEMENT_IDS, itemAchievement } from '../../shared/achievements.ts';
 import { isRobotic, isPortal, portalDestination, roboticStructureAt, nearestAltar, ROBO_DAYLIGHT } from '../../shared/robotic.ts';
 import { makeBody, moveBody, boxIntersectsSolid, boxTouchesBlock, raycastBlocks, rayHitsBox, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, type Body } from '../../shared/physics.ts';
 import {
@@ -107,6 +108,7 @@ export interface PlayerSave {
   cheated?: boolean; // used /give, creative mode or dev tools: this character can't be carried into a server
   pets?: number[];   // tamed robots (their health), which come back with the player
   jetFuel?: number;  // jetpack fuel, 0..1
+  achievements?: string[];
 }
 export interface Storage {
   loadWorld(): WorldSave | null;
@@ -146,6 +148,7 @@ interface Player {
   portalCd: number;          // game time before the next portal trip
   fireCd: number;            // laser cannon cooldown
   jetFuel: number;           // jetpack fuel, 0..1 (a full tank is JET_SECONDS of thrust)
+  achievements: Set<string>;
   bossHp: number;            // boss health last shown to this player (-1: no bar)
 }
 interface Mob {
@@ -293,7 +296,7 @@ export class Game {
       moveBudget: 3, climbBudget: 3, dropCredit: 8, chatCredit: 5, token,
       editChunks: new Set(), editCenter: '',
       home: carry ? (saved ? { inv: saved.inv, health: saved.health, food: saved.food, saturation: saved.saturation } : { inv: { slots: [], cursor: null, selected: 0, ack: 0 }, health: MAX_HEALTH }) : undefined,
-      cheated: !!saved?.cheated, portalCd: 0, bossHp: -1, fireCd: 0, jetFuel: isNum(saved?.jetFuel) ? Math.max(0, Math.min(1, saved!.jetFuel!)) : 0,
+      cheated: !!saved?.cheated, portalCd: 0, bossHp: -1, fireCd: 0, achievements: new Set(Array.isArray(saved?.achievements) ? saved!.achievements!.filter(a => ACHIEVEMENT_IDS.has(a)) : []), jetFuel: isNum(saved?.jetFuel) ? Math.max(0, Math.min(1, saved!.jetFuel!)) : 0,
     };
     this.players.set(p.eid, p);
     if (Array.isArray(saved?.pets)) for (const hp of saved!.pets!.slice(0, MAX_PETS)) {
@@ -319,6 +322,7 @@ export class Game {
     });
     this.sendHomes(p);
     conn.send({ t: 'fuel', f: p.jetFuel });
+    conn.send({ t: 'achievements', ids: [...p.achievements] });
     if (this.maxPlayers > 1) this.broadcast({ t: 'chat', from: null, text: `${name} joined the game` });
     this.log(`${name} joined (${this.players.size} online)`);
     this.sendPlayerList();
@@ -407,6 +411,7 @@ export class Game {
       if (p.inv.slots[56]?.type === 'jetpack' && p.jetFuel > 0 && !(p.flags & MF_GROUND) && dy > -0.4) {
         p.jetFuel = Math.max(0, p.jetFuel - sinceMove / JET_SECONDS);
         p.fallStart = b.pos.y;
+        this.achieve(p, 'fly');
         if (p.jetFuel === 0 || Math.floor(p.jetFuel * 20) !== Math.floor((p.jetFuel + sinceMove / JET_SECONDS) * 20)) p.conn.send({ t: 'fuel', f: p.jetFuel });
       } else p.flags &= ~MF_JET;
     }
@@ -491,6 +496,7 @@ export class Game {
     p.lastDig = this.clock;
     p.exhaustion += 0.005;
     this.setBlock(x, y, z, 0);
+    if (/wood$/.test(BLOCKS[id].name)) this.achieve(p, 'wood');
     const cx = x + 0.5, cy = y + 0.3, cz = z + 0.5;
     const key = `${x},${y},${z}`;
     if (id === BLOCK_ID.furnace) {
@@ -758,9 +764,12 @@ export class Game {
     p.exhaustion += 0.1;
     p.swingUntil = this.clock + 0.25;
     const held = p.inv.slots[p.inv.selected];
-    const dmg = (held ? itemDef(held.type).damage || 1 : 1) + attackBonus(p.inv);
+    let dmg = (held ? itemDef(held.type).damage || 1 : 1) + attackBonus(p.inv);
+    // Critical hit: while falling after a jump (in the air, below the top of the jump, not swimming)
+    const crit = !(p.flags & MF_GROUND) && !(p.flags & MF_WATER) && p.fallStart - p.body.pos.y > 0.15;
+    if (crit) { dmg = Math.round(dmg * 1.5); p.conn.send({ t: 'crit' }); this.achieve(p, 'crit'); }
     if (target.kind === 'player') this.damagePlayer(target, dmg, p.body.pos, 'player', p.name);
-    else if (!target.owner) this.damageMob(target, dmg, p.body.pos);
+    else if (!target.owner) { if (crit) target.hurt = 0; this.damageMob(target, dmg, p.body.pos); if (target.dying >= 0 && MOB_SPECS[target.kind].hostile) this.achieve(p, 'monster'); }
   }
 
   private onChat(p: Player, raw: unknown) {
@@ -881,6 +890,7 @@ export class Game {
       for (const [i, k] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) this.setBlock(x + i, y, z + k, BLOCK_ID.portal_frame);
       core = [x, y, z];
     }
+    if (isRobotic(tx)) this.achieve(p, 'robotic');
     if (core) this.teleport(p, core[0] + 0.5, core[1] + 1, core[2] + 1.5); // standing on the frame beside the core
     else this.teleport(p, tx + 0.5, this.world.surfaceHeight(tx, tz) + 1, tz + 0.5); // all built up: just arrive
     const cx = core ? core[0] : tx;
@@ -916,6 +926,7 @@ export class Game {
     this.titanWakes.set(m.altar!, this.clock + TITAN_RESPAWN);
     this.dirty = true;
     this.tellNear(m.body.pos.x, m.body.pos.z, 128, 'The Robot Titan has been defeated! It will wake again in 30 minutes.');
+    for (const p of this.players.values()) if (Math.hypot(p.body.pos.x - m.body.pos.x, p.body.pos.z - m.body.pos.z) < 48) this.achieve(p, 'titan');
     this.log(`Robot Titan at altar ${m.altar} defeated`);
   }
 
@@ -1010,7 +1021,7 @@ export class Game {
     for (const o of this.players.values()) if (Math.abs(o.body.pos.x - eye.x) < VIEW_DIST && Math.abs(o.body.pos.z - eye.z) < VIEW_DIST) o.conn.send(msg);
     if (!victim) return;
     if (victim.kind === 'player') this.damagePlayer(victim, 6, p.body.pos, 'player', p.name);
-    else { victim.hurt = 0; this.damageMob(victim, 6, p.body.pos); }
+    else { victim.hurt = 0; this.damageMob(victim, 6, p.body.pos); if (victim.dying >= 0 && MOB_SPECS[victim.kind].hostile) this.achieve(p, 'monster'); }
   }
 
   // Right-click oil holding a jetpack: a third of a tank each time
@@ -1050,6 +1061,7 @@ export class Game {
     this.broadcastEquip(p);
     m.owner = p.name;
     m.health = MOB_SPECS.robot.health;
+    this.achieve(p, 'tame');
     m.attackCd = 1;
     this.refreshMob(m);
     say(`You tamed a robot! It will follow you and defend you. (${have + 1}/${MAX_PETS})`);
@@ -1704,7 +1716,18 @@ export class Game {
   private invState(p: Player): InvState {
     return { slots: p.inv.slots, cursor: p.inv.cursor, selected: p.inv.selected, ack: p.invSeq };
   }
-  private sendInv(p: Player) { p.conn.send({ t: 'inv', inv: this.invState(p) }); }
+  private sendInv(p: Player) {
+    p.conn.send({ t: 'inv', inv: this.invState(p) });
+    for (const s of p.inv.slots) { const a = s && itemAchievement(s.type); if (a) this.achieve(p, a); }
+    if (p.inv.cursor) { const a = itemAchievement(p.inv.cursor.type); if (a) this.achieve(p, a); }
+  }
+
+  // Unlocks an achievement (once) and tells the player
+  private achieve(p: Player, id: string) {
+    if (p.achievements.has(id) || !ACHIEVEMENT_IDS.has(id)) return;
+    p.achievements.add(id);
+    p.conn.send({ t: 'achievements', ids: [...p.achievements], unlocked: id });
+  }
   private sendChest(key: string) {
     const c = this.chests.get(key);
     if (!c) return;
@@ -1749,6 +1772,7 @@ export class Game {
       spawn: p.spawn, homes: p.homes, token: p.token || undefined, cheated: p.cheated || undefined,
       pets: this.pets(p).filter(m => m.dying < 0).map(m => Math.round(m.health)),
       jetFuel: p.jetFuel || undefined,
+      achievements: [...p.achievements],
     });
   }
 

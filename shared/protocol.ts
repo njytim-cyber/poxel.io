@@ -102,6 +102,8 @@ export type ServerMsg =
   | { t: 'toast'; text: string }
   | { t: 'boss'; name: string; hp: number; max: number } // a boss nearby (hp < 0: none, hide the bar)
   | { t: 'fuel'; f: number }                             // jetpack fuel, 0..1
+  | { t: 'achievements'; ids: string[]; unlocked?: string } // all you have (unlocked: just earned, show a banner)
+  | { t: 'crit' }                                         // your hit was a critical hit
   | { t: 'homes'; list: ({ x: number; y: number; z: number; name: string } | null)[]; slots: number }
   | { t: 'kick'; reason: string }
   | { t: 'pong'; ts: number };

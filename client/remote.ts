@@ -351,7 +351,8 @@ export function rayHitEntity(origin: Vec3, dir: Vec3, maxDist: number): { eid: n
   let best: { eid: number; dist: number } | null = null;
   for (const v of views.values()) {
     const b = boxOf(v);
-    if (!b || v.flags & EF_DYING) continue;
+    // Tamed robots can't be hit or tamed, so aiming passes through them (they crowd round their owner)
+    if (!b || v.flags & EF_DYING || v.owner) continue;
     const d = rayHitsBox(origin, dir, { x: v.pos.x - b.halfW, y: v.pos.y, z: v.pos.z - b.halfW }, { x: v.pos.x + b.halfW, y: v.pos.y + b.height, z: v.pos.z + b.halfW }, maxDist);
     if (d !== null && (!best || d < best.dist)) best = { eid: v.eid, dist: d };
   }

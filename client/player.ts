@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { crackMaterials } from './textures';
-import { keys, isMobile, touchLookDelta, actions } from './input';
+import { keys, isMobile, touchLookDelta, touchAim, actions } from './input';
 import { getBlock, setBlock, raycast, setFacing, isLoaded, type RayHit } from './world';
 import { BLOCKS, BLOCK_ID, WATER, LAVA, OIL, POWDER_SNOW, isLiquid, isFacingBlock, isPlant, itemDef, miningInfo, plantCanStand } from '../shared/blocks.ts';
 import { makeBody, moveBody, boxIntersectsSolid, hasGroundBelow, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, GRAVITY } from '../shared/physics.ts';
@@ -131,8 +131,17 @@ let cameraViewMode = 0; // 0 first person, 1 behind, 2 in front
 const _dir = new THREE.Vector3();
 const _eye = new THREE.Vector3();
 
-function lookDir(out: THREE.Vector3) { return out.set(0, 0, -1).applyQuaternion(pivot.quaternion); }
+// Where actions aim: the centre of the view, or on touch screens the point the finger touched
+function lookDir(out: THREE.Vector3) {
+  if (isMobile && touchAim.active && cameraRef) {
+    const k = Math.tan(THREE.MathUtils.degToRad(cameraRef.fov) / 2);
+    return out.set(touchAim.x * k * cameraRef.aspect, touchAim.y * k, -1).normalize().applyQuaternion(pivot.quaternion);
+  }
+  return out.set(0, 0, -1).applyQuaternion(pivot.quaternion);
+}
 function eyePos() { return _eye.copy(pivot.position); }
+// The block actions would hit right now (on touch screens: under the finger). For tests.
+export function aimTarget() { lookDir(_dir); return raycast(eyePos(), _dir, REACH); }
 
 function updateCamera() {
   if (cameraViewMode === 0) { cameraRef.position.set(0, 0, 0); cameraRef.rotation.set(0, 0, 0); return; }

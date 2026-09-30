@@ -981,3 +981,33 @@ test('jetpack: three clicks on oil fill it, thrust burns fuel, and thrusting fli
   tick(g, 1); g.handle(p, { t: 'move', x: p.body.pos.x, y: y, z: p.body.pos.z, yaw: 0, pitch: 0, flags: 1 } as any);
   assert.ok(p.health < 20, 'fell without fuel');
 });
+
+test('critical hits (falling after a jump) and achievements', () => {
+  const { s, storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
+  const c = fakeConn();
+  const p = g.join(c.conn, hello('Champ'))!;
+  const achieved = () => new Set(c.got.filter(m => m.t === 'achievements').flatMap(m => (m as any).ids as string[]));
+  // Items in the inventory earn achievements
+  p.inv.slots[0] = { type: 'iron_ingot', count: 1 };
+  (g as any).sendInv(p);
+  assert.ok(achieved().has('iron'));
+  assert.ok(c.got.some(m => m.t === 'achievements' && (m as any).unlocked === 'iron'), 'banner for the new one');
+  // A normal hit, then a hit while falling after a jump
+  const x = p.body.pos.x, y = p.body.pos.y, z = p.body.pos.z;
+  const zombie = (g as any).spawnMob('zombie', x + 1.5, y, z);
+  g.handle(p, { t: 'attack', eid: zombie.eid } as any);
+  const normal = 20 - zombie.health;
+  tick(g, 20);
+  zombie.health = 20; zombie.hurt = 0;
+  g.handle(p, { t: 'move', x, y: y + 1.2, z, yaw: 0, pitch: 0, flags: 0 } as any); tick(g, 3);
+  g.handle(p, { t: 'move', x, y: y + 0.8, z, yaw: 0, pitch: 0, flags: 0 } as any);
+  const before = zombie.health; // (the ticks above can hurt it too, e.g. burning in daylight)
+  g.handle(p, { t: 'attack', eid: zombie.eid } as any);
+  assert.equal(before - zombie.health, Math.round(normal * 1.5), 'crit does 1.5x');
+  assert.ok(c.got.some(m => m.t === 'crit'));
+  assert.ok(achieved().has('crit'));
+  // Saved with the character
+  g.leave(p);
+  assert.ok(s.players['Champ'].achievements?.includes('crit'));
+});

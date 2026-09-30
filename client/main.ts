@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { worldMaterials, worldGroup, updateWorld, chunkCount, biomeAt, getBlock, setBlock, loadAreaNow, surfaceHeight, benchmarkWorld, resetWorld, workerStatus, raycast, setRenderDistance, RENDER_DIST } from './world';
 import { setupInput, isMobile, actions, releaseAllKeys, keys } from './input';
 import { initPlayer, updatePlayer, controls, updateLocalLook, body, handScene, handCamera, headInWater, headInLava, headInOil,
-  isDead, health, MAX_HEALTH, setYawPitch, setPlayerFeet, getYawPitch } from './player';
+  isDead, health, MAX_HEALTH, setYawPitch, setPlayerFeet, getYawPitch, aimTarget } from './player';
 import { applyHairGeometry, addBigEyes, savedLook } from './avatar';
 import { initInventory, inventory, setSelectedSlot } from './inventory';
 import { getSaveMeta, readSave, writeSave, deleteSave, initSaves, savesSettled, storageUsage } from './saves';
@@ -635,6 +635,7 @@ if ((import.meta as any).env?.DEV) {
     mode: () => mode,
     slowFrames,
     // Block under the crosshair (what Mine/Use act on)
+    aimTarget,
     lookTarget: () => { const d = new THREE.Vector3(0, 0, -1).applyQuaternion(controls.object.quaternion); return raycast(controls.object.position, d, 5); },
     yaw: () => getYawPitch().yaw,
     // Moves the player smoothly (like fast walking/flying) so the server's movement checks accept it

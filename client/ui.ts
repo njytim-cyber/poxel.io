@@ -1,4 +1,5 @@
 import type { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
+import { ACHIEVEMENTS } from '../shared/achievements.ts';
 import { isMobile, releaseAllKeys } from './input';
 import { openScreen, closeScreen, setCloseHandler, type ScreenMode } from './inventory';
 import type { FurnaceState, Stack } from '../shared/furnace.ts';
@@ -277,7 +278,39 @@ const FOOD_HALF = 'data:image/svg+xml;utf8,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 9 9" shape-rendering="crispEdges"><path d="M4 0h3v1h1v1h1v3H8v1H7v1H5v1H4v1H1V8H0V5h1V4h1V3h1V1h1z" fill="#1a0e00"/><path d="M4 1h3v1h1v3H7v1H5v1H4V6H3V5H2V4h1V3h1z" fill="#3a2a1a"/><path d="M6 1h1v1h1v3H7v1H6z" fill="#b86a2a"/><path d="M1 5h1v1h1v1h1v1H1z" fill="#f0ece0"/></svg>');
 const FOOD_EMPTY = DRUM('#3a2a1a', '#5a5048');
 
-// Creative mode hides the health and hunger bars (you can't be hurt or get hungry)
+// Achievements: the pause-menu list, and a banner for a new one
+let bannerTimer = 0;
+export function setAchievements(ids: string[], unlocked?: string) {
+  const have = new Set(ids);
+  const list = $('achievements-list');
+  if (list) {
+    list.innerHTML = '';
+    for (const a of ACHIEVEMENTS) {
+      const li = document.createElement('li');
+      li.className = have.has(a.id) ? 'done' : 'locked';
+      li.textContent = `${have.has(a.id) ? '★' : '☆'} ${a.name} `;
+      const small = document.createElement('small');
+      small.textContent = `- ${a.desc}`;
+      li.appendChild(small);
+      list.appendChild(li);
+    }
+  }
+  const sum = $('achievements-summary');
+  if (sum) sum.textContent = `Achievements (${[...have].filter(id => ACHIEVEMENTS.some(a => a.id === id)).length}/${ACHIEVEMENTS.length})`;
+  const a = unlocked ? ACHIEVEMENTS.find(x => x.id === unlocked) : undefined;
+  if (a) {
+    const n = $('achievement-name'); if (n) n.textContent = a.name;
+    show('achievement-banner', true, 'block');
+    clearTimeout(bannerTimer);
+    bannerTimer = window.setTimeout(() => show('achievement-banner', false), 4000);
+  }
+}
+export function critFlash() {
+  const el = $('crit-flash');
+  if (!el) return;
+  el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+}
+
 export function setBossBar(name: string, hp: number, max: number) {
   const bar = $('boss-bar');
   if (!bar) return;
@@ -287,6 +320,7 @@ export function setBossBar(name: string, hp: number, max: number) {
   const f = $('boss-fill'); if (f) f.style.width = `${Math.max(0, Math.min(100, (hp / max) * 100))}%`;
 }
 
+// Creative mode hides the health and hunger bars (you can't be hurt or get hungry)
 export function setCreativeHud(on: boolean) {
   const bars = $('status-bars');
   if (bars) bars.style.visibility = on ? 'hidden' : 'visible';

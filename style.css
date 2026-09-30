@@ -219,6 +219,27 @@ body:not([data-ready]) #main-menu .menu-btn { opacity: 0.6; pointer-events: none
 #jet-fuel span { margin-right: 6px; }
 #jet-fuel-track { display: inline-block; width: 120px; height: 8px; background: rgba(0, 0, 0, 0.6); border: 2px solid #000; vertical-align: middle; }
 #jet-fuel-fill { height: 100%; width: 0; background: linear-gradient(#5a4a3a, #1a120c); border-right: 2px solid #ffb030; }
+/* Achievement banner (top right) and the list in the pause menu */
+#achievement-banner {
+  position: absolute; top: 60px; right: 12px; z-index: 30; pointer-events: none;
+  background: rgba(20, 20, 30, 0.9); border: 2px solid #ffd23a; padding: 8px 14px; color: #fff; min-width: 200px;
+  animation: ach-in 0.3s ease-out;
+}
+#achievement-banner .ach-title { color: #ffd23a; font-size: 13px; }
+#achievement-name { font-size: 16px; margin-top: 2px; }
+@keyframes ach-in { from { transform: translateX(120%); } to { transform: translateX(0); } }
+#achievements-panel { background: rgba(0, 0, 0, 0.5); border: 2px solid #555; padding: 8px 14px; }
+#achievements-panel summary { cursor: pointer; font-size: 17px; }
+#achievements-list { list-style: none; margin: 8px 0 0; padding: 0; max-height: 40vh; overflow-y: auto; font-size: 14px; line-height: 1.6; }
+#achievements-list li.locked { opacity: 0.45; }
+#achievements-list small { opacity: 0.75; }
+/* Critical hit flash near the crosshair */
+#crit-flash {
+  position: absolute; top: 42%; left: 50%; transform: translateX(-50%); pointer-events: none;
+  color: #ffe040; font-size: 18px; text-shadow: 2px 2px 0 #000; opacity: 0;
+}
+#crit-flash.show { animation: crit-pop 0.6s ease-out; }
+@keyframes crit-pop { 0% { opacity: 1; transform: translate(-50%, 0) scale(1.3); } 100% { opacity: 0; transform: translate(-50%, -20px) scale(1); } }
 /* Boss health bar (top centre) */
 #boss-bar {
   position: absolute; top: 52px; left: 50%; transform: translateX(-50%);
@@ -1228,3 +1249,6 @@ body:not([data-state="playing"]) #mobile-hud { display: none !important; }
   #recipe-hint { display: none; }
   #recipe-book-toggle { top: 4px; right: 4px; width: 30px; height: 30px; font-size: 16px; }
 }
+
+/* Touch screens have no crosshair: taps and long-presses act where you touch */
+body.touch-ui #crosshair { display: none; }
