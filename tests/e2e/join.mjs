@@ -70,6 +70,15 @@ try {
   await C.screenshot({ path: `${OUT}/join-refused-menu.png` });
   await ctxC.close();
 
+  // 3b. No server running: the reason is on the menu, and no "retrying" banner is left behind
+  const ctxD = await browser.createBrowserContext();
+  const D = await open(ctxD, `${BASE}?server=${encodeURIComponent('ws://localhost:9')}`, uniqueName('Dee'));
+  await D.click('#btn-play-online');
+  await D.waitForFunction(() => getComputedStyle(document.getElementById('menu-error')).display !== 'none', { timeout: 30000 }).catch(() => {});
+  check('server offline shown on the menu', /not be running/.test(await text(D, 'menu-error-text')), await text(D, 'menu-error-text'));
+  check('no stale banner on the menu', !(await D.evaluate(() => { const b = document.getElementById('net-banner'); return b && getComputedStyle(b).display !== 'none' && b.textContent; })));
+  await ctxD.close();
+
   // 4. Playing in a second tab takes over; the first tab goes back to the menu and says why
   const B2 = await ctxB.newPage();
   watch(B2, 'bob-tab-2');

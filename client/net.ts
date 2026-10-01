@@ -116,7 +116,7 @@ export function startRemote(url: string, name: string, look: Look, token: string
       if (closed) return;
       // 4000 = the server refused us on purpose (full, wrong version, kicked): don't retry
       if (e.code === 4000 || e.code === 4008) { statusHandler('offline', e.reason || 'Disconnected by the server'); return; }
-      if (!everConnected && attempt >= 2) { statusHandler('offline', 'Could not reach the server. Check the address and that the server is running.'); return; }
+      if (!everConnected && attempt >= 2) { statusHandler('offline', 'Could not reach the game server. It may not be running right now; try again in a minute.'); return; }
       const delay = Math.min(10000, 1000 * 2 ** attempt++);
       statusHandler('reconnecting', `Connection lost, retrying in ${Math.round(delay / 1000)}s...`);
       setTimeout(() => { if (!closed) open(); }, delay);

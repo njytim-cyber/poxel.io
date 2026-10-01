@@ -623,6 +623,7 @@ function showMenuError(text: string) {
 }
 async function leaveToMenu(reason: string) {
   disconnect();
+  ui.setConnectionBanner(''); // the reason moves to the menu
   if (mode === 'multi') { stopCarry(); await savesSettled(); }
   if (ui.state === 'menu') { showLoading(''); showMenuError(reason); showMenuScreen('main'); mode = 'none'; return; }
   try { sessionStorage.setItem('poxel_menu_error', reason); } catch { /* storage blocked */ }
