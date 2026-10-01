@@ -191,6 +191,7 @@ let splitTimer = 0;
 function slotEl(slot: number, extraClass = ''): HTMLElement {
   const el = document.createElement('div');
   el.className = 'slot ' + extraClass;
+  el.dataset.slot = String(slot); // which inventory slot (used by the browser tests)
   fillSlotEl(el, slotContent(slot));
   el.addEventListener('pointerdown', e => {
     e.preventDefault(); e.stopPropagation();

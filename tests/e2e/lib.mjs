@@ -53,15 +53,30 @@ function fakePointerLock() {
 // Coverage runs (npm run coverage sets POXEL_COVERAGE): each page records which client code ran and
 // saves it when the page or browser closes
 const COVERAGE = process.env.POXEL_COVERAGE;
+const COVERAGE_OPTS = { resetOnNavigation: false, includeRawScriptCoverage: true };
 let coverageFiles = 0;
-async function saveCoverage(page) {
-  if (!COVERAGE || page.__coverageSaved) return;
-  page.__coverageSaved = true;
-  try {
-    const entries = (await page.coverage.stopJSCoverage()).filter(e => /\/(client|shared)\/[^?]*\.ts/.test(e.url));
-    mkdirSync(join(COVERAGE, 'client'), { recursive: true });
-    writeFileSync(join(COVERAGE, 'client', `${process.pid}-${coverageFiles++}.json`), JSON.stringify(entries.map(e => ({ url: e.url, text: e.text, functions: e.rawScriptCoverage?.functions || [] }))));
-  } catch { /* page already gone */ }
+const textSaved = new Set(); // each script's source is written once per test process (it's large)
+// Saves what has run since the last save. Also every few seconds while the page is open, so a page that
+// reloads (or closes with its browser context) keeps nearly all of its record.
+async function saveCoverage(page, final) {
+  if (!COVERAGE || page.__coverageDone) return;
+  if (final) page.__coverageDone = true;
+  const prev = page.__coverageBusy;
+  const job = (async () => {
+    await prev;
+    try {
+      const entries = (await page.coverage.stopJSCoverage()).filter(e => /\/(client|shared)\/[^?]*\.ts/.test(e.url));
+      mkdirSync(join(COVERAGE, 'client'), { recursive: true });
+      writeFileSync(join(COVERAGE, 'client', `${process.pid}-${coverageFiles++}.json`), JSON.stringify(entries.map(e => {
+        const text = textSaved.has(e.url) ? null : e.text;
+        textSaved.add(e.url);
+        return { url: e.url, text, functions: e.rawScriptCoverage?.functions || [] };
+      })));
+      if (!final) await page.coverage.startJSCoverage(COVERAGE_OPTS);
+    } catch { /* page already gone */ }
+  })();
+  page.__coverageBusy = job;
+  await job;
 }
 function withTestHooks(ctx) {
   const newPage = ctx.newPage.bind(ctx);
@@ -69,12 +84,20 @@ function withTestHooks(ctx) {
     const page = await newPage(...a);
     await page.evaluateOnNewDocument(fakePointerLock);
     if (COVERAGE) {
-      await page.coverage.startJSCoverage({ resetOnNavigation: false, includeRawScriptCoverage: true });
+      await page.coverage.startJSCoverage(COVERAGE_OPTS);
+      const timer = setInterval(() => saveCoverage(page, false), 3000);
+      page.once('close', () => clearInterval(timer));
       const close = page.close.bind(page);
-      page.close = async (...b) => { await saveCoverage(page); return close(...b); };
+      page.close = async (...b) => { clearInterval(timer); await saveCoverage(page, true); return close(...b); };
     }
     return page;
   };
+  // Closing a whole browser context closes its pages without page.close(): save them first
+  if (COVERAGE && ctx.close && !ctx.__coverageClose) {
+    ctx.__coverageClose = true;
+    const close = ctx.close.bind(ctx);
+    ctx.close = async (...a) => { for (const p of await ctx.pages().catch(() => [])) await saveCoverage(p, true); return close(...a); };
+  }
   return ctx;
 }
 export async function launch({ args = GPU_ARGS, viewport = { width: 1280, height: 720 } } = {}) {
@@ -84,7 +107,7 @@ export async function launch({ args = GPU_ARGS, viewport = { width: 1280, height
   if (COVERAGE) {
     const close = browser.close.bind(browser);
     browser.close = async () => {
-      for (const c of [browser.defaultBrowserContext(), ...browser.browserContexts()]) for (const p of await c.pages().catch(() => [])) await saveCoverage(p);
+      for (const c of [browser.defaultBrowserContext(), ...browser.browserContexts()]) for (const p of await c.pages().catch(() => [])) await saveCoverage(p, true);
       return close();
     };
   }

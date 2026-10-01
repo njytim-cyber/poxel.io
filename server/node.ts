@@ -18,8 +18,8 @@ const RATE_BURST = 160;
 const HELLO_TIMEOUT = 10_000;
 const log = (msg: string) => console.log(`[${new Date().toISOString()}] ${msg}`);
 // Test coverage runs only (NODE_V8_COVERAGE is set by the test tools): tests often kill the server outright,
-// which skips the usual write at exit, so save what has run every few seconds
-if (process.env.NODE_V8_COVERAGE) setInterval(takeCoverage, 3000).unref();
+// which skips the usual write at exit, so save what has run every second
+if (process.env.NODE_V8_COVERAGE) setInterval(takeCoverage, 1000).unref();
 
 // ------------------------------------------------------------------ Storage (atomic JSON files)
 

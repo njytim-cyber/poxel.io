@@ -253,7 +253,8 @@ export class Game {
   // ---------------------------------------------------------------- Join / leave
 
   join(conn: Conn, hello: any): Player | null {
-    if (!hello || hello.t !== 'hello' || hello.v !== PROTOCOL_VERSION) { conn.close('Version mismatch: please refresh the page'); return null; }
+    if (!hello || hello.t !== 'hello') { conn.close('Expected a hello first'); return null; } // the game always says hello first
+    if (hello.v !== PROTOCOL_VERSION) { conn.close('Version mismatch: please refresh the page'); return null; }
     const name = sanitizeName(hello.name);
     const token = typeof hello.token === 'string' ? hello.token.slice(0, 64) : '';
     const online = [...this.players.values()].find(o => o.name.toLowerCase() === name.toLowerCase());

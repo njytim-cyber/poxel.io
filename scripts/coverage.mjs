@@ -43,8 +43,14 @@ if (!unitOnly) {
   const SOURCE_MAP = /\/\/# sourceMappingURL=data:application\/json(?:;charset=[^;,]+)?;base64,([A-Za-z0-9+/=]+)\s*$/;
   const files = new Map(); // file -> Map(key -> { name, line, ran })
   const dir = join(RAW, 'client');
-  for (const f of readdirSync(dir).filter(n => n.endsWith('.json'))) {
-    for (const e of JSON.parse(readFileSync(join(dir, f), 'utf8'))) {
+  // Snapshots carry each script's source only once (per test process): collect those first
+  const snapshots = readdirSync(dir).filter(n => n.endsWith('.json')).map(f => JSON.parse(readFileSync(join(dir, f), 'utf8')));
+  const texts = new Map();
+  for (const snap of snapshots) for (const e of snap) if (e.text) texts.set(e.url, e.text);
+  for (const snap of snapshots) {
+    for (const e of snap) {
+      e.text ??= texts.get(e.url);
+      if (!e.text) continue;
       const file = new URL(e.url).pathname.replace(/^\/poxel\.io\//, '').replace(/^\//, '');
       if (!/^(client|shared)\/[^/]+\.ts$/.test(file)) continue;
       const m = e.text.match(SOURCE_MAP);
