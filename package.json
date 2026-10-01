@@ -15,7 +15,9 @@
     "test:soak": "node tests/e2e/run.mjs soak",
     "test:perf": "node tests/e2e/run.mjs perf",
     "test:unit": "node --test \"tests/unit/*.test.ts\"",
-    "test": "npm run test:unit && npm run test:e2e"
+    "test": "npm run test:unit && npm run test:e2e",
+    "build:cf": "vite build --base=/ --outDir dist-cf",
+    "deploy:cf": "npm run build:cf && wrangler deploy --config cloudflare/wrangler.jsonc"
   },
   "keywords": [],
   "author": "",
@@ -28,7 +30,8 @@
     "puppeteer-core": "^23.11.1",
     "three": "^0.183.2",
     "typescript": "^6.0.2",
-    "vite": "^8.0.8"
+    "vite": "^8.0.8",
+    "wrangler": "^4.145.0"
   },
   "dependencies": {
     "nipplejs": "^1.0.1",

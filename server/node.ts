@@ -1,6 +1,7 @@
 // Poxel multiplayer server (Node.js). Run: node server/node.ts
 //   PORT=8080  DATA_DIR=./data  MAX_PLAYERS=16  SEED=<number>
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, existsSync, openSync, writeSync, fsyncSync, closeSync, copyFileSync, appendFileSync, statSync, rmSync } from 'node:fs';
 import { join, normalize, extname, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -120,6 +121,14 @@ const http = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: http, maxPayload: MAX_MESSAGE, perMessageDeflate: false });
 
+// Shared with the Cloudflare Worker (cloudflare/worker.js), which adds it to every connection it forwards
+const ORIGIN_SECRET = process.env.ORIGIN_SECRET || '';
+function fromEdge(req: IncomingMessage): boolean {
+  const got = Buffer.from(String(req.headers['x-poxel-secret'] || ''));
+  const want = Buffer.from(ORIGIN_SECRET);
+  return got.length === want.length && timingSafeEqual(got, want);
+}
+
 interface Client { ws: WebSocket; ip: string; player: Player | null; tokens: number; lastRefill: number; strikes: number; alive: boolean; pingSent: number }
 const clients = new Set<Client>();
 const MAX_PER_IP = Number(process.env.MAX_PER_IP) || 4;
@@ -148,11 +157,15 @@ function allow(c: Client): boolean {
 }
 
 wss.on('connection', (ws, req) => {
+  // Behind the Cloudflare Worker (ORIGIN_SECRET set): only connections carrying the secret get in, so
+  // nobody can go around Cloudflare's protection, and the player's real address comes from the Worker
+  if (ORIGIN_SECRET && !fromEdge(req)) { ws.close(4003, 'Join through the game\'s website'); return; }
   // Proxy headers can be forged by anyone who reaches the port directly, so they only count when the
   // connection comes from a proxy on this machine (cloudflared) or when running on Fly
   const direct = req.socket.remoteAddress || '?';
   const viaProxy = /^(127\.|::1$|::ffff:127\.)/.test(direct) || !!process.env.FLY_APP_NAME;
-  const ip = (viaProxy && (req.headers['fly-client-ip'] || req.headers['cf-connecting-ip'])) as string || direct;
+  const ip = (ORIGIN_SECRET && req.headers['x-poxel-client-ip'] as string)
+    || (viaProxy && (req.headers['fly-client-ip'] || req.headers['cf-connecting-ip'])) as string || direct;
   // One household/host can't take every slot
   if ([...clients].filter(o => o.ip === ip).length >= MAX_PER_IP) { ws.close(4000, 'Too many connections from your network'); return; }
   const c: Client = { ws, ip, player: null, tokens: RATE_BURST, lastRefill: Date.now(), strikes: 0, alive: true, pingSent: 0 };
