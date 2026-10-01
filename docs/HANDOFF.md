@@ -30,7 +30,9 @@ npm run deploy     # build + publish static client to GitHub Pages (single playe
 - **Quick tunnels expire without warning** ("Tunnel not found" in the cloudflared log). Restart `npm run tunnel` to get a new link. A stable URL needs a free Cloudflare account and a named tunnel.
 - Server env vars: `PORT` (8080), `DATA_DIR` (`./data`, gitignored), `MAX_PLAYERS` (16), `MAX_PER_IP` (4), `SEED`.
 - The world and players are saved in `data/world.json` and `data/players/<name>.json`, each with a `.bak`. Corrupt files are moved to `*.corrupt-<ts>`.
-- **Hosting decision:** iterate on the owner's PC with the quick tunnel. Fly.io is set up (logged in as njytim@gmail.com, region `sin`, flyctl in `%USERPROFILE%\.fly\bin`), but **do not deploy there unless the owner asks.**
+- **Hosting decision:** the website is on Cloudflare (`npm run deploy:cf` → https://poxel.njytim.workers.dev; `cloudflare/worker.js` also forwards multiplayer to `ORIGIN_URL` with the shared `ORIGIN_SECRET`). The game server will be a DigitalOcean server in Singapore behind a Cloudflare Tunnel, set up once the game's new name and domain are chosen. Until then, iterate on the owner's PC with the quick tunnel. Fly.io was dropped: its Windows tool is unsigned, and Smart App Control (which stays on) blocks it.
+- `npm run deploy:cf` deploys to Cloudflare. In the owner's own PowerShell, use `npx.cmd` (script execution policy blocks `npx.ps1`).
+- GitHub Actions: manual-only workflows, if any. The owner watches Actions minutes, so add nothing that runs on push.
 - Node ≥ 23.6 is required: the server runs TypeScript directly via type stripping. Server and shared code must use `.ts` import extensions and erasable syntax only (no enums or parameter properties). This is checked by `tsconfig.server.json`.
 - Git has no global identity on this PC. Commit with `git -c user.name="Koh Huiling" -c user.email="njytim@gmail.com" ...`. Never commit `index.docx` (the owner's untracked file) or `data/`.
 

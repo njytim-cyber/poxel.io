@@ -161,11 +161,11 @@ wss.on('connection', (ws, req) => {
   // nobody can go around Cloudflare's protection, and the player's real address comes from the Worker
   if (ORIGIN_SECRET && !fromEdge(req)) { ws.close(4003, 'Join through the game\'s website'); return; }
   // Proxy headers can be forged by anyone who reaches the port directly, so they only count when the
-  // connection comes from a proxy on this machine (cloudflared) or when running on Fly
+  // connection comes from a proxy on this machine (cloudflared)
   const direct = req.socket.remoteAddress || '?';
-  const viaProxy = /^(127\.|::1$|::ffff:127\.)/.test(direct) || !!process.env.FLY_APP_NAME;
+  const viaProxy = /^(127\.|::1$|::ffff:127\.)/.test(direct);
   const ip = (ORIGIN_SECRET && req.headers['x-poxel-client-ip'] as string)
-    || (viaProxy && (req.headers['fly-client-ip'] || req.headers['cf-connecting-ip'])) as string || direct;
+    || (viaProxy && req.headers['cf-connecting-ip']) as string || direct;
   // One household/host can't take every slot
   if ([...clients].filter(o => o.ip === ip).length >= MAX_PER_IP) { ws.close(4000, 'Too many connections from your network'); return; }
   const c: Client = { ws, conn: null!, ip, player: null, tokens: RATE_BURST, lastRefill: Date.now(), strikes: 0, alive: true, pingSent: 0 };
