@@ -4,11 +4,14 @@
 import type { InvAction, Stack } from './inventory.ts';
 import type { FurnaceState } from './furnace.ts';
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2; // 2: banners, claims, orbs, squads, the Frost World (new blocks, mobs and messages)
 export const TICK_RATE = 20;
 export const MAX_PLAYERS = 16;
 
-export type MobKind = 'pig' | 'cow' | 'chicken' | 'zombie' | 'husk' | 'frostbitten' | 'spider' | 'skeleton' | 'slime' | 'slimelet' | 'robot' | 'robot_titan';
+export type MobKind = 'pig' | 'cow' | 'chicken' | 'zombie' | 'husk' | 'frostbitten' | 'spider' | 'skeleton' | 'slime' | 'slimelet' | 'robot' | 'robot_titan' | 'frost_wraith';
+// What a tamed robot is doing: following you, guarding a spot, or fetching dropped items for you
+export type SquadOrder = 'follow' | 'guard' | 'collect';
+export const SQUAD_ORDERS: SquadOrder[] = ['follow', 'guard', 'collect'];
 export type EntityKind = 'player' | 'item' | MobKind;
 
 export interface Look {
@@ -45,6 +48,10 @@ export type ClientMsg =
   | { t: 'fire'; dx: number; dy: number; dz: number }     // a laser cannon shot in this direction
   | { t: 'refuel'; x: number; y: number; z: number }      // right-click oil holding a jetpack
   | { t: 'giveup' }                                       // a downed player chooses to die now
+  | { t: 'orb' }                                          // used a moonstone orb: asks where it can take you
+  | { t: 'orbgo'; to: 'home' | 'death' | 'player'; i?: number; name?: string } // ...and the choice
+  | { t: 'tpreply'; from: string; accept: boolean }        // answering a friend's teleport request
+  | { t: 'squad'; order?: SquadOrder; eid?: number }      // robot squad: no order = just send the list; no eid = all of them
   | { t: 'dev'; give?: string; count?: number; spawn?: string; time?: number; tp?: { x: number; y: number; z: number }; blocks?: number[] } // test builds only (Game option devTools)
   | { t: 'hello'; v: number; name: string; look: Look; token?: string;
       prevName?: string;                                  // renaming: the name this player had on this server
@@ -80,7 +87,7 @@ export type ServerMsg =
   | { t: 'downed'; seconds: number }               // multiplayer: you're down; others can revive you before this runs out
   | { t: 'revive_progress'; progress: number; name: string } // 0..1, shown to the downed player and the reviver
   | { t: 'revived' }
-  | { t: 'beam'; a: [number, number, number]; b: [number, number, number]; pet?: boolean } // a robot's laser, from a to b
+  | { t: 'beam'; a: [number, number, number]; b: [number, number, number]; pet?: boolean; ice?: boolean } // a laser (or the Frost Wraith's ice beam), from a to b
   | { t: 'snap'; ents: number[] }                 // [eid, x, y, z, yaw, pitch, flags] * n
   | { t: 'spawn'; ents: SpawnInfo[] }
   | { t: 'despawn'; eids: number[] }
@@ -106,6 +113,10 @@ export type ServerMsg =
   | { t: 'crit' }                                         // your hit was a critical hit
   | { t: 'homes'; list: ({ x: number; y: number; z: number; name: string } | null)[]; slots: number }
   | { t: 'kick'; reason: string }
+  | { t: 'orbmenu'; players: string[]; homes: { i: number; name: string }[]; death: boolean } // where a moonstone orb can take you
+  | { t: 'tpask'; from: string }                         // a friend asks to teleport to you
+  | { t: 'squad'; list: { eid: number; hp: number; max: number; order: SquadOrder }[] } // your tamed robots
+  | { t: 'slow'; seconds: number }                       // frozen: you move slowly for a while
   | { t: 'pong'; ts: number };
 
 // Entity snapshot flags

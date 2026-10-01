@@ -1,3 +1,5 @@
+import { COLORS, woolOf } from './blocks.ts';
+
 type Cell = string | null;
 export interface Recipe {
   shape: Cell[][];
@@ -71,7 +73,23 @@ add([['poppy']], 'red_dye', 2);
 add([['dandelion']], 'yellow_dye', 2);
 add([['cornflower']], 'blue_dye', 2);
 add([['coal', 'coal']], 'black_dye', 2);
-for (const c of ['red', 'yellow', 'blue', 'green', 'black']) add([['wool', `${c}_dye`]], `${c}_wool`);
+add([['bone']], 'white_dye', 3);
+// Mixing two dyes (either way round) makes two of a new colour
+for (const [a, b, c] of [['red', 'yellow', 'orange'], ['red', 'blue', 'purple'], ['red', 'white', 'pink'], ['blue', 'green', 'cyan']]) {
+  add([[`${a}_dye`, `${b}_dye`]], `${c}_dye`, 2);
+  add([[`${b}_dye`, `${a}_dye`]], `${c}_dye`, 2);
+}
+// Any wool and a dye of another colour: wool of that colour
+for (const from of COLORS) for (const to of COLORS) if (from !== to) add([[woolOf(from), `${to}_dye`]], woolOf(to));
+// Banners: six wool of one colour over a stick
+for (const c of COLORS) { const w = woolOf(c); add([[w, w, w], [w, w, w], [_, 'stick', _]], `${c}_banner`); }
+// Claim stone: stone bricks around an iron ingot
+add([['stone_bricks', 'stone_bricks', 'stone_bricks'], ['stone_bricks', 'iron_ingot', 'stone_bricks'], ['stone_bricks', 'stone_bricks', 'stone_bricks']], 'claim_stone');
+// Moonstone blocks (4 moonstone each, and back)
+add(square('moonstone'), 'moonstone_block');
+add([['moonstone_block']], 'moonstone', 4);
+// Moonstone orbs (teleport): moonstone around glass
+add([[_, 'moonstone', _], ['moonstone', 'glass', 'moonstone'], [_, 'moonstone', _]], 'moonstone_orb', 2);
 
 // Furniture
 add(ring('planks'), 'chest');
@@ -103,6 +121,7 @@ const MATERIALS: { item: string; tier: string; armor?: string }[] = [
   { item: 'etherite', tier: 'etherite', armor: 'etherite' },
   { item: 'tungsten_ingot', tier: 'tungsten', armor: 'tungsten' },
   { item: 'obitite', tier: 'obitite', armor: 'obitite' },
+  { item: 'glacite', tier: 'glacite' },
 ];
 const S = 'stick';
 const mirror = (shape: Cell[][]) => shape.map(row => [...row].reverse());

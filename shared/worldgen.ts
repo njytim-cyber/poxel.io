@@ -3,6 +3,7 @@
 import { BLOCKS, BLOCK_ID, WATER, LAVA, OIL, isOccluding, isFacingBlock } from './blocks.ts';
 import { Noise, hash3 } from './noise.ts';
 import { isRobotic, roboticHeight, generateRoboticChunk } from './robotic.ts';
+import { isFrost, frostHeight, generateFrostChunk } from './frost.ts';
 
 export const CHUNK = 16;
 export const MIN_Y = -104;
@@ -27,10 +28,11 @@ function G(seed: number): Gen {
 
 // ------------------------------------------------------------------ Terrain
 
-export type Biome = 'plains' | 'forest' | 'pine' | 'desert' | 'snowy' | 'mountains' | 'robotic';
+export type Biome = 'plains' | 'forest' | 'pine' | 'desert' | 'snowy' | 'mountains' | 'robotic' | 'frost';
 
 export function columnInfo(x: number, z: number, seed: number): { h: number; biome: Biome } {
   if (isRobotic(x)) return { h: roboticHeight(x, z, seed), biome: 'robotic' };
+  if (isFrost(x)) return { h: Math.min(frostHeight(x, z, seed), MAX_Y - 40), biome: 'frost' };
   const { n, nb, nc } = G(seed);
   const temp = nb.fbm2(x / 300, z / 300, 2);
   const humid = nc.fbm2(x / 260 + 50, z / 260 + 50, 2);
@@ -61,6 +63,7 @@ function column(arr: Float32Array, out: Float64Array, c00: number, c10: number, 
 
 export function generateChunkData(cx: number, cz: number, seed: number): Uint8Array {
   if (isRobotic(cx * CHUNK)) return generateRoboticChunk(cx, cz, seed);
+  if (isFrost(cx * CHUNK)) return generateFrostChunk(cx, cz, seed);
   const { n: noise, nb: noiseB, nc: noiseC } = G(seed);
   const d = new Uint8Array(CHUNK_VOLUME);
   const x0 = cx * CHUNK, z0 = cz * CHUNK;
@@ -220,7 +223,7 @@ function placeFeatures(data: Uint8Array, cx: number, cz: number, seed: number) {
     const r = hash3(x, 7, z, seed);
     if (r > 0.04) continue; // quick reject before computing terrain
     const { h, biome } = columnInfo(x, z, seed);
-    if (h < SEA_LEVEL + 1 || biome === 'robotic') continue;
+    if (h < SEA_LEVEL + 1 || biome === 'robotic' || biome === 'frost') continue;
     if (Math.abs(x) < 4 && Math.abs(z) < 4) continue; // clear spawn
     const r2 = hash3(x, 8, z, seed);
     if (biome === 'desert') {
@@ -280,7 +283,7 @@ export function structureInRegion(rx: number, rz: number, seed: number, undergro
   const x = rx * REGION + 8 + Math.floor(hash3(rx, salt + 1, rz, seed) * (REGION - 16));
   const z = rz * REGION + 8 + Math.floor(hash3(rx, salt + 2, rz, seed) * (REGION - 16));
   if (Math.abs(x) < 24 && Math.abs(z) < 24) return null; // keep the world spawn clear
-  if (isRobotic(x)) return null;
+  if (isRobotic(x) || isFrost(x)) return null;
   const { h, biome } = columnInfo(x, z, seed);
   if (underground) {
     if (r > 0.55) return null;
@@ -419,7 +422,8 @@ const FRONT_FACE = [4, 0, 5, 1]; // facing 0:+z 1:+x 2:-z 3:-x
 const OCCLUDES = new Uint8Array(256);
 const TRANSPARENT = new Uint8Array(256);
 const GLOW = new Uint8Array(256);
-for (const b of BLOCKS) { OCCLUDES[b.id] = isOccluding(b.id) ? 1 : 0; TRANSPARENT[b.id] = b.transparent ? 1 : 0; GLOW[b.id] = b.glow ? 1 : 0; }
+const BANNER = new Uint8Array(256);
+for (const b of BLOCKS) { OCCLUDES[b.id] = isOccluding(b.id) ? 1 : 0; TRANSPARENT[b.id] = b.transparent ? 1 : 0; GLOW[b.id] = b.glow ? 1 : 0; BANNER[b.id] = b.banner ? 1 : 0; }
 
 class Builder {
   pos: number[] = [];
@@ -458,7 +462,11 @@ export function meshSection(input: SectionInput): SectionOutput {
     if (!id || !BLOCKS[id].plant) continue;
     const d0 = BLOCKS[id].tiles[0] | ((GLOW[id] ? 4 : skyLight(lx, y0 + ly, lz)) << 8) | (6 << 11) | (3 << 14);
     const X = lx * 16, Y = yBase + ly * 16, Z = lz * 16;
-    for (const [ax, az, bx, bz] of [[2, 2, 14, 14], [2, 14, 14, 2]]) {
+    // Banners: one flat cloth across the middle of the block, turned to face whoever placed it
+    const quads = BANNER[id]
+      ? ((facingMap.get((ly * 16 + lz) * 16 + lx) ?? 0) % 2 === 0 ? [[0, 8, 16, 8]] : [[8, 16, 8, 0]])
+      : [[2, 2, 14, 14], [2, 14, 14, 2]];
+    for (const [ax, az, bx, bz] of quads) {
       const base = solid.pos.length / 3;
       solid.vert(X + ax, Y, Z + az, d0, 0);
       solid.vert(X + bx, Y, Z + bz, d0, 1);

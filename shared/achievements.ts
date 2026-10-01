@@ -1,7 +1,8 @@
 // Achievements: unlocked by the server (it sees what really happens), saved with each character,
 // shown as a banner when earned and listed in the pause menu.
 
-export interface Achievement { id: string; name: string; desc: string }
+// secret: shown as "???" until earned (the Frost World is a secret)
+export interface Achievement { id: string; name: string; desc: string; secret?: boolean }
 
 export const ACHIEVEMENTS: Achievement[] = [
   { id: 'wood', name: 'Getting Wood', desc: 'Punch a tree until a log pops out' },
@@ -20,6 +21,13 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'cannon', name: 'Pew Pew', desc: 'Get a laser cannon' },
   { id: 'jetpack', name: 'Rocket Science', desc: 'Get a jetpack' },
   { id: 'fly', name: 'Lift Off', desc: 'Fly with a jetpack' },
+  { id: 'banner', name: 'Flag Bearer', desc: 'Put up a banner' },
+  { id: 'claim', name: 'Home Turf', desc: 'Claim land with a claim stone' },
+  { id: 'orb', name: 'Moonwalk', desc: 'Teleport with a moonstone orb' },
+  { id: 'squad', name: 'Squad Leader', desc: 'Give your robots an order' },
+  { id: 'frost', name: 'Cold Feet', desc: 'Find the Frost World', secret: true },
+  { id: 'glacite', name: 'Deep Freeze', desc: 'Get glacite', secret: true },
+  { id: 'wraith', name: 'Thaw', desc: 'Defeat the Frost Wraith', secret: true },
 ];
 
 export const ACHIEVEMENT_IDS = new Set(ACHIEVEMENTS.map(a => a.id));
@@ -27,7 +35,7 @@ export const ACHIEVEMENT_IDS = new Set(ACHIEVEMENTS.map(a => a.id));
 // Having one of these items (anywhere in your inventory) earns the achievement
 export const ITEM_ACHIEVEMENTS: Record<string, string> = {
   crafting_table: 'table', iron_ingot: 'iron', diamond: 'diamond', etherite: 'etherite',
-  tungsten_ingot: 'tungsten', obitite: 'obitite', laser_cannon: 'cannon', jetpack: 'jetpack',
+  tungsten_ingot: 'tungsten', obitite: 'obitite', laser_cannon: 'cannon', jetpack: 'jetpack', glacite: 'glacite',
 };
 export function itemAchievement(type: string): string | undefined {
   return ITEM_ACHIEVEMENTS[type] ?? (type.endsWith('_pickaxe') ? 'pickaxe' : undefined);

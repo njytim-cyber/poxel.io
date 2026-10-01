@@ -11,6 +11,22 @@ Poxel.io is a browser voxel sandbox game (its own game — never describe it as 
 - **Tests:** 82 unit tests (incl. `items.test.ts`: smelting, every click type, 15,000 random clicks with no duplication/loss; `server.test.ts`: the real network server vs bad input). 15 browser suites incl. new `join`, `mpcuj` (multiplayer journey) and `actions`. `npm run coverage`: server+shared **94% of lines**; **83% of named client functions** run in browser tests.
 - **Probed:** a 4x-slowed phone CPU and 150-300 ms round trips: frames stay ~7 ms, no server corrections, smooth remote movement. Real low-end phones, iPhones (Safari) and many players at once are still untested.
 
+## Added later on 2026-10-01 (second session)
+
+- **Banners and dyes**: new dyes (white from bones; orange, purple, pink and cyan mixed from two dyes), so there are 10 colours. Any wool can be dyed any colour. Each colour has a banner: 6 wool over a stick. A banner is drawn as one flat cloth facing whoever placed it. Placing a block next to a torch or banner no longer replaces it (`isReplaceable`).
+- **Claim stones**: stone bricks around an iron ingot. In multiplayer, only the owner and players they `/trust` can build, dig, till, or open chests and furnaces within 16 blocks (any height). Only the owner (or an operator) can take the stone back. A claim can't be within 40 blocks of the world spawn or overlap someone else's. 3 per player. `/claims`, `/trust`, `/untrust`. "Entering X's land" toasts. Saved in `world.json` (`claims`, `trust`).
+- **Moonstone orbs**: moonstone around glass, 2 per craft. Use one to pick a destination: a friend (they must accept with Y/N or `/tpaccept`, `/tpdeny`), a set home, or where you last died. The orb is used up when you arrive.
+- **Robot squads**: G (or the pause menu, or 🤖 on phones, or `/robots <order>`) gives tamed robots orders. **Follow**; **Guard** (keeps watch where you stood; stays when you travel, goes back to its post when you rejoin); **Collect** (fetches dropped items within 12 blocks and hands them over). Orders, posts and carried items are saved with the player.
+- **The Frost World (secret)**: see `docs/frost-world.md`. You build a moonstone-block doorway with robot eyes inside, and it becomes a walk-in portal. There are snow, ice spikes, ice caves and glacite. The Frost Wraith boss slows you with ice, and glacite tools chill what they hit. The Frost Heart protects from cold.
+- **Armour**: a full tungsten set blocks robot lasers; a full obitite set (the jetpack counts) blocks lava.
+- **Creative code** changed (only its fingerprint is in `server/core/game.ts`). The owner has the code.
+- 7 new achievements (3 secret, shown as ??? until earned). New tests: `tests/unit/features.test.ts`, browser suite `features`.
+- **Protocol version 2.** Tabs still on the old client are told to refresh. The server must be restarted together with the website deploy.
+- **Flaky browser checks seen under load** (each passes when rerun):
+  - the critical hit in `actions` (jump timing);
+  - "leave handled" in `mp` (a fixed 1.5 s wait);
+  - once, `carry` joined with the previous suite's inventory.
+
 ## Decisions (and why)
 
 - **No spending until multiplayer is proven.** Then: pick the game's new name (Poxel clashes with the poxel.io shooter), buy the domain on Cloudflare (~US$10/yr), and put the server behind a **named Cloudflare Tunnel** (free, stable). An always-on server later: a small VPS (e.g. DigitalOcean Singapore) behind the same tunnel. Without a domain, the researched options were Northflank (free sandbox, if it allows Singapore + a volume: unverified), Render ($7.25/mo) and Railway (~$5/mo, rough 2026 reliability).

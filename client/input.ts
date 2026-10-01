@@ -33,6 +33,8 @@ export const actions = {
   toggleDebug: () => {},
   setHome: () => {},
   chat: (_prefill: string) => {},
+  squad: () => {},                 // robot squad orders (G)
+  answer: (_accept: boolean) => {}, // a friend's teleport request (Y / N)
   jumpTap: () => {},         // each press of jump (creative: a double tap toggles flying)
   touchTap: () => {},        // quick tap on the view: attack a mob, else use/place
   touchHold: (_held: boolean) => {}, // long-press on the view: mine (or eat when holding food)
@@ -74,6 +76,9 @@ export function setupInput() {
       case 'F5': case 'F7': case 'KeyV': e.preventDefault(); actions.toggleView(); break;
       case 'F3': e.preventDefault(); actions.toggleDebug(); break;
       case 'KeyH': actions.setHome(); break;
+      case 'KeyG': actions.squad(); break;
+      case 'KeyY': actions.answer(true); break;
+      case 'KeyN': actions.answer(false); break;
       case 'KeyT': case 'Enter': e.preventDefault(); actions.chat(''); break;
       case 'Slash': e.preventDefault(); actions.chat('/'); break;
     }
@@ -210,9 +215,10 @@ function setupMobileInput() {
   bindBtn('btn-mobile-view', h => { if (h) actions.toggleView(); });
   bindBtn('btn-mobile-menu', h => { if (h) actions.escape(); });
   bindBtn('btn-mobile-chat', h => { if (h) actions.chat(''); });
+  bindBtn('btn-mobile-squad', h => { if (h) actions.squad(); });
 
   document.body.addEventListener('touchmove', e => {
-    if ((e.target as HTMLElement)?.closest('#full-inventory-modal, #shop-screen, #main-menu, #pause-menu')) return;
+    if ((e.target as HTMLElement)?.closest('#full-inventory-modal, #shop-screen, #main-menu, #pause-menu, .game-modal')) return;
     if (e.cancelable) e.preventDefault();
   }, { passive: false });
 }

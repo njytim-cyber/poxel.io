@@ -14,7 +14,7 @@ const { check, watch, finish } = suite('crash');
 // What a newly joining player is told: the seed and the edit list
 const probeWelcome = () => new Promise((res, rej) => {
   const ws = new WebSocket(URL);
-  ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', v: 1, name: uniqueName('Probe'), look: {} })));
+  ws.on('open', () => ws.send(JSON.stringify({ t: 'hello', v: 2, name: uniqueName('Probe'), look: {} })));
   ws.on('message', (d, bin) => { if (bin) return; const m = JSON.parse(d.toString()); if (m.t === 'welcome') { ws.close(); res(m); } });
   ws.on('error', rej);
 });

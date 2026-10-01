@@ -24,6 +24,8 @@ export const MOB_SPECS: Record<MobKind, MobSpec> = {
   robot: { halfW: 0.45, height: 2.0, health: 30, speed: 2.0, hostile: true, damage: 0 },
   // The boss: wakes at an altar in the Robotic World. Laser, grinder charges, punches.
   robot_titan: { halfW: 1.1, height: 5.0, health: 300, speed: 1.8, hostile: true, damage: 5 },
+  // The Frost World's boss: floats above its shrine, fires ice beams that slow you, calls up frostbitten
+  frost_wraith: { halfW: 0.7, height: 3.0, health: 250, speed: 2.6, hostile: true, damage: 4 },
 };
 
 export const MOB_KINDS = Object.keys(MOB_SPECS) as MobKind[];

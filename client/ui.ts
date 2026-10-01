@@ -4,9 +4,11 @@ import { isMobile, releaseAllKeys } from './input';
 import { openScreen, closeScreen, setCloseHandler, type ScreenMode } from './inventory';
 import type { FurnaceState, Stack } from '../shared/furnace.ts';
 import { send } from './net';
+import type { ClientMsg, SquadOrder } from '../shared/protocol.ts';
 
 // One place that decides what the player is doing, so overlays never fight each other.
-export type GameState = 'menu' | 'playing' | 'paused' | 'screen' | 'chat' | 'dead';
+// panel: a dialog over the game (moonstone orb destinations, robot squad)
+export type GameState = 'menu' | 'playing' | 'paused' | 'screen' | 'chat' | 'dead' | 'panel';
 export let state: GameState = 'menu';
 // Mirrors the state onto <body> so CSS can hide touch controls while a menu/screen is open
 function setState(s: GameState) {
@@ -30,7 +32,7 @@ export function initUI(c: PointerLockControls) {
 
   controls.addEventListener('lock', () => {
     // The lock is requested asynchronously (resume); if a screen, chat or death came first, keep that
-    if (state === 'screen' || state === 'chat' || state === 'dead' || state === 'menu') { controls.unlock(); return; }
+    if (state === 'screen' || state === 'chat' || state === 'dead' || state === 'menu' || state === 'panel') { controls.unlock(); return; }
     setState('playing');
     show('pause-menu', false);
     pauseHandler(false);
@@ -49,6 +51,11 @@ export function initUI(c: PointerLockControls) {
   $('btn-resume')?.addEventListener('click', () => resume());
   setCloseHandler(() => closeGameScreen());
   $('btn-respawn')?.addEventListener('click', () => respawnHandler());
+  $('btn-orb-close')?.addEventListener('click', () => closePanel());
+  $('btn-squad-close')?.addEventListener('click', () => closePanel());
+  $('btn-squad')?.addEventListener('click', () => openSquad());
+  $('btn-tp-yes')?.addEventListener('click', () => answerTp(true));
+  $('btn-tp-no')?.addEventListener('click', () => answerTp(false));
 
   const input = $('chat-input') as HTMLInputElement | null;
   input?.addEventListener('keydown', e => {
@@ -86,6 +93,7 @@ export function pause() {
   if (state === 'menu' || state === 'dead') return;
   if (state === 'screen') closeScreen();
   if (state === 'chat') hideChatInput();
+  if (state === 'panel') hidePanels();
   setState('paused');
   show('pause-menu', true);
   releaseAllKeys();
@@ -119,6 +127,120 @@ export function closeGameScreen() {
   if (state !== 'screen') return;
   closeScreen();
   resume();
+}
+
+// ------------------------------------------------------------------ Dialogs over the game (moonstone orb, robot squad)
+
+let panelId = '';
+function openPanel(id: string): boolean {
+  if (state !== 'playing' && state !== 'panel' && state !== 'paused') return false;
+  if (state === 'paused') show('pause-menu', false);
+  if (panelId && panelId !== id) show(panelId, false);
+  panelId = id;
+  setState('panel');
+  releaseAllKeys();
+  show(id, true);
+  if (!isMobile && controls.isLocked) controls.unlock();
+  return true;
+}
+function hidePanels() { if (panelId) show(panelId, false); panelId = ''; }
+export function closePanel() {
+  if (state !== 'panel') return;
+  hidePanels();
+  resume();
+}
+
+// Where a moonstone orb can take you (the server's list)
+export function showOrbMenu(players: string[], homes: { i: number; name: string }[], death: boolean) {
+  const list = $('orb-list');
+  if (!list || state !== 'playing') return;
+  list.innerHTML = '';
+  const add = (label: string, msg: ClientMsg) => {
+    const b = document.createElement('button');
+    b.className = 'menu-btn';
+    b.textContent = label;
+    b.onclick = () => { send(msg); closePanel(); };
+    list.appendChild(b);
+  };
+  for (const n of players) add(`To ${n}`, { t: 'orbgo', to: 'player', name: n });
+  for (const h of homes) add(`To ${h.name}`, { t: 'orbgo', to: 'home', i: h.i });
+  if (death) add('To where you last died', { t: 'orbgo', to: 'death' });
+  if (!list.children.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = "Nowhere to go yet: no friends online, no homes set, and you haven't died.";
+    list.appendChild(p);
+  }
+  openPanel('orb-modal');
+}
+
+// A friend asks to teleport to you: Accept / No (or Y / N)
+let tpFrom = '', tpTimer = 0;
+export function showTpAsk(from: string) {
+  tpFrom = from;
+  const t = $('tp-ask-text');
+  if (t) t.textContent = `${from} wants to teleport to you`;
+  show('tp-ask', true);
+  clearTimeout(tpTimer);
+  tpTimer = window.setTimeout(hideTpAsk, 60000);
+}
+function hideTpAsk() { tpFrom = ''; show('tp-ask', false); }
+export function answerTp(accept: boolean): boolean {
+  if (!tpFrom) return false;
+  send({ t: 'tpreply', from: tpFrom, accept });
+  hideTpAsk();
+  return true;
+}
+
+// Robot squad: your tamed robots and their orders
+let squad: { eid: number; hp: number; max: number; order: SquadOrder }[] = [];
+export function setSquad(list: typeof squad) {
+  squad = list;
+  for (const id of ['btn-squad', 'btn-mobile-squad']) { const b = $(id); if (b) b.style.display = list.length ? '' : 'none'; }
+  renderSquad();
+}
+export function openSquad() {
+  send({ t: 'squad' });
+  renderSquad();
+  openPanel('squad-modal');
+}
+export const squadOpen = () => panelId === 'squad-modal';
+function renderSquad() {
+  const el = $('squad-list');
+  if (!el) return;
+  el.innerHTML = '';
+  if (!squad.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'No robots yet. In the Robotic World, use a tungsten ingot on a robot to tame it.';
+    el.appendChild(p);
+    return;
+  }
+  const row = (label: string, order: SquadOrder | null, eid?: number, hp?: number, max?: number) => {
+    const r = document.createElement('div');
+    r.className = 'squad-row';
+    const name = document.createElement('div');
+    name.className = 'squad-name';
+    name.textContent = label;
+    if (hp !== undefined && max) {
+      const bar = document.createElement('div'); bar.className = 'squad-hp';
+      const fill = document.createElement('div'); fill.style.width = `${Math.round((hp / max) * 100)}%`;
+      bar.appendChild(fill); name.appendChild(bar);
+    }
+    const orders = document.createElement('div');
+    orders.className = 'squad-orders';
+    for (const o of ['follow', 'guard', 'collect'] as SquadOrder[]) {
+      const b = document.createElement('button');
+      b.className = 'menu-btn' + (o === order ? ' active' : '');
+      b.textContent = o[0].toUpperCase() + o.slice(1);
+      b.onclick = () => send(eid === undefined ? { t: 'squad', order: o } : { t: 'squad', order: o, eid });
+      orders.appendChild(b);
+    }
+    r.append(name, orders);
+    el.appendChild(r);
+  };
+  if (squad.length > 1) row('All robots', squad.every(s => s.order === squad[0].order) ? squad[0].order : null);
+  squad.forEach((s, i) => row(`Robot ${i + 1}`, s.order, s.eid, s.hp, s.max));
 }
 
 // ------------------------------------------------------------------ Chat
@@ -220,6 +342,7 @@ export function showDeath(message: string) {
   hideDowned();
   if (state === 'screen') closeScreen();
   if (state === 'chat') hideChatInput();
+  if (state === 'panel') hidePanels();
   setState('dead');
   const msg = $('death-message');
   if (msg) msg.textContent = message;
@@ -295,10 +418,11 @@ export function setAchievements(ids: string[], unlocked?: string) {
     list.innerHTML = '';
     for (const a of ACHIEVEMENTS) {
       const li = document.createElement('li');
+      const hidden = a.secret && !have.has(a.id);
       li.className = have.has(a.id) ? 'done' : 'locked';
-      li.textContent = `${have.has(a.id) ? '★' : '☆'} ${a.name} `;
+      li.textContent = `${have.has(a.id) ? '★' : '☆'} ${hidden ? '???' : a.name} `;
       const small = document.createElement('small');
-      small.textContent = `- ${a.desc}`;
+      small.textContent = `- ${hidden ? 'A secret' : a.desc}`;
       li.appendChild(small);
       list.appendChild(li);
     }

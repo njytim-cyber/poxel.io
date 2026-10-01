@@ -53,6 +53,8 @@ Decisions: "enderite" in the drawing means the game's existing **Etherite**. Bui
   - It drops 6-10 obitite, and half the time its laser cannon core. It wakes again 30 minutes after being defeated.
   - A health bar shows for players within 48 blocks.
 - Tungsten and obitite tools and armour are the two top tiers. Their armour adds toughness beyond the armour cap: each piece takes off another 2% (tungsten) or 4% (obitite) of damage.
+  - A **full set of tungsten armour** (helmet, chestplate, leggings and boots) makes you immune to robot lasers, the Titan's included.
+  - A **full set of obitite armour** makes you immune to lava. The jetpack counts as the obitite chestplate.
 - Laser cannon: crafted from tungsten and etherite, or a 2% robot drop. Right-click fires a 3-heart laser with a 24-block range.
   - It can be held in the offhand (a new slot next to the armour). It then fires when the main hand holds nothing with its own right-click use.
 - Compass: crafted from iron and copper. Held, it deflects robot lasers half the time, bouncing half their power back. In the Robotic World it points to the nearest altar.

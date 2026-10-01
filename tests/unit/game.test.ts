@@ -21,7 +21,7 @@ function fakeConn() {
   return { got, conn: { send: (m: ServerMsg) => { got.push(m); }, close: () => {} } };
 }
 
-const hello = (name: string) => ({ t: 'hello', v: 1, name, look: {}, token: 'tok-' + name });
+const hello = (name: string) => ({ t: 'hello', v: 2, name, look: {}, token: 'tok-' + name });
 const edits = (flat: number[]) => { const o: string[] = []; for (let i = 0; i < flat.length; i += 4) o.push(flat.slice(i, i + 4).join(',')); return o; };
 const tick = (g: Game, n: number) => { for (let i = 0; i < n; i++) g.tick(0.05); };
 
@@ -941,6 +941,32 @@ test('laser cannon (in hand or offhand) hits mobs; a compass bounces robot laser
   for (let i = 0; i < 1200 && robot.health >= 30; i++) { g.tick(0.05); p.health = 20; }
   assert.ok(robot.health < 30, 'robot hurt by its own laser (deflected half the time)');
   assert.ok(got.some(m => m.t === 'toast' && (m as any).text === 'Deflected!'));
+});
+
+test('full tungsten armour blocks robot lasers; full obitite armour (the jetpack counts) blocks lava', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5, difficulty: 'hard' });
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Armoured'))!;
+  const robot = (g as any).spawnMob('robot', p.body.pos.x + 6, p.body.pos.y, p.body.pos.z);
+  const wear = (tier: string, chest = `${tier}_chestplate`) => { p.inv.slots[55] = { type: `${tier}_helmet`, count: 1 }; p.inv.slots[56] = { type: chest, count: 1 }; p.inv.slots[57] = { type: `${tier}_leggings`, count: 1 }; p.inv.slots[58] = { type: `${tier}_boots`, count: 1 }; };
+  p.invuln = 0;
+  wear('tungsten');
+  (g as any).laserHit(robot, p, 6);
+  assert.equal(p.health, 20, 'tungsten: no laser damage');
+  assert.ok(got.some(m => m.t === 'toast' && /tungsten/.test((m as any).text)));
+  g.damagePlayer(p, 2, null, 'lava');
+  assert.ok(p.health < 20, 'tungsten does not stop lava');
+  p.health = 20; p.invuln = 0;
+  p.inv.slots[58] = { type: 'iron_boots', count: 1 };
+  (g as any).laserHit(robot, p, 6);
+  assert.ok(p.health < 20, 'only a full set blocks lasers');
+  p.health = 20; p.invuln = 0;
+  wear('obitite', 'jetpack');
+  g.damagePlayer(p, 2, null, 'lava');
+  assert.equal(p.health, 20, 'obitite (with the jetpack): no lava damage');
+  g.damagePlayer(p, 2, null, 'fall');
+  assert.ok(p.health < 20, 'obitite does not stop other damage');
 });
 
 test('recipes: laser cannon and compass', async () => {

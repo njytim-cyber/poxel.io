@@ -1311,3 +1311,29 @@ body[data-state="paused"] #game-hud { visibility: hidden; }
 #controls-panel summary { cursor: pointer; font-size: 17px; }
 #controls-panel .controls-list { background: none; border: none; padding: 8px 0 0; }
 body.touch-ui #controls-panel { display: none; } /* keyboard controls mean nothing on a touch screen */
+
+/* Moonstone orb destinations and the robot squad: dialogs over the game */
+.game-modal {
+  position: fixed; inset: 0; z-index: 10002; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.6); color: #fff;
+}
+.modal-list { display: flex; flex-direction: column; gap: 6px; }
+.modal-list .menu-btn { justify-content: center; }
+.modal-list .empty { opacity: 0.7; font-size: 14px; margin: 4px 0; }
+.squad-row { display: flex; flex-direction: column; gap: 4px; background: rgba(0, 0, 0, 0.35); border: 1px solid #555; padding: 6px 8px; }
+.squad-row .squad-name { display: flex; justify-content: space-between; font-size: 14px; }
+.squad-row .squad-orders { display: flex; gap: 4px; }
+.squad-row .squad-orders .menu-btn { flex: 1; padding: 6px 4px; font-size: 14px; }
+.squad-row .squad-orders .menu-btn.active { background: #3a7a3a; border-color: #8f8; }
+.squad-hp { width: 80px; height: 8px; background: #400; border: 1px solid #000; align-self: center; }
+.squad-hp > div { height: 100%; background: #e33; }
+/* A friend asks to teleport to you */
+#tp-ask {
+  position: absolute; top: 70px; left: 50%; transform: translateX(-50%); z-index: 30;
+  background: rgba(25, 25, 45, 0.92); border: 2px solid #b8b0f0; color: #fff; padding: 8px 12px;
+  display: flex; flex-direction: column; gap: 6px; align-items: center; font-size: 15px; text-align: center;
+}
+.tp-ask-buttons { display: flex; gap: 8px; }
+.tp-ask-buttons .menu-btn { padding: 4px 12px; font-size: 14px; }
+/* Slowed by frost: a cold blue edge round the screen */
+body[data-slowed] #liquid-overlay { box-shadow: inset 0 0 90px 30px rgba(140, 220, 255, 0.55); }

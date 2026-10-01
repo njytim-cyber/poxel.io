@@ -6,12 +6,13 @@ import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockCont
 import { crackMaterials } from './textures';
 import { keys, isMobile, touchLookDelta, touchAim, actions } from './input';
 import { getBlock, setBlock, raycast, setFacing, isLoaded, type RayHit } from './world';
-import { BLOCKS, BLOCK_ID, WATER, LAVA, OIL, POWDER_SNOW, isLiquid, isFacingBlock, isPlant, itemDef, miningInfo, plantCanStand } from '../shared/blocks.ts';
+import { BLOCKS, BLOCK_ID, WATER, LAVA, OIL, POWDER_SNOW, isLiquid, isFacingBlock, isPlant, isReplaceable, itemDef, miningInfo, plantCanStand } from '../shared/blocks.ts';
 import { makeBody, moveBody, boxIntersectsSolid, hasGroundBelow, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, GRAVITY } from '../shared/physics.ts';
 import { MF_GROUND, MF_SNEAK, MF_WATER, MF_LAVA, MF_JET } from '../shared/protocol.ts';
 import { inventory, selectedSlotIndex, getSelectedItem, onInventoryChange, predictUseSelected, setInfiniteBlocks, setCreativeInventory } from './inventory';
 import { OFFHAND } from '../shared/inventory.ts';
 import { isRobotic, nearestAltar } from '../shared/robotic.ts';
+import { isFrost, nearestShrine } from '../shared/frost.ts';
 import { getSeed } from './world';
 import { createAvatar, makeHeldMesh, savedLook, disposeOwned, type Avatar } from './avatar';
 import { isFlatItem } from './textures';
@@ -228,8 +229,14 @@ export function initPlayer(camera: THREE.PerspectiveCamera, scene: THREE.Scene) 
     if (ui.state === 'screen') ui.closeGameScreen();
     else if (ui.state === 'playing') ui.openGameScreen('inventory');
   };
+  actions.squad = () => {
+    if (ui.state === 'panel' && ui.squadOpen()) ui.closePanel();
+    else if (ui.isPlaying()) ui.openSquad();
+  };
+  actions.answer = accept => { if (ui.isPlaying()) ui.answerTp(accept); };
   actions.escape = () => {
-    if (ui.state === 'screen') ui.closeGameScreen();
+    if (ui.state === 'panel') ui.closePanel();
+    else if (ui.state === 'screen') ui.closeGameScreen();
     else if (ui.state === 'chat') ui.closeChat();
     else if (ui.state === 'playing' && isMobile) ui.pause();
     else if (ui.state === 'paused' && isMobile) ui.resume();
@@ -398,6 +405,19 @@ function playerOverlapsBlock(x: number, y: number, z: number) {
 // ------------------------------------------------------------------ Jetpack
 let jetFuel = 0, jetting = false;
 export function onFuel(f: number) { jetFuel = f; }
+
+// Frost (the Frost Wraith, glacite): you move at half speed for a while
+let slowUntil = 0;
+export function onSlow(seconds: number) {
+  if (performance.now() > slowUntil) ui.toast("You're frozen! (slowed)");
+  slowUntil = performance.now() + seconds * 1000;
+  document.body.dataset.slowed = '1';
+}
+const isSlowed = () => {
+  if (performance.now() < slowUntil) return true;
+  if (document.body.dataset.slowed) delete document.body.dataset.slowed;
+  return false;
+};
 // Runs every frame, so it only touches the page when what it shows changes
 let jetShown = '';
 function updateJetHud() {
@@ -435,6 +455,15 @@ function updateCompass(dt: number) {
   if (!holding) { el.style.display = 'none'; return; }
   el.style.display = 'block';
   const p = body.pos;
+  if (isFrost(p.x)) {
+    // In the Frost World the needle finds the Frost Wraith's shrine instead
+    const s = nearestShrine(p.x, p.z, getSeed());
+    if (!s) { el.textContent = 'Compass: no shrine nearby'; return; }
+    const dx = s.x + 0.5 - p.x, dz = s.z + 0.5 - p.z, dist = Math.round(Math.hypot(dx, dz));
+    const i = ((Math.round((Math.atan2(-dx, -dz) - getYawPitch().yaw) / (Math.PI / 4)) % 8) + 8) % 8;
+    el.textContent = dist < 6 ? 'Shrine: here!' : `Shrine ${['⬆', '↖', '⬅', '↙', '⬇', '↘', '➡', '↗'][i]} ${dist} blocks`;
+    return;
+  }
   if (!isRobotic(p.x)) { el.textContent = 'Compass: finds Robot Titan altars in the Robotic World'; return; }
   const a = nearestAltar(p.x, p.z, getSeed());
   if (!a) { el.textContent = 'Compass: no altar nearby'; return; }
@@ -449,7 +478,7 @@ function updateCompass(dt: number) {
 function hasOwnUse(type: string | undefined) {
   if (!type) return false;
   const d = itemDef(type);
-  return d.block !== undefined || !!d.food || !!d.plants || d.tool?.kind === 'hoe' || type === 'tungsten_ingot';
+  return d.block !== undefined || !!d.food || !!d.plants || d.tool?.kind === 'hoe' || type === 'tungsten_ingot' || type === 'moonstone_orb';
 }
 function canFire() {
   const main = getSelectedItem()?.type;
@@ -476,6 +505,8 @@ function useItem() {
     return;
   }
   if (tryRefuel()) { secondaryHeld = false; return; }
+  // A moonstone orb: the server says where it can take you
+  if (held?.type === 'moonstone_orb') { send({ t: 'orb' }); secondaryHeld = false; return; }
   // Laser cannon: in hand, or in the offhand when the hand holds nothing with its own right-click use
   if (canFire()) { lookDir(_dir); send({ t: 'fire', dx: _dir.x, dy: _dir.y, dz: _dir.z }); secondaryHeld = false; return; }
   if (!held) return;
@@ -484,7 +515,7 @@ function useItem() {
   // (aiming at tall grass/flowers tills the ground they grow on; tilling clears them)
   const soil = hit && isPlant(hit.id) ? { ...hit, y: hit.y - 1, id: getBlock(hit.x, hit.y - 1, hit.z) } : hit;
   const top = soil ? getBlock(soil.x, soil.y + 1, soil.z) : 0;
-  if (soil && def.tool?.kind === 'hoe' && (soil.id === BLOCK_ID.grass || soil.id === BLOCK_ID.dirt) && (top === 0 || isPlant(top))) {
+  if (soil && def.tool?.kind === 'hoe' && (soil.id === BLOCK_ID.grass || soil.id === BLOCK_ID.dirt) && (top === 0 || isReplaceable(top))) {
     if (top) setBlock(soil.x, soil.y + 1, soil.z, 0);
     setBlock(soil.x, soil.y, soil.z, BLOCK_ID.farmland);
     send({ t: 'till', x: soil.x, y: soil.y, z: soil.z });
@@ -500,11 +531,11 @@ function useItem() {
   if (def.food) { if (canEat()) send({ t: 'eat' }); return; }
   if (def.block === undefined || !hit) return;
 
-  // Clicking a plant replaces it instead of stacking on its neighbour
-  const replacePlant = isPlant(hit.id);
+  // Clicking a plant replaces it instead of stacking on its neighbour (not torches or banners)
+  const replacePlant = isReplaceable(hit.id);
   const px = replacePlant ? hit.x : hit.x + hit.nx, py = replacePlant ? hit.y : hit.y + hit.ny, pz = replacePlant ? hit.z : hit.z + hit.nz;
   const existing = getBlock(px, py, pz);
-  if (existing !== 0 && !isLiquid(existing) && !isPlant(existing)) return;
+  if (existing !== 0 && !isLiquid(existing) && !isReplaceable(existing)) return;
   if (BLOCKS[def.block].plant) {
     if (!plantCanStand(def.block, getBlock(px, py - 1, pz))) return;
   } else if (playerOverlapsBlock(px, py, pz) || entityInBlock(px, py, pz)) return;
@@ -598,6 +629,7 @@ export function updatePlayer(dt: number) {
     if (b.inWater) speed *= 0.55;
     if (b.inLava) speed *= 0.35;
     if (b.inSnow) speed *= 0.4;
+    if (isSlowed()) speed *= 0.5;
     let mx = 0, mz = 0;
     if (fwd || strafe) {
       const len = Math.hypot(fwd, strafe);

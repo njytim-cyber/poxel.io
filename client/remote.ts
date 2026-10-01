@@ -166,6 +166,23 @@ function buildMob(kind: MobKind, owner?: string): MobModel {
     for (let k = 0; k < 4; k++) { const t = box(0.14, 0.3, 0.14, steel, 0, 0.5, 0, disc); t.position.set(Math.cos(k * 1.57) * 0.5, Math.sin(k * 1.57) * 0.5, 0); t.rotation.z = k * 1.57; }
     for (const [x, s] of [[-0.45, -1], [0.45, 1]]) parts.push({ mesh: box(0.6, 2.0, 0.65, dark, x, 2.0, 0, model, true), swing: s });
     return { model, parts, mats, grinder };
+  } else if (kind === 'frost_wraith') {
+    // The Frost World's boss: a hooded spirit of ice, 3 blocks tall, trailing a ragged robe (it floats)
+    const robe = mat(0xb8d8f0); robe.transparent = true; robe.opacity = 0.85;
+    const dark = mat(0x1a2a48), ice = mat(0x8ae0ff);
+    const glow = new THREE.MeshBasicMaterial({ color: 0x9ef4ff }); glow.userData.owned = true;
+    for (let i = 0; i < 4; i++) box(0.5 + i * 0.22, 0.45, 0.4 + i * 0.16, robe, 0, 0.35 + (3 - i) * 0.45, 0, model); // widening downwards
+    box(0.7, 0.6, 0.55, robe, 0, 2.1, 0, model);                               // shoulders
+    const head = box(0.6, 0.6, 0.6, robe, 0, 2.7, 0, model);                    // hood
+    box(0.44, 0.4, 0.06, dark, 0, -0.04, -0.28, head);                          // the dark inside of the hood
+    box(0.1, 0.06, 0.02, glow, -0.1, 0, -0.32, head); box(0.1, 0.06, 0.02, glow, 0.1, 0, -0.32, head); // eyes
+    for (let k = 0; k < 5; k++) box(0.08, 0.3 + (k % 2) * 0.2, 0.08, ice, -0.24 + k * 0.12, 0.42, 0, head); // a crown of icicles
+    for (const [x, s] of [[-0.48, 0.35], [0.48, -0.35]]) {
+      const arm = box(0.18, 1.0, 0.18, robe, x, 2.35, 0, model, true);
+      box(0.12, 0.3, 0.12, ice, 0, -1.05, 0, arm);                              // icy claws
+      arm.rotation.x = Math.PI / 3;
+      parts.push({ mesh: arm, swing: s });
+    }
   } else if (kind === 'robot') {
     // A boxy robot, 2 blocks tall, with a laser cannon for a right arm. Tamed: green eyes.
     const steel = mat(0x8a9098), darkSteel = mat(0x4a5058), rust = mat(0x8a4a28);
@@ -335,10 +352,12 @@ export function updateRemote(dt: number, eye?: THREE.Vector3) {
       }
       v.walk += dt * v.hspeed * 4;
       const sw = Math.sin(v.walk) * Math.min(0.7, v.hspeed * 0.4);
-      // The Titan's grinder spins (fast while it charges)
+      // The Titan's grinder spins (fast while it charges); the Wraith bobs as it floats
       if (v.mob.grinder) v.mob.grinder.rotation.z += dt * (v.flags & EF_ANGRY ? 25 : 2);
+      if (v.kind === 'frost_wraith') v.mob.model.position.y = Math.sin(v.age * 2) * 0.15;
       for (const p of v.mob.parts) {
-        if (v.kind === 'zombie' && Math.abs(p.swing) < 1) p.mesh.rotation.x = Math.PI / 2 + sw * p.swing;
+        if (v.kind === 'frost_wraith') p.mesh.rotation.x = Math.PI / 3 + Math.sin(v.age * 3) * p.swing;
+        else if (v.kind === 'zombie' && Math.abs(p.swing) < 1) p.mesh.rotation.x = Math.PI / 2 + sw * p.swing;
         else p.mesh.rotation.x = sw * p.swing;
       }
     }
@@ -384,9 +403,9 @@ export function isWildRobot(eid: number): boolean {
 
 // A robot's laser: a glowing line that fades out quickly
 const beams: { line: THREE.Line; life: number }[] = [];
-export function showBeam(a: [number, number, number], b: [number, number, number], pet?: boolean) {
+export function showBeam(a: [number, number, number], b: [number, number, number], pet?: boolean, ice?: boolean) {
   const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
-  const mat = new THREE.LineBasicMaterial({ color: pet ? 0x50ff70 : 0xff3030, transparent: true, opacity: 1, fog: false });
+  const mat = new THREE.LineBasicMaterial({ color: ice ? 0x9ef4ff : pet ? 0x50ff70 : 0xff3030, transparent: true, opacity: 1, fog: false });
   const line = new THREE.Line(geo, mat);
   scene.add(line);
   beams.push({ line, life: 0.25 });

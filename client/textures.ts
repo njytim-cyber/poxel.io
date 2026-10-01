@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TILE, BLOCKS, ITEMS, TIERS, itemDef, ATLAS_COLS, ATLAS_ROWS, tileUV } from '../shared/blocks.ts';
+import { TILE, BLOCKS, ITEMS, TIERS, COLORS, itemDef, ATLAS_COLS, ATLAS_ROWS, tileUV } from '../shared/blocks.ts';
 
 // ------------------------------------------------------------------ Pixel helpers
 
@@ -499,6 +499,60 @@ function buildNewTiles(set: (i: number, t: Tile) => void, SNOW: string[], stoneB
   const altar = storageBlock('#6e747c', '#4a5058', '#23272c');
   drawPixels(altar, ['..oooo..', '.oOOOOo.', 'oOOyyOOo', 'oOOyyOOo', '.oOOOOo.', '..oooo..'], 4, 5, { o: '#a04000', O: '#ff7a1a', y: '#ffe060' });
   set(TILE.altar_core, altar);
+  // More wool colours, banners and the claim stone (appended last, like the Robotic World)
+  set(TILE.orange_wool, wool(['#e07a20', '#ea862a', '#d47018'], '#b85e10'));
+  set(TILE.purple_wool, wool(['#7a34a8', '#8640b4', '#6e2c9c'], '#5a2084'));
+  set(TILE.pink_wool, wool(['#ec90b0', '#f49cbc', '#e084a4'], '#cc6e90'));
+  set(TILE.cyan_wool, wool(['#1e9aa0', '#28a6ac', '#168e94'], '#107478'));
+  COLORS.forEach((c, i) => set(TILE.banner_0 + i, bannerTile(DYE_RGB[c])));
+  const claimSide = brickTile(STONE, '#4a4a4a', '#9a9a9a');
+  for (let y = 5; y < 11; y++) for (let x = 5; x < 11; x++) claimSide[at(x, y)] = Math.abs(x - 7.5) + Math.abs(y - 7.5) < 3.5 ? pick(['#9ef0ff', '#d8fbff', '#6ad8f0']) : claimSide[at(x, y)];
+  set(TILE.claim_side, claimSide);
+  const claimTop = polished(['#9a9a9a', '#8e8e8e', '#a4a4a4'], '#c0c0c0', '#606060');
+  for (let y = 4; y < 12; y++) for (let x = 4; x < 12; x++) if (Math.abs(x - 7.5) + Math.abs(y - 7.5) < 4.5) claimTop[at(x, y)] = pick(['#9ef0ff', '#d8fbff', '#6ad8f0']);
+  set(TILE.claim_top, claimTop);
+  // The Frost World
+  set(TILE.moonstone_block, storageBlock('#ffffff', '#ddd8f8', '#8f86c2'));
+  const frame = storageBlock('#e8f8ff', '#c8d8f8', '#6a7ab8');
+  for (let i = 0; i < 18; i++) frame[at(1 + Math.floor(rand() * 14), 1 + Math.floor(rand() * 14))] = pick(['#9ee8ff', '#ffffff']);
+  set(TILE.frost_frame, frame);
+  // The portal: swirling blue light with gaps you can see through
+  const portal = newTile();
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const a = Math.atan2(y - 7.5, x - 7.5), r = Math.hypot(x - 7.5, y - 7.5);
+    const swirl = Math.sin(a * 3 + r * 0.9);
+    portal[at(x, y)] = swirl > 0.55 ? '#e8fcff' : swirl > -0.1 ? pick(['#5ac8f8', '#4ab8f0', '#6ad4ff']) : swirl > -0.6 ? pick(['#2a78d8', '#3a88e0']) : null;
+  }
+  set(TILE.frost_portal, portal);
+  const PERMAFROST = ['#5e6e7e', '#56667a', '#687888', '#4e5e70', '#7a8a9a'];
+  const perm = blotchTile(PERMAFROST, 0.5);
+  for (let i = 0; i < 14; i++) perm[at(Math.floor(rand() * 16), Math.floor(rand() * 16))] = pick(['#c8e4f4', '#e8f4fc']);
+  set(TILE.permafrost, perm);
+  set(TILE.glacite_ore, sprinkleOre(blotchTile(PERMAFROST, 0.5), ['#f0ffff', '#7af0f0', '#20b0c8'], 5));
+  const shrine = storageBlock('#d8f0ff', '#88b8e8', '#2a4a88');
+  drawPixels(shrine, ['..cccc..', '.cCCCCc.', 'cCCwwCCc', 'cCCwwCCc', '.cCCCCc.', '..cccc..'], 4, 5, { c: '#2a78d8', C: '#6ad4ff', w: '#ffffff' });
+  set(TILE.frost_shrine, shrine);
+}
+
+// Dye colours: [light, main, dark]
+const DYE_RGB: Record<string, [string, string, string]> = {
+  white: ['#ffffff', '#ececec', '#b8b8b8'], red: ['#e04848', '#b83030', '#6e1414'], yellow: ['#fff070', '#e8c830', '#8a7010'],
+  blue: ['#5a70e0', '#3446a8', '#1a2468'], green: ['#78b048', '#4a7a24', '#244a10'], black: ['#4a4a4e', '#1e1e22', '#0a0a0c'],
+  orange: ['#ffa850', '#e07a20', '#8a4408'], purple: ['#a866d8', '#7a34a8', '#40145e'], pink: ['#ffc0d8', '#ec90b0', '#a8506e'], cyan: ['#60d0d6', '#1e9aa0', '#0a5458'],
+};
+
+// A banner on a pole: crossbar, cloth with a border and a diamond emblem, the pole below
+function bannerTile([l, m, d]: [string, string, string]): Tile {
+  const t = newTile();
+  for (let x = 2; x <= 13; x++) t[at(x, 0)] = '#5c3f1c';
+  for (let y = 12; y < 16; y++) { t[at(7, y)] = '#8a6232'; t[at(8, y)] = '#5c3f1c'; }
+  for (let y = 1; y <= 12; y++) for (let x = 3; x <= 12; x++) {
+    if (y === 12 && (x === 3 || x === 12 || (x > 4 && x < 11 && x % 2))) continue; // a ragged hem
+    const edge = x === 3 || x === 12 || y === 1;
+    const emblem = Math.abs(x - 7.5) + Math.abs(y - 6.5) < 3;
+    t[at(x, y)] = edge ? d : emblem ? (Math.abs(x - 7.5) + Math.abs(y - 6.5) < 1.5 ? d : l) : m;
+  }
+  return t;
 }
 
 // ------------------------------------------------------------------ Atlas
@@ -601,6 +655,7 @@ const TIER_PALETTE: Record<string, { l: string; m: string; d: string }> = {
   etherite: { l: '#8c7fa3', m: '#4f4660', d: '#1f1b28' },
   tungsten: { l: '#f0f4fc', m: '#a4aec2', d: '#4e586c' },
   obitite: { l: '#ff9a7a', m: '#d0304a', d: '#4a0c1c' },
+  glacite: { l: '#f0ffff', m: '#6ae0ec', d: '#1a7890' },
 };
 
 const HEADS: Record<string, { top: number; rows: string[] }> = {
@@ -676,6 +731,7 @@ SHAPES.stew = ['', '', '', '', '', '', '...wwhwwhwwhw...', '..dddddddddddd..', '
 SHAPES.slice = ['', '', '', '', '..d.............', '..dd............', '..dwd...........', '..dwmd..........', '..dwmkd.........', '..dwmmmd........', '..dwmkmmd.......', '..dwmmmkmd......', '..dddddddddd....'];
 SHAPES.cookie = ['', '', '', '', '.....dddddd.....', '....dmmkmmmd....', '...dmmmmmkmmd...', '...dmkmmmmmmd...', '...dmmmmkmmmd...', '....dmmmmmkd....', '.....dddddd.....'];
 SHAPES.eye = ['', '', '', '', '.....dddddd.....', '....dmmmmmmd....', '...dmmwwwwmmd...', '...dmwkkkkwmd...', '...dmwkkkkwmd...', '...dmmwwwwmmd...', '....dmmmmmmd....', '.....dddddd.....'];
+SHAPES.heart = ['', '', '', '...ddd...ddd....', '..dllmd.dlmmd...', '.dllmmmdmmmmmd..', '.dlmmmmmmmmmmd..', '.dmmmmmmmmmmmd..', '..dmmmmmmmmmd...', '...dmmmmmmmd....', '....dmmmmmd.....', '.....dmmmd......', '......dmd.......', '.......d........'];
 SHAPES.arrow = ['', '............ddd.', '...........dlld.', '............dld.', '...........h.d..', '..........h.....', '.........h......', '........h.......', '.......h........', '......h.........', '..ww.h..........', '..wwh...........', '...ww...........'];
 Object.assign(ITEM_ART, {
   snowball: ['ball', { l: '#ffffff', m: '#eef4f8', d: '#a8b8c8' }],
@@ -689,6 +745,14 @@ Object.assign(ITEM_ART, {
   blue_dye: ['dye', { l: '#7090ff', m: '#3450d0', d: '#1a2468', w: '#8a6a4a' }],
   green_dye: ['dye', { l: '#80c050', m: '#4a8a24', d: '#244a10', w: '#8a6a4a' }],
   black_dye: ['dye', { l: '#4a4a4a', m: '#222222', d: '#0a0a0a', w: '#8a6a4a' }],
+  white_dye: ['dye', { l: '#ffffff', m: '#e8e8e8', d: '#8a8a8a', w: '#8a6a4a' }],
+  orange_dye: ['dye', { l: '#ffb060', m: '#e07a20', d: '#7a3a08', w: '#8a6a4a' }],
+  purple_dye: ['dye', { l: '#b878e8', m: '#7a34a8', d: '#3a1050', w: '#8a6a4a' }],
+  pink_dye: ['dye', { l: '#ffd0e0', m: '#ec90b0', d: '#8a3a5a', w: '#8a6a4a' }],
+  cyan_dye: ['dye', { l: '#70e0e8', m: '#1e9aa0', d: '#0a4a4e', w: '#8a6a4a' }],
+  moonstone_orb: ['ball', { l: '#ffffff', m: '#c8c0f8', d: '#5a4ea8' }],
+  glacite: ['crystal', { l: '#f0ffff', m: '#6ae0ec', d: '#1a7890' }],
+  frost_heart: ['heart', { l: '#ffffff', m: '#7ad8ff', d: '#1a5aa8' }],
   sweet_berries: ['berries', { l: '#ff7080', m: '#d02040', d: '#6a0a1a', h: '#3a6a2a' }],
   snowberries: ['berries', { l: '#ffffff', m: '#c8d8ff', d: '#5a70b0', h: '#4a6a5a' }],
   melon_slice: ['slice', { d: '#2a5a14', w: '#8ac44a', m: '#e84848', k: '#1a1a1a' }],

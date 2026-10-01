@@ -25,6 +25,7 @@
             <button class="mobile-btn mobile-btn-sm" id="btn-mobile-inv" aria-label="Inventory">📦</button>
             <button class="mobile-btn mobile-btn-sm" id="btn-mobile-drop" aria-label="Drop item">⤵</button>
             <button class="mobile-btn mobile-btn-sm" id="btn-mobile-chat" aria-label="Chat">💬</button>
+            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-squad" aria-label="Robot squad" style="display: none;">🤖</button>
         </div>
     </div>
 
@@ -47,6 +48,8 @@
       <div id="crit-flash">Critical hit!</div>
       <div id="boss-bar" style="display: none;"><div id="boss-name"></div><div id="boss-track"><div id="boss-fill"></div></div></div>
       <div id="compass-hint" style="display: none;"></div>
+      <!-- A friend asks to teleport to you (moonstone orb) -->
+      <div id="tp-ask" style="display: none;"><span id="tp-ask-text"></span><div class="tp-ask-buttons"><button id="btn-tp-yes" class="menu-btn primary">Accept (Y)</button><button id="btn-tp-no" class="menu-btn">No (N)</button></div></div>
       <div id="jet-fuel" style="display: none;"><span>Fuel</span><div id="jet-fuel-track"><div id="jet-fuel-fill"></div></div></div>
       <div id="game-hud" style="display: none;">
         <div id="item-name-popup"></div>
@@ -61,6 +64,7 @@
           <button id="btn-resume" class="menu-btn primary">Back to Game</button>
           <div id="online-list" style="display: none;"></div>
           <button id="btn-invite" class="menu-btn" style="display: none;">Invite friends</button>
+          <button id="btn-squad" class="menu-btn" style="display: none;">Robot squad</button>
           <button id="btn-save-quit" class="menu-btn">Save &amp; Quit</button>
           <label class="setting-row">View distance <input id="view-distance" type="range" min="2" max="10" step="1" /> <span id="view-distance-value"></span></label>
           <details id="controls-panel"><summary>Controls</summary><div class="controls-list">
@@ -75,6 +79,8 @@
             <div><kbd>1-9</kbd> / <kbd>Scroll</kbd> Pick hotbar slot</div>
             <div><kbd>V</kbd> / <kbd>F5</kbd> Change camera view</div>
             <div><kbd>T</kbd> / <kbd>Enter</kbd> Chat (<kbd>/</kbd> for commands)</div>
+            <div><kbd>G</kbd> Robot squad (orders for tamed robots)</div>
+            <div><kbd>Y</kbd> / <kbd>N</kbd> Answer a teleport request</div>
             <div><kbd>F3</kbd> Debug info</div>
             <div><kbd>Esc</kbd> Pause</div>
           </div></details>
@@ -170,6 +176,26 @@
         <div id="invite-qr"></div>
         <p class="mp-hint">Scan with a phone to play on it.</p>
         <button id="btn-invite-close" class="menu-btn">Close</button>
+      </div>
+    </div>
+
+    <!-- Moonstone orb: where to teleport -->
+    <div id="orb-modal" class="game-modal" style="display: none;">
+      <div class="invite-box">
+        <h2>Moonstone Orb</h2>
+        <p class="mp-hint">Where to? The orb is used up when you arrive. Friends are asked first.</p>
+        <div id="orb-list" class="modal-list"></div>
+        <button id="btn-orb-close" class="menu-btn">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Robot squad: orders for your tamed robots -->
+    <div id="squad-modal" class="game-modal" style="display: none;">
+      <div class="invite-box">
+        <h2>Robot squad</h2>
+        <div id="squad-list" class="modal-list"></div>
+        <p class="mp-hint"><b>Follow</b>: stays with you. <b>Guard</b>: keeps watch where you are standing now. <b>Collect</b>: picks up dropped items and brings them to you.</p>
+        <button id="btn-squad-close" class="menu-btn">Close</button>
       </div>
     </div>
 

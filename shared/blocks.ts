@@ -31,8 +31,17 @@ export const TILE = {
   // The Robotic World
   etherite_block: 106, rust_rock: 107, scrap_top: 108, scrap_side: 109, tungsten_ore: 110, oil: 111,
   metal_plate: 112, rusty_metal: 113, robot_eye: 114, portal_core: 115, altar_core: 116,
+  // More wool colours, then one banner per colour (in COLORS order), then the claim stone
+  orange_wool: 117, purple_wool: 118, pink_wool: 119, cyan_wool: 120,
+  banner_0: 121, claim_side: 131, claim_top: 132,
+  // The Frost World (a secret: see shared/frost.ts)
+  moonstone_block: 133, frost_frame: 134, frost_portal: 135, glacite_ore: 136, permafrost: 137, frost_shrine: 138,
 } as const;
-export const TILE_COUNT = 117;
+export const TILE_COUNT = 139;
+
+// Dye colours, in the order banners use them. White wool is plain "wool".
+export const COLORS = ['white', 'red', 'yellow', 'blue', 'green', 'black', 'orange', 'purple', 'pink', 'cyan'] as const;
+export const woolOf = (c: string) => (c === 'white' ? 'wool' : `${c}_wool`);
 export const ATLAS_COLS = 16;
 export const ATLAS_ROWS = Math.ceil(TILE_COUNT / ATLAS_COLS);
 
@@ -59,6 +68,8 @@ export interface BlockDef {
   soft?: boolean;            // a full cube you sink into (powder snow): no collision, but targetable
   slippery?: number;         // ice: how much of its speed a body keeps each step when sliding (0..1)
   glow?: boolean;            // always drawn fully lit (torches, lanterns)
+  banner?: boolean;          // a plant drawn as one flat cloth, turned to face whoever placed it
+  sturdy?: boolean;          // a plant that placing a block next to it doesn't replace (torches, banners)
   dropCount?: [number, number]; // min/max count of `drop` (default 1)
   // tiles: [right(+x), left(-x), top(+y), bottom(-y), front(+z), back(-z)]
   tiles: [number, number, number, number, number, number];
@@ -145,7 +156,7 @@ export const BLOCKS: BlockDef[] = [
   { id: 68, name: 'black_wool', hardness: 0.8, tool: null, harvestTier: -1, drop: 'black_wool', tiles: all(TILE.black_wool) },
   { id: 69, name: 'terracotta', hardness: 1.25, tool: 'pickaxe', harvestTier: 0, drop: 'terracotta', tiles: all(TILE.terracotta) },
   { id: 70, name: 'lantern', hardness: 1, tool: 'pickaxe', harvestTier: -1, drop: 'lantern', glow: true, tiles: all(TILE.lantern) },
-  { id: 71, name: 'torch', hardness: 0, tool: null, harvestTier: -1, drop: 'torch', plant: true, plantOn: 'any', glow: true, transparent: true, tiles: all(TILE.torch) },
+  { id: 71, name: 'torch', hardness: 0, tool: null, harvestTier: -1, drop: 'torch', plant: true, plantOn: 'any', glow: true, transparent: true, sturdy: true, tiles: all(TILE.torch) },
   // Plants and food sources
   { id: 72, name: 'red_mushroom', hardness: 0, tool: null, harvestTier: -1, drop: 'red_mushroom', plant: true, plantOn: 'any', transparent: true, tiles: all(TILE.red_mushroom) },
   { id: 73, name: 'brown_mushroom', hardness: 0, tool: null, harvestTier: -1, drop: 'brown_mushroom', plant: true, plantOn: 'any', transparent: true, tiles: all(TILE.brown_mushroom) },
@@ -184,12 +195,40 @@ export const BLOCKS: BlockDef[] = [
   { id: 100, name: 'portal_core', hardness: 5, tool: 'pickaxe', harvestTier: 0, drop: null, glow: true, tiles: all(TILE.portal_core) },
   // The Robot Titan's altar (it wakes here); can't be mined, so the boss always has a home
   { id: 101, name: 'altar_core', hardness: Infinity, tool: null, harvestTier: -1, drop: null, glow: true, tiles: all(TILE.altar_core) },
+  { id: 102, name: 'orange_wool', hardness: 0.8, tool: null, harvestTier: -1, drop: 'orange_wool', tiles: all(TILE.orange_wool) },
+  { id: 103, name: 'purple_wool', hardness: 0.8, tool: null, harvestTier: -1, drop: 'purple_wool', tiles: all(TILE.purple_wool) },
+  { id: 104, name: 'pink_wool', hardness: 0.8, tool: null, harvestTier: -1, drop: 'pink_wool', tiles: all(TILE.pink_wool) },
+  { id: 105, name: 'cyan_wool', hardness: 0.8, tool: null, harvestTier: -1, drop: 'cyan_wool', tiles: all(TILE.cyan_wool) },
+  // Banners 106-115 (one per colour) are added below
 ];
+// Banners: stand on any solid block, face whoever placed them
+COLORS.forEach((c, i) => BLOCKS.push({ id: 106 + i, name: `${c}_banner`, hardness: 0.5, tool: 'axe', harvestTier: -1, drop: `${c}_banner`,
+  plant: true, plantOn: 'any', transparent: true, banner: true, sturdy: true, tiles: all(TILE.banner_0 + i) }));
+// The claim stone protects the land around it (see server/core/game.ts claims)
+BLOCKS.push({ id: 116, name: 'claim_stone', hardness: 4, tool: 'pickaxe', harvestTier: -1, drop: 'claim_stone', glow: true,
+  tiles: sided(TILE.claim_side, TILE.claim_top, TILE.claim_top) });
+// The Frost World. Its portal: an upright frame of moonstone blocks with a 2x3 hole, filled with robot eyes.
+BLOCKS.push(
+  { id: 117, name: 'moonstone_block', hardness: 5, tool: 'pickaxe', harvestTier: 2, drop: 'moonstone_block', tiles: all(TILE.moonstone_block) },
+  // The return portal's frame, built on arrival: it drops nothing (travelling mustn't make free moonstone)
+  { id: 118, name: 'frost_frame', hardness: 5, tool: 'pickaxe', harvestTier: 0, drop: null, glow: true, tiles: all(TILE.frost_frame) },
+  // The portal itself: walk into it. It can't be mined; breaking the frame puts it out.
+  { id: 119, name: 'frost_portal', hardness: Infinity, tool: null, harvestTier: -1, drop: null, soft: true, transparent: true, glow: true, tiles: all(TILE.frost_portal) },
+  { id: 120, name: 'glacite_ore', hardness: 4, tool: 'pickaxe', harvestTier: 4, drop: 'glacite', tiles: all(TILE.glacite_ore) },
+  { id: 121, name: 'permafrost', hardness: 2, tool: 'pickaxe', harvestTier: 0, drop: 'permafrost', tiles: all(TILE.permafrost) },
+  // The Frost Wraith's shrine (it wakes here); can't be mined
+  { id: 122, name: 'frost_shrine', hardness: Infinity, tool: null, harvestTier: -1, drop: null, glow: true, tiles: all(TILE.frost_shrine) },
+);
+export const FROST_PORTAL = 119;
 
 export const WATER = 21;
 export const LAVA = 26;
 export const OIL = 95;
 export const isPlant = (id: number) => !!BLOCKS[id]?.plant;
+// Placing a block where this stands replaces it (grass, flowers), unless it's a torch or a banner
+export const isReplaceable = (id: number) => isPlant(id) && !BLOCKS[id].sturdy;
+export const isBanner = (id: number) => !!BLOCKS[id]?.banner;
+export const CLAIM_STONE = 116;
 export const isSolid = (id: number) => id !== 0 && !BLOCKS[id].liquid && !BLOCKS[id].plant && !BLOCKS[id].soft;
 export const POWDER_SNOW = 42;
 export const CHEST = 90;
@@ -199,7 +238,7 @@ export const isLeaves = (id: number) => id === 7 || id === 24 || id === 25;
 // (not surface liquids: their tops sit lower, so the land beside them must still draw its side)
 export const isOccluding = (id: number) => id !== 0 && id !== WATER && id !== OIL && !BLOCKS[id].transparent;
 // Blocks whose +z "front" texture turns to face the player when placed
-export const isFacingBlock = (id: number) => id === 10 || id === 32 || id === 80 || id === 90;
+export const isFacingBlock = (id: number) => id === 10 || id === 32 || id === 80 || id === 90 || (id >= 106 && id <= 115);
 // Where a plant may stand: crops need farmland, torches/mushrooms any solid block, others soil
 export function plantCanStand(plant: number, below: number): boolean {
   const on = BLOCKS[plant].plantOn || 'soil';
@@ -229,6 +268,7 @@ export interface ItemDef {
   smelt?: string;          // furnace output
   damage?: number;
   plants?: string;         // using it on farmland plants this block (seeds, carrots, potatoes)
+  chill?: boolean;         // glacite weapons: a hit slows the target down for a while
   returns?: string;        // item left in hand after eating (stew -> bowl)
 }
 
@@ -359,6 +399,22 @@ export const ITEMS: Record<string, ItemDef> = {
   blue_dye: { name: 'Blue Dye', stack: 64 },
   green_dye: { name: 'Green Dye', stack: 64 },
   black_dye: { name: 'Black Dye', stack: 64 },
+  white_dye: { name: 'White Dye', stack: 64 },
+  orange_dye: { name: 'Orange Dye', stack: 64 },
+  purple_dye: { name: 'Purple Dye', stack: 64 },
+  pink_dye: { name: 'Pink Dye', stack: 64 },
+  cyan_dye: { name: 'Cyan Dye', stack: 64 },
+  orange_wool: { name: 'Orange Wool', stack: 64, block: 102, fuel: 5 },
+  purple_wool: { name: 'Purple Wool', stack: 64, block: 103, fuel: 5 },
+  pink_wool: { name: 'Pink Wool', stack: 64, block: 104, fuel: 5 },
+  cyan_wool: { name: 'Cyan Wool', stack: 64, block: 105, fuel: 5 },
+  claim_stone: { name: 'Claim Stone', stack: 16, block: 116 },  // protects the land around it for you and friends you trust
+  moonstone_orb: { name: 'Moonstone Orb', stack: 16 },          // use it to teleport to a friend, a home, or where you last died
+  moonstone_block: { name: 'Block of Moonstone', stack: 64, block: 117 },
+  glacite_ore: { name: 'Glacite Ore', stack: 64, block: 120 },
+  permafrost: { name: 'Permafrost', stack: 64, block: 121 },
+  glacite: { name: 'Glacite', stack: 64 },                       // the Frost World's gem: tools that chill what they hit
+  frost_heart: { name: 'Frost Heart', stack: 1 },                // the Frost Wraith's heart: held (or in the offhand), cold can't touch you
   // Plants
   red_mushroom: { name: 'Red Mushroom', stack: 64, block: 72 },
   brown_mushroom: { name: 'Brown Mushroom', stack: 64, block: 73 },
@@ -384,6 +440,8 @@ export const ITEMS: Record<string, ItemDef> = {
   arrow: { name: 'Arrow', stack: 64 },
 };
 
+COLORS.forEach((c, i) => { ITEMS[`${c}_banner`] = { name: `${title(c)} Banner`, stack: 16, block: 106 + i, fuel: 5 }; });
+
 // Tools and armor for every tier
 const ARMOR_BASE = [1, 3, 2, 1, 1];
 const ARMOR_MULT = [1, 1, 2, 2.2, 3, 3.3, 3.6, 3.9, 4.4];
@@ -405,6 +463,13 @@ TIERS.forEach((tier, t) => {
         attack: part === 'gauntlets' ? 1 + Math.floor(t / 2) : undefined } };
   });
 });
+
+// Glacite tools (the Frost World): as strong as etherite, and every hit chills (slows) the target
+for (const kind of TOOL_KINDS) {
+  const t = 6;
+  ITEMS[`glacite_${kind}`] = { name: title(`glacite_${kind}`), stack: 1, tool: { kind, tier: t }, chill: true,
+    damage: kind === 'sword' ? SWORD_DAMAGE[t] : kind === 'axe' ? SWORD_DAMAGE[t] - 1 : 2 + Math.floor(t / 2) };
+}
 
 export function itemDef(type: string): ItemDef {
   return ITEMS[type] || { name: title(type), stack: 64 };

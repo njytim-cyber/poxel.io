@@ -53,7 +53,11 @@ export function handleServerMessage(m: ServerMsg) {
     case 'snap': onSnap(m.ents); return;
     case 'spawn': onSpawn(m.ents.filter(e => e.eid !== myEid)); return;
     case 'despawn': onDespawn(m.eids); return;
-    case 'beam': showBeam(m.a, m.b, m.pet); return;
+    case 'beam': showBeam(m.a, m.b, m.pet, m.ice); return;
+    case 'orbmenu': ui.showOrbMenu(m.players, m.homes, m.death); return;
+    case 'tpask': ui.showTpAsk(m.from); return;
+    case 'squad': ui.setSquad(m.list); return;
+    case 'slow': player.onSlow(m.seconds); return;
     case 'boss': ui.setBossBar(m.name, m.hp, m.max); return;
     case 'fuel': player.onFuel(m.f); return;
     case 'achievements': ui.setAchievements(m.ids, m.unlocked); return;
