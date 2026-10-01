@@ -84,6 +84,19 @@ try {
   await sleep(500);
   check('a friend holding Use revives you', await evB(() => document.getElementById('downed-screen').style.display === 'none' && window.poxel.health() >= 6 && window.poxel.ui.state !== 'dead'), `hp=${await evB(() => window.poxel.health())}`);
 
+  // Down again: a click straight away (still fighting) doesn't give up; a click after a moment does
+  const pb2 = await evB(() => ({ ...window.poxel.body.pos }));
+  await evB(p => window.poxel.glide(p.x, p.y + 26, p.z, 6), pb2);
+  for (let i = 0; i < 40 && !(await evB(() => document.getElementById('downed-screen').style.display === 'flex')); i++) await sleep(150);
+  await B.mouse.click(480, 300);
+  await sleep(500);
+  check('an early click while down does not give up', await evB(() => document.getElementById('downed-screen').style.display === 'flex'));
+  await sleep(1500);
+  await B.mouse.click(480, 300);
+  for (let i = 0; i < 20 && !(await evB(() => window.poxel.ui.state === 'dead')); i++) await sleep(150);
+  check('clicking while down gives up', await evB(() => window.poxel.ui.state === 'dead' && document.getElementById('downed-screen').style.display === 'none'));
+  check('desktop hint says click', (await evB(() => document.querySelector('.downed-hint').textContent)) === 'Click to give up');
+
   // Bob disconnects -> Alice sees him leave
   await B.close();
   await sleep(1500);

@@ -824,7 +824,7 @@ function frame() {
     const t1 = performance.now();
     updateWorld(body.pos);
     const t2 = performance.now();
-    updateRemote(dt);
+    updateRemote(dt, controls.object.position);
     const t3 = performance.now();
 
     const liquid = headInLava ? 'lava' : headInOil ? 'oil' : headInWater ? 'water' : 'none';

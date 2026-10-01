@@ -14,7 +14,7 @@ interface MobModel { model: THREE.Group; parts: { mesh: THREE.Mesh; swing: numbe
 interface View {
   eid: number; kind: EntityKind; obj: THREE.Object3D; samples: Sample[];
   pos: THREE.Vector3; yaw: number; pitch: number; flags: number; hspeed: number;
-  avatar?: Avatar; mob?: MobModel; name?: string; owner?: string;
+  avatar?: Avatar; mob?: MobModel; name?: string; owner?: string; tag?: THREE.Sprite;
   swing: number; walk: number; age: number; dying: number;
 }
 
@@ -233,7 +233,7 @@ export function onSpawn(list: SpawnInfo[]) {
       const tag = nametag(s.player.name);
       tag.position.y = 2.15;
       av.root.add(tag);
-      v.avatar = av; v.name = s.player.name;
+      v.avatar = av; v.name = s.player.name; v.tag = tag;
       obj = av.root;
     } else if (s.kind === 'item' && s.item) {
       obj = itemMesh(s.item.type);
@@ -278,7 +278,8 @@ export function onAnim(eid: number, a: 'swing' | 'hurt') {
 
 const lerpAngle = (a: number, b: number, t: number) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * t;
 
-export function updateRemote(dt: number) {
+// eye: the camera position, so a name tag fades out when its player is right in front of you
+export function updateRemote(dt: number, eye?: THREE.Vector3) {
   updateBeams(dt);
   const renderT = performance.now() - INTERP_DELAY;
   for (const v of views.values()) {
@@ -303,6 +304,12 @@ export function updateRemote(dt: number) {
       v.hspeed += (Math.min(inst, 10) - v.hspeed) * Math.min(1, dt * 10);
     }
     v.obj.position.copy(v.pos);
+    if (v.tag && eye) {
+      const d = Math.hypot(v.pos.x - eye.x, v.pos.y + 1.6 - eye.y, v.pos.z - eye.z);
+      const fade = Math.min(1, Math.max(0, (d - 1.5) / 1.5)); // gone within 1.5 blocks, full from 3
+      v.tag.visible = fade > 0;
+      (v.tag.material as THREE.SpriteMaterial).opacity = fade;
+    }
 
     if (v.kind === 'item') {
       v.obj.position.y += 0.2 + Math.sin(v.age * 3) * 0.06;

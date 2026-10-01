@@ -166,7 +166,10 @@ export function addChatLine(from: string | null, text: string) {
 }
 
 // Multiplayer downed state: overlay with a bleed-out countdown; a tap (or the button) gives up
-let downedUntil = 0, downedTimer = 0;
+let downedUntil = 0, downedTimer = 0, downedAt = 0;
+let giveUp: () => void = () => {};
+// While down, the mouse stays locked (you can still crawl and look), so clicks come here instead of the button
+export function downedClick() { if (performance.now() - downedAt > 1500) giveUp(); }
 export function showDowned(seconds: number, onGiveUp: () => void) {
   if (state === 'screen') closeGameScreen();
   document.body.dataset.downed = '1';
@@ -182,7 +185,12 @@ export function showDowned(seconds: number, onGiveUp: () => void) {
   tick();
   clearInterval(downedTimer);
   downedTimer = window.setInterval(tick, 250);
-  el.onclick = () => onGiveUp();
+  // A click/tap anywhere gives up, but not in the first moments (you may still be clicking from the fight)
+  downedAt = performance.now();
+  giveUp = onGiveUp;
+  el.onclick = () => downedClick();
+  const hint = el.querySelector('.downed-hint');
+  if (hint) hint.textContent = isMobile ? 'Tap anywhere to give up' : 'Click to give up';
   const b = $('btn-giveup');
   if (b) b.onclick = e => { e.stopPropagation(); onGiveUp(); };
   setReviveProgress(0, '');

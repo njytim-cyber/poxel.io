@@ -177,7 +177,7 @@ export function initPlayer(camera: THREE.PerspectiveCamera, scene: THREE.Scene) 
   ui.setRespawnHandler(() => { send({ t: 'respawn' }); ui.resume(); });
   onInventoryChange(refreshEquipment);
 
-  actions.primaryDown = () => { if (ui.isPlaying() && !downed) onPrimaryDown(); };
+  actions.primaryDown = () => { if (downed) { if (ui.isPlaying()) ui.downedClick(); } else if (ui.isPlaying()) onPrimaryDown(); };
   actions.primaryUp = () => { primaryHeld = false; };
   actions.secondaryDown = () => {
     if (!ui.isPlaying() || downed) return;
