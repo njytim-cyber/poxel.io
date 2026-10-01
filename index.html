@@ -59,8 +59,11 @@
         <div class="pause-panel">
           <h2>Game Paused</h2>
           <button id="btn-resume" class="menu-btn primary">Back to Game</button>
+          <div id="online-list" style="display: none;"></div>
+          <button id="btn-invite" class="menu-btn" style="display: none;">Invite friends</button>
+          <button id="btn-save-quit" class="menu-btn">Save &amp; Quit</button>
           <label class="setting-row">View distance <input id="view-distance" type="range" min="2" max="10" step="1" /> <span id="view-distance-value"></span></label>
-          <div class="controls-list">
+          <details id="controls-panel"><summary>Controls</summary><div class="controls-list">
             <div><kbd>W A S D</kbd> Move</div>
             <div><kbd>Space</kbd> Jump / swim up</div>
             <div><kbd>R</kbd> / <kbd>Ctrl</kbd> Run</div>
@@ -74,11 +77,8 @@
             <div><kbd>T</kbd> / <kbd>Enter</kbd> Chat (<kbd>/</kbd> for commands)</div>
             <div><kbd>F3</kbd> Debug info</div>
             <div><kbd>Esc</kbd> Pause</div>
-          </div>
+          </div></details>
           <details id="achievements-panel"><summary id="achievements-summary">Achievements</summary><ul id="achievements-list"></ul></details>
-          <div id="online-list" style="display: none;"></div>
-          <button id="btn-invite" class="menu-btn" style="display: none;">Invite friends</button>
-          <button id="btn-save-quit" class="menu-btn">Save &amp; Quit</button>
         </div>
       </div>
 

@@ -1305,3 +1305,9 @@ body.touch-ui #ping-hud { left: auto; right: 10px; top: 8px; } /* the phone tool
   #menu-screen-main .bp-anim { transform: scale(0.6); }
   #menu-error { padding: 4px 10px; font-size: 12px; }
 }
+/* Pause menu: the hotbar would draw over its bottom; Controls folds away like Achievements */
+body[data-state="paused"] #game-hud { visibility: hidden; }
+#controls-panel { background: rgba(0, 0, 0, 0.5); border: 2px solid #555; padding: 8px 14px; }
+#controls-panel summary { cursor: pointer; font-size: 17px; }
+#controls-panel .controls-list { background: none; border: none; padding: 8px 0 0; }
+body.touch-ui #controls-panel { display: none; } /* keyboard controls mean nothing on a touch screen */

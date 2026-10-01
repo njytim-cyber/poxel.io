@@ -1065,11 +1065,31 @@ test('another tab with the same character takes over; someone else cannot take a
 test('an invite link starts a newcomer next to the friend who sent it', () => {
   const { storage } = memoryStorage();
   const g = new Game(storage, { creativeCode: TEST_CODE, seed: 7, maxPlayers: 4 });
-  const host = g.join(fakeConn().conn, hello('Host'))!;
-  host.body.pos.x += 40; host.body.pos.z += 25;
+  const hc = fakeConn();
+  const host = g.join(hc.conn, hello('Host'))!;
+  // The host just dug the block east of them: the newcomer must not land in that hole
+  const hx = Math.floor(host.body.pos.x), hy = Math.floor(host.body.pos.y), hz = Math.floor(host.body.pos.z);
+  (g as any).setBlock(hx + 1, hy - 1, hz, 0);
   const c = fakeConn();
   const guest = g.join(c.conn, { ...hello('Guest'), near: 'host' })!;
-  assert.ok(Math.hypot(guest.body.pos.x - host.body.pos.x, guest.body.pos.z - host.body.pos.z) < 2, 'beside the host');
+  assert.ok(Math.hypot(guest.body.pos.x - host.body.pos.x, guest.body.pos.z - host.body.pos.z) <= 2.01, 'beside the host');
+  assert.ok(!(Math.floor(guest.body.pos.x) === hx + 1 && Math.floor(guest.body.pos.z) === hz), 'not over the hole');
+  // Facing the host (client convention: yaw = atan2(-dx, -dz) towards the target)
+  const want = Math.atan2(-(host.body.pos.x - guest.body.pos.x), -(host.body.pos.z - guest.body.pos.z));
+  assert.ok(Math.abs(Math.atan2(Math.sin(guest.yaw - want), Math.cos(guest.yaw - want))) < 0.01, 'facing the host');
+  // A host down a 1x1 pit: the newcomer still gets a real spot nearby (at the top), not inside the host
+  const pit = g.join(fakeConn().conn, hello('Miner'))!;
+  const px = Math.floor(pit.body.pos.x) + 30, pz = Math.floor(pit.body.pos.z) + 30;
+  const top = (g as any).world.surfaceHeight(px, pz) + 1;
+  for (let y = top - 3; y < top; y++) (g as any).setBlock(px, y, pz, 0);
+  pit.body.pos.x = px + 0.5; pit.body.pos.y = top - 3; pit.body.pos.z = pz + 0.5;
+  const visitor = g.join(fakeConn().conn, { ...hello('Visitor'), near: 'Miner' })!;
+  const dv = Math.hypot(visitor.body.pos.x - pit.body.pos.x, visitor.body.pos.z - pit.body.pos.z);
+  assert.ok(dv > 0.5 && dv < 4.5, `near the pit, not inside the miner (${dv.toFixed(1)})`);
+  // The host gets one message about it, not two
+  const joinedMsgs = hc.got.filter(m => m.t === 'chat' && (m as any).text.includes('Guest'));
+  assert.equal(joinedMsgs.length, 1);
+  assert.match((joinedMsgs[0] as any).text, /invite link/);
   // A returning player keeps their own saved place
   g.leave(guest);
   host.body.pos.x += 100;

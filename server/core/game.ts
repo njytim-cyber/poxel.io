@@ -283,13 +283,13 @@ export class Game {
     // Invited by a friend (an invite link): a newcomer starts beside them instead of at the world spawn
     const friend = !saved && typeof hello.near === 'string' ? [...this.players.values()].find(o => o.name.toLowerCase() === sanitizeName(hello.near).toLowerCase() && o.awayAt < 0 && !o.dead) : undefined;
     const pos = saved && [saved.x, saved.y, saved.z].every(isNum) ? { x: saved.x, y: saved.y, z: saved.z }
-      : friend ? { x: friend.body.pos.x + 1, y: friend.body.pos.y, z: friend.body.pos.z } : { x: spawn[0], y: spawn[1], z: spawn[2] };
+      : friend ? this.spotBeside(friend) : { x: spawn[0], y: spawn[1], z: spawn[2] };
     // Don't start inside blocks (terrain may have changed)
     if (boxIntersectsSolid(this.world.get, pos.x, pos.y, pos.z, PLAYER_HALF_WIDTH, PLAYER_HEIGHT)) pos.y = this.world.surfaceHeight(Math.floor(pos.x), Math.floor(pos.z)) + 1;
 
     const p: Player = {
       kind: 'player', eid: this.nextEid++, name, look: sanitizeLook(hello.look), conn,
-      body: makeBody(PLAYER_HALF_WIDTH, PLAYER_HEIGHT, pos), yaw: saved?.yaw || 0, pitch: saved?.pitch || 0, flags: MF_GROUND,
+      body: makeBody(PLAYER_HALF_WIDTH, PLAYER_HEIGHT, pos), yaw: friend ? Math.atan2(pos.x - friend.body.pos.x, pos.z - friend.body.pos.z) : saved?.yaw || 0, pitch: saved?.pitch || 0, flags: MF_GROUND,
       lastMove: this.clock, health: Math.max(1, Math.min(MAX_HEALTH, (carry && isNum(carry.health) ? carry.health : saved?.health) ?? MAX_HEALTH)), dead: false,
       invuln: 2, sinceDamage: 99, regen: 0, lavaT: 0, cactusT: 0, fallStart: pos.y,
       food: this.difficulty === 'easy' ? MAX_FOOD : clampFood(carry && isNum(carry.food) ? carry.food : saved?.food), sat: isNum(saved?.saturation) ? Math.max(0, Math.min(MAX_FOOD, saved!.saturation!)) : 5,
@@ -320,11 +320,29 @@ export class Game {
       this.log(`${renamedFrom} is now called ${name}`);
     }
     this.sendWelcome(p);
-    if (friend) friend.conn.send({ t: 'chat', from: null, text: `${name} joined you from your invite link` });
-    if (this.maxPlayers > 1) this.broadcast({ t: 'chat', from: null, text: `${name} joined the game` });
+    if (this.maxPlayers > 1) for (const o of this.players.values()) {
+      if (o === p) continue; // everyone else hears about it
+      o.conn.send({ t: 'chat', from: null, text: o === friend ? `${name} joined you from your invite link` : `${name} joined the game` });
+    }
     this.log(`${name} joined (${this.players.size} online)`);
     this.sendPlayerList();
     return p;
+  }
+
+  // Where an invited newcomer starts: a free spot with ground beside their friend (not in a hole they just
+  // dug, not inside a mine's walls). Two blocks away first (close enough to be together, far enough to see
+  // each other), then one, then three; level with them, then up to 3 up or down (pits, slopes). Else right on their spot.
+  private spotBeside(friend: Player) {
+    const f = friend.body.pos;
+    const free = (x: number, y: number, z: number) => !boxIntersectsSolid(this.world.get, x, y, z, PLAYER_HALF_WIDTH, PLAYER_HEIGHT)
+      && isSolid(this.world.get(Math.floor(x), Math.floor(y) - 1, Math.floor(z)));
+    for (const dy of [0, 1, -1, 2, -2, 3, -3]) for (const r of [2, 1, 3]) {
+      for (const [dx, dz] of [[r, 0], [-r, 0], [0, r], [0, -r], [r, r], [-r, -r], [r, -r], [-r, r]]) {
+        const x = f.x + dx, y = Math.floor(f.y) + dy, z = f.z + dz;
+        if (free(x, y, z)) return { x, y, z };
+      }
+    }
+    return { x: f.x, y: f.y, z: f.z };
   }
 
   // Everything a (re)connecting client needs to start playing
