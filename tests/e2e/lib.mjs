@@ -39,8 +39,27 @@ export const GPU_ARGS = ['--use-angle=d3d11', '--enable-gpu', '--ignore-gpu-bloc
 // Needed when several tabs must keep running at full speed (background tabs throttle rAF and timers)
 export const NO_THROTTLE_ARGS = ['--disable-renderer-backgrounding', '--disable-background-timer-throttling', '--disable-backgrounding-occluded-windows'];
 
-export function launch({ args = GPU_ARGS, viewport = { width: 1280, height: 720 } } = {}) {
-  return puppeteer.launch({ executablePath: findChrome(), headless: 'new', args, defaultViewport: viewport });
+// On Windows, Chrome's pointer lock clips the REAL mouse (Win32 ClipCursor) to the page's rectangle,
+// even for a headless page, which traps the owner's cursor while tests run. Every test page gets a
+// stand-in that behaves the same for the game (pointerLockElement, pointerlockchange) but never
+// touches the system cursor.
+function fakePointerLock() {
+  let locked = null;
+  const changed = () => queueMicrotask(() => document.dispatchEvent(new Event('pointerlockchange')));
+  Object.defineProperty(Document.prototype, 'pointerLockElement', { configurable: true, get: () => locked });
+  Element.prototype.requestPointerLock = function () { locked = this; changed(); return Promise.resolve(); };
+  Document.prototype.exitPointerLock = function () { if (locked) { locked = null; changed(); } };
+}
+function withFakeLock(ctx) {
+  const newPage = ctx.newPage.bind(ctx);
+  ctx.newPage = async (...a) => { const page = await newPage(...a); await page.evaluateOnNewDocument(fakePointerLock); return page; };
+  return ctx;
+}
+export async function launch({ args = GPU_ARGS, viewport = { width: 1280, height: 720 } } = {}) {
+  const browser = withFakeLock(await puppeteer.launch({ executablePath: findChrome(), headless: 'new', args, defaultViewport: viewport }));
+  const createContext = browser.createBrowserContext.bind(browser);
+  browser.createBrowserContext = async (...a) => withFakeLock(await createContext(...a));
+  return browser;
 }
 
 // Records PASS/FAIL lines and uncaught page errors; finish() prints them and sets the exit code.

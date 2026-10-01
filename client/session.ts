@@ -12,7 +12,7 @@ let started = false;
 let myEid = -1;
 let readyHandler: () => void = () => {};
 let lastPing = 0;
-export let pingMs = 0;
+export let pingMs = -1; // -1 until the first pong
 export let onlinePlayers: { eid: number; name: string; ping: number }[] = [];
 
 export function onReady(fn: () => void) { readyHandler = fn; }

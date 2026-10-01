@@ -690,7 +690,7 @@ onNetStatus((status, detail) => {
 const pingHud = document.getElementById('ping-hud');
 setInterval(() => {
   if (!pingHud) return;
-  const show = mode === 'multi' && ui.state !== 'menu' && !debugVisible && pingMs > 0;
+  const show = mode === 'multi' && ui.state !== 'menu' && !debugVisible && pingMs >= 0;
   pingHud.style.display = show ? 'block' : 'none';
   if (!show) return;
   pingHud.textContent = `${pingMs} ms`;
@@ -855,7 +855,7 @@ function frame() {
       const p = body.pos;
       const hours = Math.floor(((getTimeOfDay() + 0.25) % 1) * 24);
       const c = entityCounts();
-      debugEl.innerHTML = `FPS: ${fps} &nbsp; ${mode === 'multi' ? `Ping: ${pingMs}ms` : 'Single player'} (${workerStatus()})<br>` +
+      debugEl.innerHTML = `FPS: ${fps} &nbsp; ${mode === 'multi' ? `Ping: ${pingMs < 0 ? "..." : pingMs + "ms"}` : 'Single player'} (${workerStatus()})<br>` +
         `XYZ: ${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}<br>` +
         `Biome: ${biomeAt(p.x, p.z)} &nbsp; Block below: ${getBlock(Math.floor(p.x), Math.floor(p.y) - 1, Math.floor(p.z))}<br>` +
         `Chunks: ${chunkCount()} &nbsp; Mobs: ${c.mobs} &nbsp; Items: ${c.items} &nbsp; Players: ${c.players + 1}<br>` +
