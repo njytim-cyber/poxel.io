@@ -1,6 +1,6 @@
 # Deploys the game server to Fly.io (runs on GitHub, so nothing needs installing on the PC).
 # Only runs when started by hand: Actions tab -> "Deploy game server" -> Run workflow.
-# Needs the repository secret FLY_API_TOKEN (fly.io dashboard -> Tokens).
+# Needs repository secrets FLY_API_TOKEN (fly.io dashboard -> Tokens) and ORIGIN_SECRET (same value as the Worker's).
 name: Deploy game server
 on:
   workflow_dispatch:
@@ -28,4 +28,6 @@ jobs:
         run: |
           flyctl apps create poxel-game --org personal || true
           flyctl volumes list --app poxel-game | grep -q poxel_data || flyctl volumes create poxel_data --app poxel-game --region sin --size 1 --yes
+      - name: Shared secret with the Cloudflare Worker
+        run: echo "ORIGIN_SECRET=${{ secrets.ORIGIN_SECRET }}" | flyctl secrets import --stage --app poxel-game
       - run: flyctl deploy --remote-only
