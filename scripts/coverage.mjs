@@ -1,20 +1,23 @@
-// Test coverage across everything: unit tests + all browser suites. Reports which lines of the game ran.
-//   Server and shared code: from the unit tests and the test game servers (Node's V8 coverage, via c8)
-//   Client code: from every test page in Chrome (mapped back to the .ts files)
-// Usage: npm run coverage            (full HTML reports in coverage/server and coverage/client)
-//        npm run coverage -- unit    (unit tests only, quick)
+// Test coverage across everything: unit tests + browser suites.
+//   Server and shared code: which lines ran in the unit tests and the test game servers (Node's V8 coverage, via c8)
+//   Client code: which named functions ran on any test page in Chrome (with their .ts line). Line-level
+//   numbers aren't reported for the client: they come from Vite's compiled code and don't map back reliably.
+// Usage: npm run coverage               (full; line-by-line HTML report for server/shared in coverage/server)
+//        npm run coverage -- unit       (unit tests only, quick)
+//        npm run coverage -- sp mp      (unit tests + just these browser suites)
+// perf is left out: coverage tracking slows the game, so its frame-time budgets would fail.
 import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import v8toIstanbul from 'v8-to-istanbul';
-import libCoverage from 'istanbul-lib-coverage';
-import libReport from 'istanbul-lib-report';
-import reports from 'istanbul-reports';
+import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const RAW = join(ROOT, 'coverage', 'raw');
 const unitOnly = process.argv.includes('unit');
+const ALL_SUITES = ['bot', 'sp', 'cuj', 'respawn', 'mp', 'join', 'mpcuj', 'carry', 'content', 'robotic', 'crash', 'phone', 'tablet'];
+const picked = process.argv.slice(2).filter(a => a !== 'unit');
+const suites = picked.length ? picked : ALL_SUITES;
 rmSync(join(ROOT, 'coverage'), { recursive: true, force: true });
 mkdirSync(join(RAW, 'server'), { recursive: true });
 
@@ -28,31 +31,53 @@ const unitCode = await run(['--test', 'tests/unit/*.test.ts'], { NODE_V8_COVERAG
 let e2eCode = 0;
 if (!unitOnly) {
   console.log('\n=== Browser suites (with coverage) ===');
-  e2eCode = await run(['tests/e2e/run.mjs'], { POXEL_COVERAGE: RAW });
+  e2eCode = await run(['tests/e2e/run.mjs', ...suites], { POXEL_COVERAGE: RAW });
 }
 
-console.log('\n=== Server and shared code ===');
+console.log('\n=== Server and shared code: lines that ran ===');
 await run([join(ROOT, 'node_modules', 'c8', 'bin', 'c8.js'), 'report', '--temp-directory', join(RAW, 'server'), '--reports-dir', join(ROOT, 'coverage', 'server'),
   '--include', 'server/**', '--include', 'shared/**', '--reporter', 'text', '--reporter', 'html', '--all', '--src', ROOT]);
 
 if (!unitOnly) {
-  console.log('\n=== Client code (in the browser) ===');
-  const map = libCoverage.createCoverageMap({});
+  console.log('\n=== Client code (in the browser): named functions that ran ===');
+  const SOURCE_MAP = /\/\/# sourceMappingURL=data:application\/json(?:;charset=[^;,]+)?;base64,([A-Za-z0-9+/=]+)\s*$/;
+  const files = new Map(); // file -> Map(key -> { name, line, ran })
   const dir = join(RAW, 'client');
   for (const f of readdirSync(dir).filter(n => n.endsWith('.json'))) {
     for (const e of JSON.parse(readFileSync(join(dir, f), 'utf8'))) {
-      const path = new URL(e.url).pathname.replace(/^\/poxel\.io\//, '').replace(/^\//, '');
-      const conv = v8toIstanbul(join(ROOT, path), 0, { source: e.text });
-      try { await conv.load(); } catch { continue; } // no source map: skip
-      conv.applyCoverage(e.functions);
-      map.merge(conv.toIstanbul());
+      const file = new URL(e.url).pathname.replace(/^\/poxel\.io\//, '').replace(/^\//, '');
+      if (!/^(client|shared)\/[^/]+\.ts$/.test(file)) continue;
+      const m = e.text.match(SOURCE_MAP);
+      const map = m ? new TraceMap(JSON.parse(Buffer.from(m[1], 'base64').toString('utf8'))) : null;
+      const lineStarts = [0];
+      for (let i = 0; i < e.text.length; i++) if (e.text[i] === '\n') lineStarts.push(i + 1);
+      const positionOf = off => {
+        let lo = 0, hi = lineStarts.length - 1;
+        while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (lineStarts[mid] <= off) lo = mid; else hi = mid - 1; }
+        return { line: lo + 1, column: off - lineStarts[lo] };
+      };
+      const fns = files.get(file) || new Map();
+      files.set(file, fns);
+      for (const fn of e.functions) {
+        if (!fn.functionName) continue; // anonymous callbacks and the module body: too noisy to list
+        const at = positionOf(fn.ranges[0].startOffset);
+        const line = (map && originalPositionFor(map, at).line) || at.line;
+        const key = `${fn.functionName}@${fn.ranges[0].startOffset}`;
+        const ran = fn.ranges[0].count > 0;
+        const cur = fns.get(key);
+        if (cur) cur.ran ||= ran; else fns.set(key, { name: fn.functionName, line, ran });
+      }
     }
   }
-  // Only the game's own files (not dependencies)
-  map.filter(file => /[\\/](client|shared)[\\/][^\\/]+\.ts$/.test(file) && file.startsWith(ROOT));
-  const context = libReport.createContext({ dir: join(ROOT, 'coverage', 'client'), coverageMap: map });
-  reports.create('text').execute(context);
-  reports.create('html').execute(context);
+  let all = 0, ran = 0;
+  for (const [file, fns] of [...files].sort()) {
+    const list = [...fns.values()];
+    const done = list.filter(x => x.ran).length;
+    all += list.length; ran += done;
+    const missing = list.filter(x => !x.ran).sort((a, b) => a.line - b.line).map(x => `${x.name}:${x.line}`);
+    console.log(`${file.padEnd(24)} ${String(Math.round(done / Math.max(1, list.length) * 100)).padStart(3)}%  (${done}/${list.length})${missing.length ? '   never ran: ' + missing.join(', ') : ''}`);
+  }
+  console.log(`${'All (in the browser)'.padEnd(24)} ${String(Math.round(ran / Math.max(1, all) * 100)).padStart(3)}%  (${ran}/${all} named functions ran)`);
 }
-console.log(`\nHTML reports: coverage/server/index.html${unitOnly ? '' : ' and coverage/client/index.html'}`);
+console.log('\nLine-by-line report for server and shared code: coverage/server/index.html');
 if (unitCode || e2eCode) { console.log(`Some tests failed (unit ${unitCode}, browser ${e2eCode}): coverage counts only what ran.`); process.exit(1); }
