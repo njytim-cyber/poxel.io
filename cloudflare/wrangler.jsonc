@@ -11,8 +11,7 @@
     // Multiplayer connects to the site's own address ("/"), so the Worker sees every request first
     "run_worker_first": true
   },
-  "vars": {
-    "ORIGIN_URL": "" // set once the game server and its Cloudflare Tunnel exist
-  },
+  // Secrets (not in this file): ORIGIN_URL (the game server's address) and ORIGIN_SECRET.
+  // npm run host:cf sets both each time it starts the game server on this PC.
   "observability": { "enabled": true }
 }

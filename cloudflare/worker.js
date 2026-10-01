@@ -1,7 +1,7 @@
 // Cloudflare Worker in front of the game: serves the website from Cloudflare and forwards multiplayer
 // connections to the game server (ORIGIN_URL), so players only ever talk to Cloudflare.
 // The shared ORIGIN_SECRET proves to the game server that a connection came through here.
-//   ORIGIN_URL     plain var in wrangler.jsonc: the game server's Cloudflare Tunnel address, e.g. https://game.<domain>
+//   ORIGIN_URL     secret: the game server's tunnel address (npm run host:cf sets it, with ORIGIN_SECRET)
 //   ORIGIN_SECRET  secret: npx wrangler secret put ORIGIN_SECRET (the same value as on the game server)
 export default {
   async fetch(request, env) {

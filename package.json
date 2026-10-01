@@ -17,7 +17,8 @@
     "test:unit": "node --test \"tests/unit/*.test.ts\"",
     "test": "npm run test:unit && npm run test:e2e",
     "build:cf": "vite build --base=/ --outDir dist-cf",
-    "deploy:cf": "npm run build:cf && wrangler deploy --config cloudflare/wrangler.jsonc"
+    "deploy:cf": "npm run build:cf && wrangler deploy --config cloudflare/wrangler.jsonc",
+    "host:cf": "node scripts/host-cf.mjs"
   },
   "keywords": [],
   "author": "",
