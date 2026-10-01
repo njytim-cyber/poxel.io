@@ -26,6 +26,14 @@ export const MOB_SPECS: Record<MobKind, MobSpec> = {
   robot_titan: { halfW: 1.1, height: 5.0, health: 300, speed: 1.8, hostile: true, damage: 5 },
   // The Frost World's boss: floats above its shrine, fires ice beams that slow you, calls up frostbitten
   frost_wraith: { halfW: 0.7, height: 3.0, health: 250, speed: 2.6, hostile: true, damage: 4 },
+  // The Volcano's boss: a walking mountain of basalt and magma that hurls fireballs and slams the ground
+  magma_colossus: { halfW: 1.2, height: 4.5, health: 320, speed: 1.5, hostile: true, damage: 6 },
+  // The Overgrown Jungle's boss: spits poison thorns and roots you to the spot
+  thorn_guardian: { halfW: 1.0, height: 3.5, health: 280, speed: 2.0, hostile: true, damage: 5 },
+  // The Cloud Kingdom's boss: a giant bird of the storm; lightning, and gusts that blow you away
+  // The Tempest's hurricanes: chase you and fling you into the air; can't be hurt, blow over after a while
+  hurricane: { halfW: 0.9, height: 4.0, health: 999, speed: 3.2, hostile: true, damage: 0 },
+  tempest: { halfW: 1.3, height: 1.8, health: 240, speed: 4.5, hostile: true, damage: 4 },
 };
 
 export const MOB_KINDS = Object.keys(MOB_SPECS) as MobKind[];

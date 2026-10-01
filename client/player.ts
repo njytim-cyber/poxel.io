@@ -12,7 +12,8 @@ import { MF_GROUND, MF_SNEAK, MF_WATER, MF_LAVA, MF_JET } from '../shared/protoc
 import { inventory, selectedSlotIndex, getSelectedItem, onInventoryChange, predictUseSelected, setInfiniteBlocks, setCreativeInventory } from './inventory';
 import { OFFHAND } from '../shared/inventory.ts';
 import { isRobotic, nearestAltar } from '../shared/robotic.ts';
-import { isFrost, nearestShrine } from '../shared/frost.ts';
+import { isElemental, nearestShrine } from '../shared/elemental.ts';
+import { takeShake } from './particles';
 import { getSeed } from './world';
 import { createAvatar, makeHeldMesh, savedLook, disposeOwned, type Avatar } from './avatar';
 import { isFlatItem } from './textures';
@@ -54,7 +55,13 @@ export function updateLocalLook(look: Look) {
   playerAvatar?.setLook(look);
 }
 
+// Is this piece of armour worn?
+function wearing(type: string) { for (let i = 55; i <= 58; i++) if (inventory[i]?.type === type) return true; return false; }
+export const wearsWaterHelmet = () => wearing('water_helmet');
+
 function refreshEquipment() {
+  const fire = document.getElementById('btn-mobile-fire');
+  if (fire) fire.style.display = wearing('lava_chestplate') ? '' : 'none';
   if (!playerAvatar) return;
   playerAvatar.setArmor(inventory.slice(55, 60).map(s => s?.type || null));
   const held = getSelectedItem()?.type || '';
@@ -144,8 +151,13 @@ function eyePos() { return _eye.copy(pivot.position); }
 // The block actions would hit right now (on touch screens: under the finger). For tests.
 export function aimTarget() { lookDir(_dir); return raycast(eyePos(), _dir, REACH); }
 
+// Camera shake: big hits (stomps, slams, explosions close by)
+let shakeT = 0;
 function updateCamera() {
-  if (cameraViewMode === 0) { cameraRef.position.set(0, 0, 0); cameraRef.rotation.set(0, 0, 0); return; }
+  shakeT = Math.max(shakeT, takeShake(1 / 60));
+  shakeT = Math.max(0, shakeT - 1 / 60);
+  const sh = Math.min(0.25, shakeT * 0.3);
+  if (cameraViewMode === 0) { cameraRef.position.set((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh, 0); cameraRef.rotation.set(0, 0, 0); return; }
   // Pull the third-person camera in when a wall is between it and the player
   const back = cameraViewMode === 1 ? 1 : -1;
   _dir.set(0, 0, back).applyQuaternion(pivot.quaternion);
@@ -247,6 +259,13 @@ export function initPlayer(camera: THREE.PerspectiveCamera, scene: THREE.Scene) 
     swing();
   };
   actions.toggleView = () => { cameraViewMode = (cameraViewMode + 1) % 3; };
+  // The lava chestplate: . (or the fire button) shoots a fireball where you aim
+  actions.fireball = () => {
+    if (!ui.isPlaying() || downed || !wearing('lava_chestplate')) return;
+    lookDir(_dir);
+    send({ t: 'fireball', dx: _dir.x, dy: _dir.y, dz: _dir.z });
+    swing();
+  };
   actions.setHome = () => { if (ui.isPlaying()) send({ t: 'sethome' }); };
   actions.chat = (prefill: string) => ui.openChat(prefill);
 }
@@ -295,7 +314,7 @@ export function onGamemode(mode: string) {
 export const isFlying = () => flying;
 function canEat(): boolean {
   const held = getSelectedItem();
-  if (difficulty === 'easy') return health < MAX_HEALTH;
+  if (difficulty === 'easy') return health < maxHealth;
   return food < 20 || held?.type === 'golden_apple';
 }
 
@@ -303,16 +322,25 @@ export function onHealth(hp: number) {
   const wasDead = dead;
   health = hp;
   if (hp > 0 && wasDead) dead = false;
-  ui.renderHealth(health, MAX_HEALTH);
+  ui.renderHealth(health, maxHealth);
 }
+// Earth leggings: 20 hearts while worn
+let maxHealth = MAX_HEALTH;
+export function onMaxHealth(max: number) {
+  maxHealth = max;
+  ui.renderHealth(health, maxHealth);
+}
+export const getMaxHealth = () => maxHealth;
 
-export function onHurt(from: [number, number, number] | null, knock: number) {
+// lift: thrown up into the air (a stomp, a hurricane), which also shakes the view
+export function onHurt(from: [number, number, number] | null, knock: number, lift?: number) {
   ui.flashHurt();
   hurtTilt = 1;
   if (from && knock) {
     const dx = body.pos.x - from[0], dz = body.pos.z - from[2], d = Math.hypot(dx, dz) || 1;
     body.vel.x += (dx / d) * knock; body.vel.z += (dz / d) * knock; body.vel.y = Math.max(body.vel.y, 5);
   }
+  if (lift) { body.vel.y = Math.max(body.vel.y, lift); flying = false; shakeT = Math.max(shakeT, 0.5); }
 }
 
 // ------------------------------------------------------------------ Downed / revive (multiplayer)
@@ -345,7 +373,7 @@ export function resetPlayerState(hp: number) {
   ui.hideDowned();
   health = hp;
   cameraViewMode = 0;
-  ui.renderHealth(health, MAX_HEALTH);
+  ui.renderHealth(health, maxHealth);
 }
 
 export function onHomes(list: ({ x: number; y: number; z: number; name: string } | null)[], slots: number) {
@@ -408,11 +436,22 @@ export function onFuel(f: number) { jetFuel = f; }
 
 // Frost (the Frost Wraith, glacite): you move at half speed for a while
 let slowUntil = 0;
-export function onSlow(seconds: number) {
-  if (performance.now() > slowUntil) ui.toast("You're frozen! (slowed)");
-  slowUntil = performance.now() + seconds * 1000;
+// freeze: frozen solid (can't move or jump) rather than just slowed
+let frozenUntil = 0;
+export function onSlow(seconds: number, freeze?: boolean) {
+  if (freeze) {
+    if (performance.now() > frozenUntil) ui.toast("You're frozen solid!");
+    frozenUntil = performance.now() + seconds * 1000;
+    document.body.dataset.frozen = '1';
+  } else if (performance.now() > slowUntil) ui.toast("You're chilled! (slowed)");
+  slowUntil = Math.max(slowUntil, performance.now() + seconds * 1000);
   document.body.dataset.slowed = '1';
 }
+const isFrozen = () => {
+  if (performance.now() < frozenUntil) return true;
+  if (document.body.dataset.frozen) delete document.body.dataset.frozen;
+  return false;
+};
 const isSlowed = () => {
   if (performance.now() < slowUntil) return true;
   if (document.body.dataset.slowed) delete document.body.dataset.slowed;
@@ -455,13 +494,14 @@ function updateCompass(dt: number) {
   if (!holding) { el.style.display = 'none'; return; }
   el.style.display = 'block';
   const p = body.pos;
-  if (isFrost(p.x)) {
-    // In the Frost World the needle finds the Frost Wraith's shrine instead
+  if (isElemental(p.x)) {
+    // In the Elemental World the needle finds the nearest boss's shrine instead
     const s = nearestShrine(p.x, p.z, getSeed());
     if (!s) { el.textContent = 'Compass: no shrine nearby'; return; }
     const dx = s.x + 0.5 - p.x, dz = s.z + 0.5 - p.z, dist = Math.round(Math.hypot(dx, dz));
     const i = ((Math.round((Math.atan2(-dx, -dz) - getYawPitch().yaw) / (Math.PI / 4)) % 8) + 8) % 8;
-    el.textContent = dist < 6 ? 'Shrine: here!' : `Shrine ${['⬆', '↖', '⬅', '↙', '⬇', '↘', '➡', '↗'][i]} ${dist} blocks`;
+    const what = { frost: 'Frost shrine', volcano: 'Fire shrine', jungle: 'Earth shrine', clouds: 'Wind shrine' }[s.biome];
+    el.textContent = dist < 6 ? `${what}: here!` : `${what} ${['⬆', '↖', '⬅', '↙', '⬇', '↘', '➡', '↗'][i]} ${dist} blocks`;
     return;
   }
   if (!isRobotic(p.x)) { el.textContent = 'Compass: finds Robot Titan altars in the Robotic World'; return; }
@@ -626,10 +666,11 @@ export function updatePlayer(dt: number) {
     const sneak = playing && keys.shift;
     // Too hungry (3 drumsticks or fewer) to sprint; downed players crawl
     let speed = downed ? SNEAK_SPEED * 0.6 : sneak ? SNEAK_SPEED : keys.run && canSprint() ? RUN_SPEED : WALK_SPEED;
-    if (b.inWater) speed *= 0.55;
+    if (b.inWater) speed *= wearing('water_helmet') ? 1 : 0.55; // the water helmet: swim as fast as you walk
     if (b.inLava) speed *= 0.35;
     if (b.inSnow) speed *= 0.4;
     if (isSlowed()) speed *= 0.5;
+    if (isFrozen()) speed = 0;
     let mx = 0, mz = 0;
     if (fwd || strafe) {
       const len = Math.hypot(fwd, strafe);
@@ -644,7 +685,7 @@ export function updatePlayer(dt: number) {
     b.vel.x += (mx - b.vel.x) * accel;
     b.vel.z += (mz - b.vel.z) * accel;
 
-    const jump = playing && keys.jump && !downed;
+    const jump = playing && keys.jump && !downed && !isFrozen();
     jetting = false;
     if (flying && (!creative || (b.onGround && sneak))) flying = false; // land by flying down onto the ground
     if (flying) {
@@ -693,7 +734,7 @@ export function updatePlayer(dt: number) {
   headInOil = headBlock === OIL;
   headInLava = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z)) === LAVA;
   const headInSnow = getBlock(Math.floor(pivot.position.x), Math.floor(pivot.position.y), Math.floor(pivot.position.z)) === POWDER_SNOW;
-  ui.setUnderwater(headInLava ? 'lava' : headInOil ? 'oil' : headInWater ? 'water' : headInSnow ? 'snow' : 'none');
+  ui.setUnderwater(headInLava ? 'lava' : headInOil ? 'oil' : headInWater && !wearing('water_helmet') ? 'water' : headInSnow ? 'snow' : 'none');
 
   if (playing && secondaryHeld && reviveTarget >= 0) {
     // Keep telling the server we're still holding Use on them

@@ -1335,5 +1335,18 @@ body.touch-ui #controls-panel { display: none; } /* keyboard controls mean nothi
 }
 .tp-ask-buttons { display: flex; gap: 8px; }
 .tp-ask-buttons .menu-btn { padding: 4px 12px; font-size: 14px; }
+/* Earth leggings: 20 hearts wrap onto a second row */
+#health-bar { flex-wrap: wrap; max-width: calc(10 * 19px); align-content: flex-end; }
+.right-bars { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+/* Breath underwater */
+#air-bar { display: flex; gap: 1px; }
+#air-bar .bubble { width: 14px; height: 14px; margin: 2px; border-radius: 50%; border: 2px solid #1a3a8a; background: radial-gradient(circle at 35% 35%, #ffffff 0 20%, #7ac8ff 30%, #2a78e0 100%); box-sizing: border-box; }
+#air-bar .bubble.popped { visibility: hidden; }
+/* Poisoned / on fire */
+#status-overlay { position: absolute; inset: 0; pointer-events: none; }
+body[data-poisoned] #status-overlay { box-shadow: inset 0 0 80px 25px rgba(90, 210, 40, 0.5); }
+body[data-burning] #status-overlay { box-shadow: inset 0 0 90px 30px rgba(255, 110, 20, 0.6); }
+/* Frozen solid: a thick icy frame */
+body[data-frozen] #status-overlay { box-shadow: inset 0 0 120px 60px rgba(200, 240, 255, 0.85); background: rgba(180, 230, 255, 0.15); }
 /* Slowed by frost: a cold blue edge round the screen */
-body[data-slowed] #liquid-overlay { box-shadow: inset 0 0 90px 30px rgba(140, 220, 255, 0.55); }
+body:not([data-frozen]):not([data-poisoned]):not([data-burning])[data-slowed] #status-overlay { box-shadow: inset 0 0 90px 30px rgba(140, 220, 255, 0.55); }

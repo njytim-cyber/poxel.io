@@ -1,9 +1,9 @@
 // Authoritative game simulation. Environment-agnostic: runs in Node (multiplayer) and in a Web Worker
 // (single player). Transports hand it decoded messages and deliver what it sends.
-import { BLOCKS, BLOCK_ID, ITEMS, WATER, LAVA, OIL, POWDER_SNOW, CHEST, CLAIM_STONE, FROST_PORTAL, isBanner, isLiquid, isFacingBlock, isLeaves, isPlant, isReplaceable, isSolid, itemDef, miningInfo, plantCanStand, CROP_NEXT, CROP_GROW_SECONDS } from '../../shared/blocks.ts';
+import { BLOCKS, BLOCK_ID, ITEMS, WATER, LAVA, OIL, POWDER_SNOW, CHEST, CLAIM_STONE, ELEM_PORTAL, isBanner, isShrine, isLiquid, isFacingBlock, isLeaves, isPlant, isReplaceable, isSolid, itemDef, miningInfo, plantCanStand, CROP_NEXT, CROP_GROW_SECONDS } from '../../shared/blocks.ts';
 import { ACHIEVEMENT_IDS, itemAchievement } from '../../shared/achievements.ts';
 import { isRobotic, isPortal, portalDestination, roboticStructureAt, nearestAltar, ROBO_DAYLIGHT } from '../../shared/robotic.ts';
-import { isFrost, frostDestination, findFrostPortal, portalCells, nearestShrine, FROST_DAYLIGHT, FROST_MIN_X, FROST_MAX_X } from '../../shared/frost.ts';
+import { isElemental, elementalDestination, findElementalPortal, portalCells, nearestShrine, elementalBiome, ELEM_DAYLIGHT, ELEM_MIN_X, ELEM_MAX_X, SHRINE_BOSS, SHRINE_CORE, BIOME_NAMES } from '../../shared/elemental.ts';
 import { makeBody, moveBody, boxIntersectsSolid, boxTouchesBlock, raycastBlocks, rayHitsBox, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, type Body } from '../../shared/physics.ts';
 import {
   newInv, sanitizeInv, addItem, applyAction, closeScreen, removeFromSlot, armorPoints, attackBonus,
@@ -30,7 +30,7 @@ const clampFood = (v: unknown) => (isNum(v) ? Math.max(0, Math.min(MAX_FOOD, Mat
 // Damage causes that come from mobs (scaled by difficulty)
 // ------------------------------------------------------------------ Loot
 
-type LootKind = 'dungeon' | 'temple' | 'igloo' | 'cabin' | 'ruin' | 'giant_robot' | 'frost_ruin';
+type LootKind = 'dungeon' | 'temple' | 'igloo' | 'cabin' | 'ruin' | 'giant_robot' | 'frost_ruin' | 'temple_frost' | 'temple_volcano' | 'temple_jungle' | 'temple_clouds';
 // [item, min, max, chance]
 const LOOT: Record<LootKind, [string, number, number, number][]> = {
   dungeon: [['iron_ingot', 1, 5, 0.7], ['gold_ingot', 1, 3, 0.4], ['diamond', 1, 2, 0.15], ['bread', 1, 3, 0.6], ['bone', 2, 6, 0.6],
@@ -47,9 +47,18 @@ const LOOT: Record<LootKind, [string, number, number, number][]> = {
     ['torch', 4, 10, 0.5], ['etherite', 1, 2, 0.08], ['golden_apple', 1, 1, 0.08], ['metal_plate', 2, 6, 0.4]],
   giant_robot: [['tungsten_ingot', 2, 6, 0.8], ['robot_eye', 1, 3, 0.6], ['iron_ingot', 3, 9, 0.6], ['diamond', 1, 2, 0.2], ['etherite', 1, 3, 0.12],
     ['gold_ingot', 1, 4, 0.4]],
-  // The Frost World
+  // The Elemental World's Frosted Lands
   frost_ruin: [['frost_crystal', 2, 6, 0.7], ['snowberries', 2, 6, 0.6], ['glacite', 1, 2, 0.25], ['moonstone', 1, 3, 0.3], ['diamond', 1, 2, 0.15],
     ['packed_ice', 4, 12, 0.4], ['golden_apple', 1, 1, 0.1], ['baked_potato', 2, 5, 0.4], ['moonstone_orb', 1, 2, 0.15]],
+  // The bosses' temples (two chests each, behind the arena)
+  temple_frost: [['diamond', 2, 5, 0.6], ['glacite', 2, 4, 0.5], ['frost_crystal', 4, 10, 0.7], ['moonstone_orb', 1, 3, 0.4], ['etherite', 1, 3, 0.3],
+    ['golden_apple', 1, 2, 0.4], ['moonstone', 2, 6, 0.5], ['glacite_sword', 1, 1, 0.08], ['water_ore', 1, 1, 0.05]],
+  temple_volcano: [['diamond', 2, 5, 0.6], ['gold_block', 1, 3, 0.4], ['obsidian', 4, 10, 0.6], ['etherite', 1, 3, 0.3], ['magma_block', 4, 8, 0.5],
+    ['golden_apple', 1, 2, 0.4], ['coal_block', 2, 5, 0.5], ['moonstone_orb', 1, 2, 0.25], ['lava_ore', 1, 1, 0.05]],
+  temple_jungle: [['diamond', 2, 5, 0.6], ['golden_carrot', 2, 6, 0.6], ['etherite', 1, 3, 0.3], ['melon', 2, 4, 0.4], ['moss_block', 4, 12, 0.5],
+    ['golden_apple', 1, 2, 0.4], ['moonstone_orb', 1, 2, 0.25], ['earth_ore', 1, 1, 0.05]],
+  temple_clouds: [['diamond', 2, 5, 0.6], ['feather', 6, 16, 0.6], ['etherite', 1, 3, 0.3], ['obitite', 1, 2, 0.15], ['cloud', 6, 16, 0.5],
+    ['golden_apple', 1, 2, 0.4], ['moonstone_orb', 1, 3, 0.4], ['skystone_bricks', 8, 20, 0.4], ['wind_ore', 1, 1, 0.05]],
 };
 function rollLoot(kind: LootKind): Stack[] {
   const c = newChest();
@@ -79,9 +88,16 @@ function sanitizeChest(c: unknown[]): Stack[] {
   return out;
 }
 
-const MOB_CAUSES = new Set(['zombie', 'husk', 'frostbitten', 'spider', 'skeleton', 'slime', 'robot', 'robot_titan', 'frost_wraith']);
+const MOB_CAUSES = new Set(['zombie', 'husk', 'frostbitten', 'spider', 'skeleton', 'slime', 'robot', 'robot_titan', 'frost_wraith', 'magma_colossus', 'thorn_guardian', 'tempest']);
+// The bosses: a health bar while near, kept far from where they wake, 5 minutes to return once defeated
+const BOSS_NAMES: Partial<Record<MobKind, string>> = { robot_titan: 'Robot Titan', frost_wraith: 'Frost Wraith', magma_colossus: 'Magma Colossus', thorn_guardian: 'Thorn Guardian', tempest: 'Tempest' };
+const BOSS_ACHIEVEMENTS: Partial<Record<MobKind, string>> = { robot_titan: 'titan', frost_wraith: 'wraith', magma_colossus: 'colossus', thorn_guardian: 'thorn', tempest: 'roc' };
+const FLOAT_HEIGHT: Partial<Record<MobKind, number>> = { frost_wraith: 2.5, tempest: 7 }; // flyers: how high above the ground
+const AIR_SECONDS = 15;      // breath underwater before drowning starts
+// Frame blocks of an Elemental World portal (placing the last one may light it; breaking one puts it out)
+const FRAME_BLOCKS = new Set([BLOCK_ID.etherite_block, BLOCK_ID.gold_block, BLOCK_ID.obitite_block, BLOCK_ID.moonstone_block, BLOCK_ID.elemental_frame]);
 const JET_SECONDS = 30;       // a full jetpack tank lasts this long
-const TITAN_RESPAWN = 30 * 60; // seconds after a Robot Titan is defeated before it wakes again
+const TITAN_RESPAWN = 5 * 60; // seconds after a boss (any of them) is defeated before it wakes again
 const MAX_PETS = 3;
 const MAX_HOLD = 6;          // stacks a collecting robot carries before bringing them to you
 const CLAIM_R = 16;          // a claim stone protects the 33 x 33 columns around it, top to bottom
@@ -172,7 +188,16 @@ interface Player {
   tpAsks: Map<string, number>; // players asking to teleport to this one -> clock time the request expires
   claimShown: string;        // owner of the claim the player is standing in, as last announced ('' none)
   slowT: number;             // seconds of being slowed by frost
-  inFrostPortal: boolean;    // standing in a Frost World portal (travel happens on stepping in)
+  inElemPortal: boolean;     // standing in an Elemental World portal (travel happens on stepping in)
+  air: number;               // seconds of breath left underwater
+  airShown: number;          // tenths of breath last sent
+  poisonT: number;           // seconds left poisoned
+  fireT: number;             // seconds left on fire
+  effectT: number;           // timer for poison and fire damage (once a second)
+  statusShown: string;       // poison/fire seconds last sent
+  magmaT: number;            // standing on magma burns once a second
+  fireballCd: number;        // the lava chestplate's fireball cooldown
+  maxShown: number;          // maximum health last sent
 }
 interface Mob {
   kind: MobKind; eid: number; body: Body; yaw: number; targetYaw: number; health: number;
@@ -184,10 +209,25 @@ interface Mob {
   guard?: [number, number, number]; // where a guarding robot stands
   hold?: Stack[];            // what a collecting robot is carrying back to its owner
   slowT?: number;            // seconds left of being chilled by glacite or frost
-  summonT?: number;          // the Frost Wraith: seconds until it calls up frostbitten again
+  moves?: Record<string, number>; // a boss's move cooldowns (seconds)
+  phase2?: boolean;          // a boss below half health: angrier, faster, new moves
+  held?: number[];           // the Magma Colossus: magma balls waiting to be thrown
+  throwT?: number;
+  stompT?: number;           // the Thorn Guardian: the warning before its stomp lands
+  burst?: number;            // the Tempest: lasers left in this burst
+  blindT?: number;           // a walking boss: seconds without sight of its target (then it leaps)
+  life?: number;             // a hurricane: seconds before it blows over
+  poisonT?: number;          // seconds left poisoned
+  fireT?: number;            // seconds left on fire
+  effectT?: number;
 }
 // arrow: set while an arrow is flying (it hurts the first player it hits, then lands as a normal item)
-interface Item { kind: 'item'; eid: number; type: string; count: number; body: Body; age: number; pickupDelay: number; arrow?: { damage: number }; keep?: boolean }
+// shot: a projectile in flight (a fireball, magma ball or icicle); see spawnShot
+type ShotKind = 'fireball' | 'magma_ball' | 'icicle';
+interface Shot { kind: ShotKind; damage: number; owner: number; ownerName: string; bossKind?: MobKind; byPlayer: boolean;
+  gravity?: boolean; fire?: number; freeze?: number; slow?: number; splash?: number; heldBy?: number; slot?: number }
+interface Item { kind: 'item'; eid: number; type: string; count: number; body: Body; age: number; pickupDelay: number; arrow?: { damage: number }; keep?: boolean; shot?: Shot }
+const SHOT_GRAVITY = 22;
 
 const rnd = (a: number, b: number) => a + Math.floor(Math.random() * (b - a + 1));
 const MOB_DROPS: Record<MobKind, () => [string, number][]> = {
@@ -202,7 +242,11 @@ const MOB_DROPS: Record<MobKind, () => [string, number][]> = {
   slime: () => [],
   slimelet: () => [['slime_ball', rnd(0, 2)]],
   robot_titan: () => [['obitite', rnd(6, 10)], ...(Math.random() < 0.5 ? [['laser_cannon_core', 1] as [string, number]] : [])],
-  frost_wraith: () => [['glacite', rnd(6, 10)], ...(Math.random() < 0.5 ? [['frost_heart', 1] as [string, number]] : [])],
+  frost_wraith: () => [['water_ore', rnd(2, 4)], ['glacite', rnd(6, 10)], ...(Math.random() < 0.5 ? [['frost_heart', 1] as [string, number]] : [])],
+  magma_colossus: () => [['lava_ore', rnd(2, 4)], ['obsidian', rnd(2, 5)], ['magma_block', rnd(1, 3)]],
+  thorn_guardian: () => [['earth_ore', rnd(2, 4)], ['moss_block', rnd(2, 5)], ['jungle_wood', rnd(2, 6)]],
+  hurricane: () => [],
+  tempest: () => [['wind_ore', rnd(2, 4)], ['feather', rnd(3, 8)], ['cloud', rnd(2, 6)]],
   robot: () => [...(Math.random() < 0.02 ? [['laser_cannon', 1] as [string, number]] : []), ['iron_ingot', rnd(0, 1)], ...(Math.random() < 0.15 ? [['tungsten_ingot', 1] as [string, number]] : []), ...(Math.random() < 0.25 ? [['robot_eye', 1] as [string, number]] : [])],
 };
 
@@ -321,7 +365,7 @@ export class Game {
     const p: Player = {
       kind: 'player', eid: this.nextEid++, name, look: sanitizeLook(hello.look), conn,
       body: makeBody(PLAYER_HALF_WIDTH, PLAYER_HEIGHT, pos), yaw: friend ? Math.atan2(pos.x - friend.body.pos.x, pos.z - friend.body.pos.z) : saved?.yaw || 0, pitch: saved?.pitch || 0, flags: MF_GROUND,
-      lastMove: this.clock, health: Math.max(1, Math.min(MAX_HEALTH, (carry && isNum(carry.health) ? carry.health : saved?.health) ?? MAX_HEALTH)), dead: false,
+      lastMove: this.clock, health: Math.max(1, Math.min(2 * MAX_HEALTH, (carry && isNum(carry.health) ? carry.health : saved?.health) ?? MAX_HEALTH)), dead: false,
       invuln: 2, sinceDamage: 99, regen: 0, lavaT: 0, cactusT: 0, fallStart: pos.y,
       food: this.difficulty === 'easy' ? MAX_FOOD : clampFood(carry && isNum(carry.food) ? carry.food : saved?.food), sat: isNum(saved?.saturation) ? Math.max(0, Math.min(MAX_FOOD, saved!.saturation!)) : 5,
       exhaustion: 0, foodT: 0, freezeT: 0,
@@ -335,8 +379,10 @@ export class Game {
       home: carry ? (saved ? { inv: saved.inv, health: saved.health, food: saved.food, saturation: saved.saturation } : { inv: { slots: [], cursor: null, selected: 0, ack: 0 }, health: MAX_HEALTH }) : undefined,
       cheated: !!saved?.cheated, portalCd: 0, bossHp: -1, awayAt: -1, blockedToastAt: -99, fireCd: 0,
       lastDeath: Array.isArray(saved?.death) && saved!.death!.length === 3 && saved!.death!.every(isNum) ? saved!.death! : null,
-      tpAsks: new Map(), claimShown: '', slowT: 0, inFrostPortal: false, achievements: new Set(Array.isArray(saved?.achievements) ? saved!.achievements!.filter(a => ACHIEVEMENT_IDS.has(a)) : []), jetFuel: isNum(saved?.jetFuel) ? Math.max(0, Math.min(1, saved!.jetFuel!)) : 0,
+      tpAsks: new Map(), claimShown: '', slowT: 0, inElemPortal: false,
+      air: AIR_SECONDS, airShown: 10, poisonT: 0, fireT: 0, effectT: 0, statusShown: '0,0', magmaT: 0, fireballCd: 0, maxShown: MAX_HEALTH, achievements: new Set(Array.isArray(saved?.achievements) ? saved!.achievements!.filter(a => ACHIEVEMENT_IDS.has(a)) : []), jetFuel: isNum(saved?.jetFuel) ? Math.max(0, Math.min(1, saved!.jetFuel!)) : 0,
     };
+    p.health = Math.min(p.health, this.maxHp(p)); // 20 hearts only while wearing earth leggings
     this.players.set(p.eid, p);
     if (Array.isArray(saved?.pets)) for (const raw of saved!.pets!.slice(0, MAX_PETS)) {
       const pet: PetSave | null = isNum(raw) ? { hp: raw } : raw && typeof raw === 'object' && isNum(raw.hp) ? raw : null;
@@ -399,6 +445,9 @@ export class Game {
     p.conn.send({ t: 'fuel', f: p.jetFuel });
     p.conn.send({ t: 'achievements', ids: [...p.achievements] });
     this.sendSquad(p);
+    p.maxShown = this.maxHp(p);
+    p.conn.send({ t: 'maxhp', max: p.maxShown });
+    p.conn.send({ t: 'health', hp: p.health });
   }
 
   // A player whose seat is held (or who is still connected in another tab) takes it back with the new connection
@@ -458,6 +507,7 @@ export class Game {
       case 'orbgo': return this.onOrbGo(p, msg);
       case 'tpreply': return this.onTpReply(p, msg.from, !!msg.accept);
       case 'squad': return this.onSquad(p, msg.order, msg.eid);
+      case 'fireball': return this.onFireball(p, msg);
       case 'dev': return this.onDev(p, msg);
       case 'giveup': if (p.downed) this.killPlayer(p, p.downCause, p.downBy); return;
       case 'move': return this.onMove(p, msg);
@@ -528,7 +578,7 @@ export class Game {
     if (!ground && !water) p.fallStart = Math.max(p.fallStart, b.pos.y);
     if (ground && !wasGround) {
       const fell = p.fallStart - b.pos.y;
-      if (fell > 3.5) this.damagePlayer(p, Math.floor(fell - 3), null, 'fall');
+      if (fell > 3.5 && !this.wearing(p, 'wind_boots')) this.damagePlayer(p, Math.floor(fell - 3), null, 'fall'); // wind boots: no fall damage
     }
     if (ground || water) p.fallStart = b.pos.y;
   }
@@ -589,7 +639,7 @@ export class Game {
     // Someone else's land (and only the owner can take up a claim stone)
     if (!this.canBuild(p, x, z) || (id === CLAIM_STONE && !this.ownsClaimStone(p, `${x},${y},${z}`))) { this.rejectBlock(p, x, y, z); return; }
     // A portal's frame can't be broken from outside a claim the portal reaches into
-    if ((id === BLOCK_ID.moonstone_block || id === BLOCK_ID.frost_frame) && this.frostPortalFrom(x, y, z).some(([a, , c]) => !this.canBuild(p, a, c))) { this.rejectBlock(p, x, y, z); return; }
+    if (FRAME_BLOCKS.has(id) && this.portalFrom(x, y, z).some(([a, , c]) => !this.canBuild(p, a, c))) { this.rejectBlock(p, x, y, z); return; }
     const heldType = p.inv.slots[p.inv.selected]?.type || null;
     const info = miningInfo(id, heldType);
     // Mining speed check: the time since the previous break must cover this block's mining time
@@ -597,7 +647,7 @@ export class Game {
     const creative = p.gamemode === 'creative';
     const needs = creative ? 0 : info.time * 0.75 - 0.1;
     // (bosses' altars and shrines, and Frost World portals, can't be broken even in creative)
-    const fixed = id === BLOCK_ID.altar_core || id === BLOCK_ID.frost_shrine || id === FROST_PORTAL;
+    const fixed = id === BLOCK_ID.altar_core || isShrine(id) || id === ELEM_PORTAL;
     if (p.dead || id === 0 || isLiquid(id) || fixed || (info.time === Infinity && !creative) || !this.inReach(p, x, y, z, REACH) || this.clock - p.lastDig < needs) {
       this.rejectBlock(p, x, y, z);
       return;
@@ -622,7 +672,7 @@ export class Game {
     }
     if (id === CLAIM_STONE && this.claims.delete(key)) p.conn.send({ t: 'chat', from: null, text: 'Claim removed: this land is open to everyone again.' });
     // Breaking a Frost World portal's frame puts the portal out
-    if (id === BLOCK_ID.moonstone_block || id === BLOCK_ID.frost_frame) this.extinguishFrostPortal(x, y, z);
+    if (FRAME_BLOCKS.has(id)) this.extinguishPortal(x, y, z);
     if (info.drops && !creative) this.dropBlock(id, cx, cy, cz);
     else if (BLOCKS[id].harvestTier >= 0) {
       p.conn.send({ t: 'toast', text: 'You need a better pickaxe to get anything from this' });
@@ -658,7 +708,8 @@ export class Game {
     for (let i = 0, yy = y; i < 24 && g(x, yy, z) === 0; i++, yy--) this.setBlock(x, yy, z, liquid);
   }
 
-  private onDev(p: Player, m: { give?: string; count?: number; spawn?: string; time?: number; tp?: { x: number; y: number; z: number }; blocks?: number[] }) {
+  private onDev(p: Player, m: { give?: string; count?: number; spawn?: string; time?: number; tp?: { x: number; y: number; z: number }; blocks?: number[];
+    equip?: (string | null)[]; heal?: boolean; enraged?: boolean; dist?: number; clearMobs?: boolean }) {
     if (!this.devTools) return;
     if (Array.isArray(m.blocks)) for (let i = 0; i + 3 < m.blocks.length; i += 4) {
       const [x, y, z, id] = m.blocks.slice(i, i + 4);
@@ -667,9 +718,19 @@ export class Game {
     if (m.tp && [m.tp.x, m.tp.y, m.tp.z].every(isNum)) this.teleport(p, m.tp.x, m.tp.y, m.tp.z);
     if (typeof m.give === 'string' && Object.prototype.hasOwnProperty.call(ITEMS, m.give)) { p.cheated = true; addItem(p.inv, m.give, isInt(m.count) ? Math.min(64, Math.max(1, m.count)) : 1); this.sendInv(p); }
     if (typeof m.spawn === 'string' && (MOB_KINDS as string[]).includes(m.spawn)) {
-      const a = p.yaw, x = p.body.pos.x - Math.sin(a) * 4, z = p.body.pos.z - Math.cos(a) * 4;
-      this.spawnMob(m.spawn as MobKind, x, this.world.surfaceHeight(Math.floor(x), Math.floor(z)) + 1, z);
+      const d = isNum(m.dist) ? Math.max(2, Math.min(20, m.dist)) : 4;
+      const a = p.yaw, x = p.body.pos.x - Math.sin(a) * d, z = p.body.pos.z - Math.cos(a) * d;
+      const mob = this.spawnMob(m.spawn as MobKind, x, this.world.surfaceHeight(Math.floor(x), Math.floor(z)) + 1, z);
+      if (m.enraged) mob.health = MOB_SPECS[mob.kind].health * 0.45; // a boss straight into phase two
     }
+    // Wear armour (slots: helmet, chestplate, leggings, boots), and full health
+    if (Array.isArray(m.equip)) {
+      p.cheated = true;
+      m.equip.slice(0, 4).forEach((t, i) => { p.inv.slots[55 + i] = typeof t === 'string' && ITEMS[t]?.armor?.slot === i ? { type: t, count: 1 } : null; });
+      this.sendInv(p); this.broadcastEquip(p);
+    }
+    if (m.clearMobs) for (const mob of [...this.mobs.values()]) if (!mob.owner) this.mobs.delete(mob.eid);
+    if (m.heal && !p.dead) { p.health = this.maxHp(p); p.downed = false; p.conn.send({ t: 'health', hp: p.health }); }
     if (isNum(m.time)) { this.time = ((m.time % 1) + 1) % 1; this.broadcast({ t: 'time', time: this.time }); }
   }
 
@@ -693,7 +754,11 @@ export class Game {
   private lootKind(x: number, y: number, z: number): LootKind {
     const { h, biome } = columnInfo(x, z, this.world.seed);
     if (biome === 'robotic') return roboticStructureAt(x, z, this.world.seed)?.kind === 'giant_robot' ? 'giant_robot' : 'ruin';
-    if (biome === 'frost') return 'frost_ruin';
+    if (isElemental(x)) {
+      const s = nearestShrine(x, z, this.world.seed);
+      if (s && Math.hypot(s.x - x, s.z - z) < 12) return `temple_${s.biome}`;
+      if (biome === 'frost') return 'frost_ruin';
+    }
     if (y < h - 8) return 'dungeon';
     if (biome === 'desert') return 'temple';
     if (biome === 'snowy' || biome === 'mountains') return 'igloo';
@@ -736,7 +801,7 @@ export class Game {
     if (def!.block === CHEST) this.chests.set(`${x},${y},${z}`, newChest());
     if (isBanner(def!.block!)) this.achieve(p, 'banner');
     if (def!.block === CLAIM_STONE) this.addClaim(p, x, y, z);
-    if (def!.block === BLOCK_ID.robot_eye || def!.block === BLOCK_ID.moonstone_block) this.tryLightFrostPortal(p, x, y, z, def!.block!);
+    if (def!.block === BLOCK_ID.robot_eye || FRAME_BLOCKS.has(def!.block!)) this.tryLightPortal(p, x, y, z, def!.block!);
     if (p.gamemode !== 'creative') removeFromSlot(p.inv, p.inv.selected, 1);
     this.sendInv(p);
     this.broadcastEquip(p);
@@ -759,7 +824,7 @@ export class Game {
     const { x, y, z } = m;
     if (p.dead || ![x, y, z].every(isInt) || !this.inReach(p, x, y, z, REACH)) { p.conn.send({ t: 'screen', mode: null }); return; }
     const id = this.world.get(x, y, z);
-    if (id === BLOCK_ID.gold_block || id === BLOCK_ID.portal_core) { if (isPortal(this.world.get, x, y, z) && !isFrost(x)) this.travel(p, x, z); return; }
+    if (id === BLOCK_ID.gold_block || id === BLOCK_ID.portal_core) { if (isPortal(this.world.get, x, y, z) && !isElemental(x)) this.travel(p, x, z); return; }
     if ((id === BLOCK_ID.furnace || id === CHEST) && !this.canBuild(p, x, z)) { p.conn.send({ t: 'screen', mode: null }); return; }
     if (p.screen) closeScreen(p.inv, (t, n) => this.dropFrom(p, t, n));
     p.screenAt = { x, y, z, id };
@@ -825,14 +890,14 @@ export class Game {
     const golden = it!.type === 'golden_apple';
     if (this.difficulty === 'easy') {
       // No hunger on Easy: food heals directly
-      if (p.health >= MAX_HEALTH) return;
-      p.health = Math.min(MAX_HEALTH, p.health + food);
+      if (p.health >= this.maxHp(p)) return;
+      p.health = Math.min(this.maxHp(p), p.health + food);
       p.conn.send({ t: 'toast', text: `Ate ${def!.name} (+${food / 2} ♥)` });
     } else {
       if (p.food >= MAX_FOOD && !golden) return;
       p.food = Math.min(MAX_FOOD, p.food + food);
       p.sat = Math.min(p.food, p.sat + food * 0.6);
-      if (golden) p.health = Math.min(MAX_HEALTH, p.health + 4);
+      if (golden) p.health = Math.min(this.maxHp(p), p.health + 4);
       this.sendFood(p);
     }
     removeFromSlot(p.inv, p.inv.selected, 1);
@@ -886,11 +951,17 @@ export class Game {
     const crit = !(p.flags & MF_GROUND) && !(p.flags & MF_WATER) && p.fallStart - p.body.pos.y > 0.15;
     if (crit) { dmg = Math.round(dmg * 1.5); p.conn.send({ t: 'crit' }); this.achieve(p, 'crit'); }
     const chill = !!(held && itemDef(held.type).chill); // glacite: the hit slows them
-    if (target.kind === 'player') { this.damagePlayer(target, dmg, p.body.pos, 'player', p.name); if (chill) this.slowPlayer(target, 2); }
-    else if (!target.owner) {
+    const poison = !!(held && itemDef(held.type).poison); // the poison sword
+    const kb = this.wearing(p, 'earth_leggings') ? 2.2 : 1; // earth leggings: your hits knock harder
+    if (target.kind === 'player') {
+      this.damagePlayer(target, dmg, p.body.pos, 'player', p.name, 7 * kb);
+      if (chill) this.slowPlayer(target, 2);
+      if (poison) this.poisonPlayer(target, 5);
+    } else if (!target.owner) {
       if (crit) target.hurt = 0;
-      this.damageMob(target, dmg, p.body.pos);
+      this.damageMob(target, dmg, p.body.pos, kb);
       if (chill) target.slowT = 3;
+      if (poison) target.poisonT = 5;
       if (target.dying >= 0 && MOB_SPECS[target.kind].hostile) this.achieve(p, 'monster');
     }
   }
@@ -996,7 +1067,7 @@ export class Game {
     if (mode === 'creative') {
       p.cheated = true;
       if (p.downed) { p.downed = false; p.conn.send({ t: 'revived' }); }
-      p.health = MAX_HEALTH; p.food = MAX_FOOD; p.sat = 5;
+      p.health = this.maxHp(p); p.food = MAX_FOOD; p.sat = 5;
       p.conn.send({ t: 'health', hp: p.health });
       this.sendFood(p);
     }
@@ -1007,7 +1078,8 @@ export class Game {
   private onRespawn(p: Player) {
     if (!p.dead) return;
     p.dead = false;
-    p.health = MAX_HEALTH;
+    p.health = this.maxHp(p);
+    p.poisonT = p.fireT = 0; p.air = AIR_SECONDS;
     p.invuln = 2;
     p.food = MAX_FOOD; p.sat = 5; p.exhaustion = 0; p.foodT = 0; p.freezeT = 0; p.downed = false;
     this.teleport(p, p.spawn[0], p.spawn[1], p.spawn[2]);
@@ -1062,29 +1134,30 @@ export class Game {
 
   // ---------------------------------------------------------------- The Frost World (a secret)
 
-  // A robot eye (or a moonstone block) just placed may finish a portal: the eyes turn into the portal
-  private tryLightFrostPortal(p: Player, x: number, y: number, z: number, placed: number) {
+  // A robot eye (or a frame block) just placed may finish a portal: the eyes turn into the portal
+  private tryLightPortal(p: Player, x: number, y: number, z: number, placed: number) {
     const eye = BLOCK_ID.robot_eye, g = this.world.get;
-    const tries: [number, number, number][] = placed === eye ? [[x, y, z]]
-      : ([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]] as const).map(([a, b, c]) => [x + a, y + b, z + c] as [number, number, number]).filter(([a, b, c]) => g(a, b, c) === eye);
+    const tries: [number, number, number][] = [];
+    if (placed === eye) tries.push([x, y, z]);
+    else for (let a = -2; a <= 2; a++) for (let b = -4; b <= 4; b++) for (let c = -2; c <= 2; c++) if (g(x + a, y + b, z + c) === eye) tries.push([x + a, y + b, z + c]); // (a corner touches no eye)
     for (const [a, b, c] of tries) {
-      const portal = findFrostPortal(g, a, b, c, eye);
+      const portal = findElementalPortal(g, a, b, c, eye);
       if (!portal) continue;
       // Only from the Overworld's middle (where it maps onto the Frost World) or the Frost World itself
-      const span = FROST_MAX_X - FROST_MIN_X;
-      if (isRobotic(portal.x) || (!isFrost(portal.x) && Math.abs(portal.x) > span / 2 - 64)) {
-        p.conn.send({ t: 'chat', from: null, text: 'The robot eyes flicker... but stay dark. The cold can\'t reach this far.' });
+      const span = ELEM_MAX_X - ELEM_MIN_X;
+      if (isRobotic(portal.x) || (!isElemental(portal.x) && Math.abs(portal.x) > span / 2 - 64)) {
+        p.conn.send({ t: 'chat', from: null, text: 'The robot eyes flicker... but stay dark. The elements can\'t reach this far.' });
         return;
       }
-      for (const [i, j, k] of portalCells(portal)) this.setBlock(i, j, k, FROST_PORTAL);
-      p.conn.send({ t: 'chat', from: null, text: 'The robot eyes flicker... and glow an icy blue.' });
-      this.log(`${p.name} lit a Frost World portal at ${portal.x},${portal.y},${portal.z}`);
+      for (const [i, j, k] of portalCells(portal)) this.setBlock(i, j, k, ELEM_PORTAL);
+      p.conn.send({ t: 'chat', from: null, text: 'The robot eyes flicker... and swirl with the light of the elements.' });
+      this.log(`${p.name} lit an Elemental World portal at ${portal.x},${portal.y},${portal.z}`);
       return;
     }
   }
 
   // The portal blocks touching this spot (and the rest of that portal)
-  private frostPortalFrom(x: number, y: number, z: number): [number, number, number][] {
+  private portalFrom(x: number, y: number, z: number): [number, number, number][] {
     const out: [number, number, number][] = [], seen = new Set<string>();
     const todo: [number, number, number][] = [[x + 1, y, z], [x - 1, y, z], [x, y + 1, z], [x, y - 1, z], [x, y, z + 1], [x, y, z - 1]];
     while (todo.length && out.length < 40) {
@@ -1092,20 +1165,20 @@ export class Game {
       const k = `${a},${b},${c}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      if (this.world.get(a, b, c) !== FROST_PORTAL) continue;
+      if (this.world.get(a, b, c) !== ELEM_PORTAL) continue;
       out.push([a, b, c]);
       todo.push([a + 1, b, c], [a - 1, b, c], [a, b + 1, c], [a, b - 1, c], [a, b, c + 1], [a, b, c - 1]);
     }
     return out;
   }
-  private extinguishFrostPortal(x: number, y: number, z: number) {
-    for (const [a, b, c] of this.frostPortalFrom(x, y, z)) this.setBlock(a, b, c, 0);
+  private extinguishPortal(x: number, y: number, z: number) {
+    for (const [a, b, c] of this.portalFrom(x, y, z)) this.setBlock(a, b, c, 0);
   }
 
   // Ground a return portal may be built on: never edited, not a loot chest or a boss's altar, not someone else's land
   private untouched(p: Player, x: number, y: number, z: number): boolean {
     const id = this.world.get(x, y, z);
-    if (id === CHEST || id === BLOCK_ID.altar_core || id === BLOCK_ID.frost_shrine || !this.world.isGenerated(x, y, z, id)) return false;
+    if (id === CHEST || id === BLOCK_ID.altar_core || isShrine(id) || !this.world.isGenerated(x, y, z, id)) return false;
     if (this.maxPlayers <= 1) return true;
     const c = this.claimAt(x, z);
     return !c || this.trusts(c.owner, p.name);
@@ -1122,19 +1195,19 @@ export class Game {
   }
 
   // Stepping into a portal: to the matching spot in the other world, in front of a portal there (built if missing)
-  private frostTravel(p: Player) {
+  private elementalTravel(p: Player) {
     if (p.dead || p.downed || this.clock < p.portalCd) return;
     p.portalCd = this.clock + 3;
     const g = this.world.get;
-    const { x: tx, z: tz } = frostDestination(p.body.pos.x, p.body.pos.z);
+    const { x: tx, z: tz } = elementalDestination(p.body.pos.x, p.body.pos.z);
     let at: { x: number; y: number; z: number; alongX: boolean } | null = null;
     for (let r = 0; r <= 10 && !at; r++) for (let dx = -r; dx <= r && !at; dx++) for (let dz = -r; dz <= r && !at; dz++) {
       if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
       const x = tx + dx, z = tz + dz, top = this.world.surfaceHeight(x, z);
       for (let y = top; y >= top - 8 && !at; y--) {
-        if (g(x, y, z) !== FROST_PORTAL) continue;
-        let by = y; while (g(x, by - 1, z) === FROST_PORTAL) by--;
-        at = { x, y: by, z, alongX: g(x + 1, y, z) === FROST_PORTAL || g(x - 1, y, z) === FROST_PORTAL };
+        if (g(x, y, z) !== ELEM_PORTAL) continue;
+        let by = y; while (g(x, by - 1, z) === ELEM_PORTAL) by--;
+        at = { x, y: by, z, alongX: g(x + 1, y, z) === ELEM_PORTAL || g(x - 1, y, z) === ELEM_PORTAL };
       }
     }
     // None there: build a return portal (its frame drops nothing), but only on untouched ground
@@ -1148,21 +1221,21 @@ export class Game {
       if (!untouched) continue;
       for (let i = -1; i <= 2; i++) for (let j = 0; j <= 4; j++) {
         const hole = i >= 0 && i <= 1 && j >= 1 && j <= 3;
-        this.setBlock(x + i, y + j, z, hole ? FROST_PORTAL : BLOCK_ID.frost_frame);
+        this.setBlock(x + i, y + j, z, hole ? ELEM_PORTAL : BLOCK_ID.elemental_frame);
         if (j >= 1 && j <= 3) for (const k of [-1, 1]) this.setBlock(x + i, y + j, z + k, 0); // room in front and behind
       }
       at = { x, y: y + 1, z, alongX: true };
     }
-    if (isFrost(tx)) this.achieve(p, 'frost');
+    if (isElemental(tx)) this.achieve(p, 'frost');
     if (at) {
       // Step out in front of it (not inside, or we'd go straight back)
       const front = at.alongX ? [{ x: at.x + 1, z: at.z + 1.5 }, { x: at.x + 1, z: at.z - 0.5 }] : [{ x: at.x + 1.5, z: at.z + 1 }, { x: at.x - 0.5, z: at.z + 1 }];
       const spot = front.find(s => !boxIntersectsSolid(g, s.x, at!.y, s.z, PLAYER_HALF_WIDTH, PLAYER_HEIGHT)) ?? front[0];
       this.teleport(p, spot.x, at.y, spot.z);
     } else this.teleport(p, tx + 0.5, this.world.surfaceHeight(tx, tz) + 1, tz + 0.5);
-    p.inFrostPortal = false;
+    p.inElemPortal = false;
     this.bringFollowers(p);
-    const there = isFrost(tx) ? 'the Frost World' : 'the Overworld';
+    const there = isElemental(tx) ? `the Elemental World (${BIOME_NAMES[elementalBiome(tx, tz, this.world.seed)]})` : 'the Overworld';
     p.conn.send({ t: 'chat', from: null, text: `You travelled to ${there}.` });
     this.log(`${p.name} travelled to ${there}`);
   }
@@ -1172,39 +1245,6 @@ export class Game {
     if (this.holding(p, 'frost_heart') || p.gamemode === 'creative') return;
     p.slowT = Math.max(p.slowT, seconds);
     p.conn.send({ t: 'slow', seconds: p.slowT });
-  }
-
-  // The Frost Wraith floats over the snow, fires ice beams that slow you, calls up frostbitten, and chills you up close
-  private updateWraith(m: Mob, target: Player | null, dist: number, dt: number) {
-    const b = m.body, spec = MOB_SPECS.frost_wraith;
-    m.summonT = (m.summonT ?? 12) - dt;
-    if (!target || dist > 32 || Math.abs(target.body.pos.y - b.pos.y) > 30) { m.moving = false; return; }
-    const t = target.body.pos;
-    m.targetYaw = Math.atan2(-(t.x - b.pos.x), -(t.z - b.pos.z));
-    m.moving = dist > 6;
-    if (m.summonT <= 0) {
-      m.summonT = this.difficulty === 'hard' ? 12 : 18;
-      let n = 0;
-      for (let k = 0; k < 8 && n < 2; k++) {
-        const a = Math.random() * Math.PI * 2, x = Math.floor(t.x + Math.cos(a) * 4), z = Math.floor(t.z + Math.sin(a) * 4);
-        const y = this.world.surfaceHeight(x, z) + 1;
-        if (Math.abs(y - t.y) > 4 || boxIntersectsSolid(this.world.get, x + 0.5, y, z + 0.5, MOB_SPECS.frostbitten.halfW, MOB_SPECS.frostbitten.height)) continue;
-        this.spawnMob('frostbitten', x + 0.5, y, z + 0.5); n++;
-      }
-      if (n) this.tellNear(b.pos.x, b.pos.z, 48, 'The Frost Wraith calls up the frozen dead!');
-    }
-    if (m.attackCd > 0) return;
-    const close = dist < spec.halfW + 1.8 && Math.abs(t.y - b.pos.y) < 4;
-    if (close) { this.damagePlayer(target, spec.damage!, b.pos, 'frost_wraith'); this.slowPlayer(target, 3); m.attackCd = 1.2; return; }
-    if (Math.hypot(dist, t.y - b.pos.y) < 32 && this.canSee(b, target)) {
-      const hit = Math.random() < 0.75;
-      const miss = hit ? 0 : 1.5;
-      const to = { x: t.x + (Math.random() - 0.5) * miss * 2, y: t.y + 1.2 + (Math.random() - 0.5) * miss, z: t.z + (Math.random() - 0.5) * miss * 2 };
-      const msg: ServerMsg = { t: 'beam', a: [b.pos.x, b.pos.y + b.height * 0.75, b.pos.z], b: [to.x, to.y, to.z], ice: true };
-      for (const o of this.players.values()) if (Math.abs(o.body.pos.x - b.pos.x) < VIEW_DIST && Math.abs(o.body.pos.z - b.pos.z) < VIEW_DIST) o.conn.send(msg);
-      if (hit) { this.damagePlayer(target, 6, b.pos, 'frost_wraith'); this.slowPlayer(target, 3); }
-      m.attackCd = this.difficulty === 'hard' ? 1.6 : 2.2;
-    }
   }
 
   // ---------------------------------------------------------------- Claims (claim stones)
@@ -1411,7 +1451,7 @@ export class Game {
 
   // ---------------------------------------------------------------- The Robot Titan (the boss)
 
-  // A player near an altar wakes its Titan (unless it's already up, or was defeated less than 30 minutes ago)
+  // A player near an altar wakes its Titan (unless it's already up, or was defeated less than 5 minutes ago)
   private wakeTitans() {
     for (const p of this.players.values()) {
       if (p.dead || !isRobotic(p.body.pos.x)) continue;
@@ -1427,29 +1467,427 @@ export class Game {
     }
   }
 
-  // The Frost Wraith rises from its shrine when a player comes near (the same 30 minutes after it's defeated)
+  // Each Elemental World shrine's boss rises when a player comes near (and 5 minutes after it's defeated)
   private wakeWraiths() {
     for (const p of this.players.values()) {
-      if (p.dead || !isFrost(p.body.pos.x)) continue;
+      if (p.dead || !isElemental(p.body.pos.x)) continue;
       const s = nearestShrine(p.body.pos.x, p.body.pos.z, this.world.seed);
       if (!s || Math.hypot(s.x + 0.5 - p.body.pos.x, s.z + 0.5 - p.body.pos.z) > 40) continue;
       if ((this.titanWakes.get(s.key) ?? 0) > this.clock) continue;
       if ([...this.mobs.values()].some(m => m.altar === s.key)) continue;
-      if (this.world.get(s.x, s.y - 1, s.z) !== BLOCK_ID.frost_shrine) continue;
-      const m = this.spawnMob('frost_wraith', s.x + 0.5, s.y + 2, s.z + 0.5);
-      m.altar = s.key; m.attackCd = 2; m.summonT = 10;
-      this.tellNear(s.x, s.z, 128, 'The Frost Wraith rises from its shrine!');
-      this.log(`Frost Wraith woke at shrine ${s.key}`);
+      if (this.world.get(s.x, s.y - 1, s.z) !== BLOCK_ID[SHRINE_CORE[s.biome]]) continue;
+      const kind = SHRINE_BOSS[s.biome];
+      const m = this.spawnMob(kind, s.x + 0.5, s.y + (FLOAT_HEIGHT[kind] ?? 0), s.z + 0.5);
+      m.altar = s.key; m.attackCd = 2;
+      this.tellNear(s.x, s.z, 128, `The ${BOSS_NAMES[kind]} rises from its shrine!`);
+      this.log(`${BOSS_NAMES[kind]} woke at shrine ${s.key}`);
     }
   }
 
   private titanDefeated(m: Mob) {
     this.titanWakes.set(m.altar!, this.clock + TITAN_RESPAWN);
     this.dirty = true;
-    const wraith = m.kind === 'frost_wraith';
-    this.tellNear(m.body.pos.x, m.body.pos.z, 128, wraith ? 'The Frost Wraith shatters! It will rise again in 30 minutes.' : 'The Robot Titan has been defeated! It will wake again in 30 minutes.');
-    for (const p of this.players.values()) if (Math.hypot(p.body.pos.x - m.body.pos.x, p.body.pos.z - m.body.pos.z) < 48) this.achieve(p, wraith ? 'wraith' : 'titan');
-    this.log(`${wraith ? 'Frost Wraith' : 'Robot Titan'} at ${m.altar} defeated`);
+    const name = BOSS_NAMES[m.kind] ?? 'boss';
+    this.tellNear(m.body.pos.x, m.body.pos.z, 128, `The ${name} has been defeated! It will return in ${TITAN_RESPAWN / 60} minutes.`);
+    const ach = BOSS_ACHIEVEMENTS[m.kind];
+    if (ach) for (const p of this.players.values()) if (Math.hypot(p.body.pos.x - m.body.pos.x, p.body.pos.z - m.body.pos.z) < 48) this.achieve(p, ach);
+    this.log(`${name} at ${m.altar} defeated`);
+  }
+
+  // ---------------------------------------------------------------- The Elemental World's bosses
+
+  // A boss's aimed attack shown to everyone nearby (lightning, thorns, the Tempest's core laser), from its body to the target
+  private bossBeam(m: Mob, to: { x: number; y: number; z: number }, color: number, from?: { x: number; y: number; z: number }) {
+    const b = m.body, a = from ?? { x: b.pos.x, y: b.pos.y + b.height * 0.7, z: b.pos.z };
+    const msg: ServerMsg = { t: 'beam', a: [a.x, a.y, a.z], b: [to.x, to.y, to.z], color };
+    for (const o of this.players.values()) if (Math.abs(o.body.pos.x - b.pos.x) < VIEW_DIST && Math.abs(o.body.pos.z - b.pos.z) < VIEW_DIST) o.conn.send(msg);
+  }
+
+  // A visual effect for everyone nearby (explosions, shockwaves, warnings where icicles will land...)
+  private fx(kind: Extract<ServerMsg, { t: 'fx' }>['kind'], x: number, y: number, z: number, r = 1) {
+    const msg: ServerMsg = { t: 'fx', kind, x, y, z, r };
+    for (const o of this.players.values()) if (Math.abs(o.body.pos.x - x) < VIEW_DIST && Math.abs(o.body.pos.z - z) < VIEW_DIST) o.conn.send(msg);
+  }
+
+  // Players a boss's area attack reaches: alive, standing (not down), within r blocks (and h up or down)
+  private playersNear(x: number, y: number, z: number, r: number, h = 4) {
+    return [...this.players.values()].filter(p => !p.dead && !p.downed && p.gamemode !== 'creative' && Math.hypot(p.body.pos.x - x, p.body.pos.z - z) <= r && Math.abs(p.body.pos.y - y) <= h);
+  }
+
+  // Each boss has several moves on their own timers, and a second, angrier phase below half health:
+  //   Frost Wraith: icicle volleys, icicle rain (marked where it will land; freezes), a frost nova (freezes everyone close),
+  //     calls up frostbitten, a chilling touch.
+  //   Magma Colossus: fireballs; gathers five magma balls and throws them one by one (10 hearts each, without armour);
+  //     slams the ground; in phase two, fireballs rain from the sky.
+  //   Thorn Guardian: poison thorns; roots; a stomp that hurts everything nearby and throws it 8 blocks; in phase two,
+  //     poison spores all around.
+  //   Tempest: lasers from its core (bursts of three in phase two), gusts, and hurricanes that chase you and fling you up.
+  private updateElementalBoss(m: Mob, target: Player | null, dist: number, dt: number) {
+    const b = m.body, spec = MOB_SPECS[m.kind];
+    const cd = m.moves ??= {};
+    for (const k in cd) cd[k] -= dt;
+    const ready = (move: string, every: number, first = every / 2) => {
+      if (cd[move] === undefined) cd[move] = first;
+      if (cd[move] > 0) return false;
+      cd[move] = every * (m.phase2 ? 0.6 : 1) * (this.difficulty === 'hard' ? 0.8 : 1);
+      return true;
+    };
+    const name = BOSS_NAMES[m.kind] ?? 'boss';
+    if (!m.phase2 && m.health <= spec.health * 0.5) {
+      m.phase2 = true;
+      this.tellNear(b.pos.x, b.pos.z, 64, `The ${name} is enraged!`);
+      this.fx('enrage', b.pos.x, b.pos.y + b.height / 2, b.pos.z, 3);
+    }
+    // Magma balls already gathered are thrown one by one, whatever else is going on
+    if (m.kind === 'magma_colossus' && m.held?.length) {
+      m.throwT = (m.throwT ?? 0) - dt;
+      // (only at someone in range and in sight; otherwise the balls keep circling until they are)
+      if (m.throwT <= 0 && target && dist <= 40 && Math.abs(target.body.pos.y - b.pos.y) <= 30 && this.canSee(b, target)) { m.throwT = m.phase2 ? 0.45 : 0.7; this.throwMagma(m, m.held.shift()!, target); }
+    }
+    if (!target || dist > 40 || Math.abs(target.body.pos.y - b.pos.y) > 30) { m.moving = false; return; }
+    const t = target.body.pos;
+    m.targetYaw = Math.atan2(-(t.x - b.pos.x), -(t.z - b.pos.z));
+    const sees = this.canSee(b, target);
+    // Walkers that lose sight of you (behind a pillar, up a step) leap towards you after a while
+    if (m.kind !== 'tempest' && m.kind !== 'frost_wraith') {
+      m.blindT = sees ? 0 : (m.blindT ?? 0) + dt;
+      if (m.blindT > 4 && b.onGround) {
+        m.blindT = 0;
+        const len = Math.max(1, dist);
+        b.vel.x = (t.x - b.pos.x) / len * 9; b.vel.z = (t.z - b.pos.z) / len * 9; b.vel.y = 13;
+      }
+    }
+    const core = { x: b.pos.x, y: b.pos.y + b.height * 0.6, z: b.pos.z };
+    const aim = (tx: number, ty: number, tz: number, speed: number) => { const dx = tx - core.x, dy = ty - core.y, dz = tz - core.z, l = Math.hypot(dx, dy, dz) || 1; return { x: dx / l * speed, y: dy / l * speed, z: dz / l * speed }; };
+
+    if (m.kind === 'frost_wraith') {
+      m.moving = dist > 6;
+      if (dist < 7 && ready('nova', 12)) {
+        this.fx('nova', b.pos.x, b.pos.y + 1, b.pos.z, 7);
+        for (const p of this.playersNear(b.pos.x, b.pos.y, b.pos.z, 7, 6)) { this.damagePlayer(p, 3, b.pos, 'frost_wraith'); this.freezePlayer(p, 2); }
+        return;
+      }
+      if (ready('rain', 9)) {
+        // Icicles fall around you (and right on you); each spot is marked on the ground first
+        const n = m.phase2 ? 8 : 5;
+        for (let k = 0; k < n; k++) {
+          const r = k === 0 ? 0 : 1.5 + Math.random() * 2.5, a = Math.random() * Math.PI * 2;
+          const x = t.x + Math.cos(a) * r, z = t.z + Math.sin(a) * r, gy = this.world.surfaceHeight(Math.floor(x), Math.floor(z)) + 1;
+          this.fx('mark', x, Math.min(gy, t.y + 6), z, 1);
+          this.spawnShot('icicle', { x, y: t.y + 12 + Math.random() * 3, z }, { x: 0, y: -2, z: 0 }, m.eid, false, 6, { gravity: true, freeze: 1.5, splash: 1.2 });
+        }
+        return;
+      }
+      if (ready('summon', 18)) {
+        let n = 0;
+        for (let k = 0; k < 8 && n < 2; k++) {
+          const a = Math.random() * Math.PI * 2, x = Math.floor(t.x + Math.cos(a) * 4), z = Math.floor(t.z + Math.sin(a) * 4);
+          const y = this.world.surfaceHeight(x, z) + 1;
+          if (Math.abs(y - t.y) > 4 || boxIntersectsSolid(this.world.get, x + 0.5, y, z + 0.5, MOB_SPECS.frostbitten.halfW, MOB_SPECS.frostbitten.height)) continue;
+          this.spawnMob('frostbitten', x + 0.5, y, z + 0.5); n++;
+        }
+        if (n) this.tellNear(b.pos.x, b.pos.z, 48, 'The Frost Wraith calls up the frozen dead!');
+        return;
+      }
+      if (m.attackCd > 0) return;
+      if (dist < spec.halfW + 1.8 && Math.abs(t.y - b.pos.y) < 4) { this.damagePlayer(target, spec.damage!, b.pos, 'frost_wraith'); this.slowPlayer(target, 3); m.attackCd = 1.2; return; }
+      if (sees) {
+        // A volley of icicles, fanned out
+        const n = m.phase2 ? 5 : 3;
+        for (let k = 0; k < n; k++) {
+          const spread = (k - (n - 1) / 2) * 0.9;
+          const v = aim(t.x + spread * Math.cos(m.yaw), t.y + 1.2, t.z - spread * Math.sin(m.yaw), 22);
+          this.spawnShot('icicle', { ...core }, v, m.eid, false, 4, { slow: 2 });
+        }
+        m.attackCd = this.difficulty === 'hard' ? 1.8 : 2.4;
+      }
+      return;
+    }
+
+    if (m.kind === 'magma_colossus') {
+      m.moving = dist > (m.phase2 ? 5 : 7);
+      if (ready('barrage', 16, 6) && !m.held?.length) {
+        // Gathers five balls of magma over its head...
+        m.held = [];
+        for (let k = 0; k < 5; k++) m.held.push(this.spawnShot('magma_ball', { ...core }, { x: 0, y: 0, z: 0 }, m.eid, false, 20, { gravity: true, fire: 4, splash: 2, heldBy: m.eid, slot: k }));
+        m.throwT = 1.4;
+        this.tellNear(b.pos.x, b.pos.z, 48, 'The Magma Colossus gathers balls of magma!');
+        return;
+      }
+      if (dist < 6 && ready('slam', 11)) {
+        this.fx('slam', b.pos.x, b.pos.y + 0.1, b.pos.z, 6);
+        for (const p of this.playersNear(b.pos.x, b.pos.y, b.pos.z, 6, 3)) { this.damagePlayer(p, 5, b.pos, 'magma_colossus', undefined, 12, 7); this.burnPlayer(p, 3); }
+        this.tellNear(b.pos.x, b.pos.z, 32, 'The Magma Colossus slams the ground!');
+        return;
+      }
+      if (m.phase2 && ready('eruption', 8)) {
+        // Fireballs rain from the sky around you
+        for (let k = 0; k < 4; k++) {
+          const a = Math.random() * Math.PI * 2, r = k === 0 ? 0 : 2 + Math.random() * 3;
+          this.spawnShot('fireball', { x: t.x + Math.cos(a) * r, y: t.y + 16, z: t.z + Math.sin(a) * r }, { x: 0, y: -10, z: 0 }, m.eid, false, 5, { gravity: true, fire: 3, splash: 1.5 });
+        }
+        this.tellNear(b.pos.x, b.pos.z, 48, 'The volcano erupts!');
+        return;
+      }
+      if (m.attackCd > 0) return;
+      if (dist < spec.halfW + 1.6 && Math.abs(t.y - b.pos.y) < 3) { this.damagePlayer(target, spec.damage!, b.pos, m.kind); m.attackCd = 1.2; return; }
+      if (sees) {
+        this.spawnShot('fireball', { ...core }, aim(t.x, t.y + 1, t.z, 18), m.eid, false, 5, { fire: 3 });
+        m.attackCd = this.difficulty === 'hard' ? 1.8 : 2.6;
+      }
+      return;
+    }
+
+    if (m.kind === 'thorn_guardian') {
+      m.moving = dist > spec.halfW + 1.2 && (m.stompT ?? -1) < 0;
+      // The stomp: it rears up (a short warning), then the ground shakes
+      if (m.stompT !== undefined && m.stompT >= 0) {
+        m.stompT -= dt;
+        if (m.stompT < 0) this.stomp(m);
+        return;
+      }
+      if (dist < 9 && ready('stomp', 9, 4)) { m.stompT = 0.8; this.fx('charge', b.pos.x, b.pos.y, b.pos.z, 8); return; }
+      if (dist < 16 && ready('roots', 13)) { this.slowPlayer(target, 3); target.conn.send({ t: 'toast', text: 'Roots grab your feet!' }); return; }
+      if (m.phase2 && ready('spores', 8)) {
+        this.fx('spores', b.pos.x, b.pos.y + 1, b.pos.z, 10);
+        for (const p of this.playersNear(b.pos.x, b.pos.y, b.pos.z, 10, 6)) this.poisonPlayer(p, 4);
+        this.tellNear(b.pos.x, b.pos.z, 32, 'The Thorn Guardian bursts into poison spores!');
+        return;
+      }
+      if (m.attackCd > 0) return;
+      if (dist < spec.halfW + 1.6 && Math.abs(t.y - b.pos.y) < 3) { this.damagePlayer(target, spec.damage!, b.pos, m.kind); m.attackCd = 1.2; return; }
+      if (sees) {
+        const hit = Math.random() < 0.75;
+        this.bossBeam(m, { x: t.x + (hit ? 0 : 1.5), y: t.y + 1, z: t.z }, 0x60d040);
+        if (hit) { this.damagePlayer(target, 4, b.pos, 'thorn_guardian'); this.poisonPlayer(target, 4); }
+        m.attackCd = this.difficulty === 'hard' ? 1.6 : 2.2;
+      }
+      return;
+    }
+
+    // The Tempest: circles above you
+    m.moving = true;
+    if (dist < 9) m.targetYaw += Math.PI / 2;
+    if (ready('hurricanes', 15, 5)) {
+      const n = m.phase2 ? 3 : 2;
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2 + Math.random(), x = t.x + Math.cos(a) * 7, z = t.z + Math.sin(a) * 7;
+        // On the ground near the player (the sky arena floats high above the clouds: never down there)
+        let gy: number | null = null;
+        for (let y = Math.floor(t.y) + 3; y >= Math.floor(t.y) - 4 && gy === null; y--) {
+          if (isSolid(this.world.get(Math.floor(x), y - 1, Math.floor(z))) && !isSolid(this.world.get(Math.floor(x), y, Math.floor(z)))) gy = y;
+        }
+        if (gy === null) continue;
+        const h = this.spawnMob('hurricane', x, gy, z);
+        h.life = 12;
+      }
+      this.tellNear(b.pos.x, b.pos.z, 48, 'The Tempest summons hurricanes!');
+      return;
+    }
+    if (ready('gust', 9)) {
+      this.fx('gust', b.pos.x, b.pos.y, b.pos.z, 12);
+      for (const p of this.playersNear(b.pos.x, b.pos.y, b.pos.z, 12, 16)) this.damagePlayer(p, 1, b.pos, 'tempest', undefined, 20);
+      this.tellNear(b.pos.x, b.pos.z, 32, 'The Tempest beats up a gust!');
+      return;
+    }
+    // Lasers from its core: one at a time, or bursts of three when enraged
+    if ((m.burst ?? 0) > 0 && m.attackCd <= 0) {
+      m.burst!--;
+      m.attackCd = m.burst! > 0 ? 0.3 : (this.difficulty === 'hard' ? 1.6 : 2.2);
+      const hit = sees && Math.random() < 0.7;
+      this.bossBeam(m, { x: t.x + (hit ? 0 : 1.5), y: t.y + 1, z: t.z }, 0xffd040, core);
+      if (hit) this.damagePlayer(target, 5, b.pos, 'tempest');
+      return;
+    }
+    if (m.attackCd <= 0 && sees) m.burst = m.phase2 ? 3 : 1;
+  }
+
+  // The Thorn Guardian's stomp: everything nearby (players and mobs) is hurt and thrown about 8 blocks away
+  private stomp(m: Mob) {
+    const b = m.body;
+    this.fx('stomp', b.pos.x, b.pos.y + 0.1, b.pos.z, 8);
+    for (const p of this.playersNear(b.pos.x, b.pos.y, b.pos.z, 8, 4)) this.damagePlayer(p, 6, b.pos, 'thorn_guardian', undefined, 26, 9);
+    for (const o of this.mobs.values()) {
+      if (o === m || o.dying >= 0 || BOSS_NAMES[o.kind] || o.kind === 'hurricane') continue;
+      const dx = o.body.pos.x - b.pos.x, dz = o.body.pos.z - b.pos.z, d = Math.hypot(dx, dz);
+      if (d > 8 || Math.abs(o.body.pos.y - b.pos.y) > 4) continue;
+      o.hurt = 0;
+      o.health -= 6;
+      if (o.health <= 0) o.dying = 0;
+      o.body.vel.x = (dx / (d || 1)) * 20; o.body.vel.z = (dz / (d || 1)) * 20; o.body.vel.y = 9;
+      o.hurt = 0.5;
+    }
+    this.tellNear(b.pos.x, b.pos.z, 32, 'The Thorn Guardian stomps!');
+  }
+
+  // A magma ball leaves the Colossus's crown in a high arc that lands on you
+  private throwMagma(m: Mob, eid: number, target: Player) {
+    const it = this.items.get(eid);
+    if (!it?.shot) return;
+    const s = it.shot, from = it.body.pos, t = target.body.pos;
+    s.heldBy = undefined;
+    const dx = t.x - from.x, dz = t.z - from.z, dy = t.y + 0.5 - from.y;
+    const T = Math.max(0.7, Math.min(1.6, Math.hypot(dx, dz) / 13));
+    it.body.vel.x = dx / T; it.body.vel.z = dz / T; it.body.vel.y = dy / T + 0.5 * SHOT_GRAVITY * T;
+    it.age = 0;
+  }
+
+  // The Tempest's hurricanes: they chase the nearest player, fling them high into the air, and blow over after a while
+  private updateHurricane(m: Mob, target: Player | null, dist: number, dt: number) {
+    m.life = (m.life ?? 12) - dt;
+    if (m.life <= 0) { this.mobs.delete(m.eid); return; }
+    if (target) { m.targetYaw = Math.atan2(-(target.body.pos.x - m.body.pos.x), -(target.body.pos.z - m.body.pos.z)); m.moving = dist > 0.5; }
+    m.attackCd = Math.max(0, m.attackCd);
+    if (m.attackCd > 0) return;
+    for (const p of this.playersNear(m.body.pos.x, m.body.pos.y, m.body.pos.z, MOB_SPECS.hurricane.halfW + 0.6, 4)) {
+      this.damagePlayer(p, 1, { x: m.body.pos.x, y: m.body.pos.y - 3, z: m.body.pos.z }, 'tempest', undefined, 4, 16);
+      m.attackCd = 0.6;
+    }
+  }
+
+  // ---------------------------------------------------------------- Elemental armour, fire, poison, breath
+
+  private wearing(p: Player, type: string) {
+    for (let i = 55; i <= 58; i++) if (p.inv.slots[i]?.type === type) return true;
+    return false;
+  }
+  // 20 hearts while wearing earth leggings, else 10
+  private maxHp(p: Player) { return p.inv.slots[57]?.type === 'earth_leggings' ? 2 * MAX_HEALTH : MAX_HEALTH; }
+  private fireproof(p: Player) { return this.wearing(p, 'lava_chestplate') || this.fullSet(p, 'obitite'); }
+
+  private poisonPlayer(p: Player, seconds: number) {
+    if (p.gamemode === 'creative' || p.dead) return;
+    p.poisonT = Math.max(p.poisonT, seconds);
+  }
+  private burnPlayer(p: Player, seconds: number) {
+    if (p.gamemode === 'creative' || p.dead || this.fireproof(p)) return;
+    p.fireT = Math.max(p.fireT, seconds);
+  }
+
+  // The lava chestplate: . shoots a fireball where you aim
+  private onFireball(p: Player, m: { dx: number; dy: number; dz: number }) {
+    if (p.dead || p.downed || p.fireballCd > this.clock || !this.wearing(p, 'lava_chestplate') || ![m.dx, m.dy, m.dz].every(isNum)) return;
+    const len = Math.hypot(m.dx, m.dy, m.dz);
+    if (len < 0.5 || len > 2) return;
+    p.fireballCd = this.clock + 1.2;
+    p.swingUntil = this.clock + 0.25;
+    const e = this.eye(p), dir = { x: m.dx / len, y: m.dy / len, z: m.dz / len };
+    this.spawnShot('fireball', { x: e.x + dir.x * 0.8, y: e.y - 0.2 + dir.y * 0.8, z: e.z + dir.z * 0.8 }, { x: dir.x * 20, y: dir.y * 20, z: dir.z * 20 }, p.eid, true, 6, { fire: 3, splash: 1 });
+  }
+
+  // A projectile: a fireball, a magma ball or an icicle. It flies (falling, if it has weight) until it hits something or a
+  // wall; magma and falling icicles also hurt everyone close to where they land. A magma ball can wait, circling its
+  // boss's head (heldBy), until it's thrown. Returns its id.
+  private spawnShot(kind: ShotKind, from: { x: number; y: number; z: number }, vel: { x: number; y: number; z: number }, owner: number, byPlayer: boolean, damage: number,
+    opts: { gravity?: boolean; fire?: number; freeze?: number; slow?: number; splash?: number; heldBy?: number; slot?: number } = {}): number {
+    // (shots never push out dropped items at the item limit: they're short-lived)
+    const it: Item = { kind: 'item', eid: this.nextEid++, type: kind, count: 1, body: makeBody(kind === 'magma_ball' ? 0.35 : 0.15, kind === 'magma_ball' ? 0.7 : 0.3, { ...from }, { ...vel }),
+      age: 0, pickupDelay: 99, shot: { kind, damage, owner, ownerName: this.players.get(owner)?.name ?? '', bossKind: this.mobs.get(owner)?.kind, byPlayer, ...opts } };
+    this.items.set(it.eid, it);
+    return it.eid;
+  }
+
+  private updateShot(it: Item, dt: number) {
+    const b = it.body, s = it.shot!;
+    if (s.heldBy !== undefined) {
+      // Circling its boss's head, waiting to be thrown
+      const boss = this.mobs.get(s.heldBy);
+      if (!boss || boss.dying >= 0) { this.items.delete(it.eid); return; }
+      const a = this.clock * 2.5 + (s.slot ?? 0) * (Math.PI * 2 / 5);
+      b.pos.x = boss.body.pos.x + Math.cos(a) * 2.2; b.pos.z = boss.body.pos.z + Math.sin(a) * 2.2; b.pos.y = boss.body.pos.y + boss.body.height + 1;
+      it.age = 0;
+      return;
+    }
+    if (it.age > 6) { this.items.delete(it.eid); return; }
+    if (s.gravity) b.vel.y = Math.max(-40, b.vel.y - SHOT_GRAVITY * dt);
+    const steps = 4;
+    for (let k = 0; k < steps; k++) {
+      b.pos.x += b.vel.x * dt / steps; b.pos.y += b.vel.y * dt / steps; b.pos.z += b.vel.z * dt / steps;
+      if (isSolid(this.world.get(Math.floor(b.pos.x), Math.floor(b.pos.y), Math.floor(b.pos.z)))) { this.shotLands(it, null); return; }
+      const inBox = (e: { body: Body }) => { const q = e.body.pos; return Math.abs(q.x - b.pos.x) < e.body.halfW + 0.25 && Math.abs(q.z - b.pos.z) < e.body.halfW + 0.25 && b.pos.y > q.y - 0.2 && b.pos.y < q.y + e.body.height + 0.2; };
+      for (const p of this.players.values()) {
+        if (p.eid === s.owner || p.dead || p.downed || !inBox(p)) continue;
+        this.shotLands(it, p); return;
+      }
+      for (const m of this.mobs.values()) {
+        // A player's shot hits wild monsters and animals (never tamed robots, like a sword); a boss's hits only robots
+        if (m.eid === s.owner || m.dying >= 0 || m.kind === 'hurricane' || !inBox(m) || (s.byPlayer ? !!m.owner : !m.owner)) continue;
+        this.shotLands(it, m); return;
+      }
+    }
+  }
+
+  // Where a shot lands: what it hit takes the damage (and burns, freezes...), and so does everyone close if it splashes
+  private shotLands(it: Item, hit: Player | Mob | null) {
+    const s = it.shot!, at = it.body.pos;
+    this.items.delete(it.eid);
+    this.fx(s.kind === 'icicle' ? 'shatter' : 'explode', at.x, at.y, at.z, s.splash ?? 1);
+    const from = { x: at.x - it.body.vel.x * 0.05, y: at.y, z: at.z - it.body.vel.z * 0.05 };
+    const cause = s.byPlayer ? 'player' : s.bossKind ?? 'magma_colossus';
+    const hurtPlayer = (p: Player) => {
+      this.damagePlayer(p, s.damage, from, cause, s.byPlayer ? s.ownerName || undefined : undefined);
+      if (s.fire) this.burnPlayer(p, s.fire);
+      if (s.freeze) this.freezePlayer(p, s.freeze);
+      if (s.slow) this.slowPlayer(p, s.slow);
+    };
+    const hurtMob = (m: Mob) => {
+      m.hurt = 0;
+      this.damageMob(m, s.damage, from);
+      if (s.fire) m.fireT = s.fire;
+      if (s.freeze || s.slow) m.slowT = s.freeze ?? s.slow;
+      const owner = this.players.get(s.owner);
+      if (owner && m.dying >= 0 && MOB_SPECS[m.kind].hostile) this.achieve(owner, 'monster');
+    };
+    if (hit) { if (hit.kind === 'player') hurtPlayer(hit); else hurtMob(hit); }
+    if (s.splash) {
+      for (const p of this.players.values()) if (p !== hit && p.eid !== s.owner && !p.dead && !p.downed && Math.hypot(p.body.pos.x - at.x, p.body.pos.y + 0.9 - at.y, p.body.pos.z - at.z) <= s.splash + 0.6) hurtPlayer(p);
+      if (s.byPlayer) for (const m of this.mobs.values()) if (m !== hit && !m.owner && m.dying < 0 && m.kind !== 'hurricane' && Math.hypot(m.body.pos.x - at.x, m.body.pos.z - at.z) <= s.splash) hurtMob(m);
+    }
+  }
+
+  // Frozen solid: you can't move for a moment (a Frost Heart keeps the cold out)
+  private freezePlayer(p: Player, seconds: number) {
+    if (this.holding(p, 'frost_heart') || p.gamemode === 'creative' || p.dead) return;
+    p.slowT = Math.max(p.slowT, seconds);
+    p.conn.send({ t: 'slow', seconds, freeze: true });
+  }
+
+  // Once a second: poison (never kills a player on its own) and fire; breath underwater; magma underfoot
+  private updateEffects(p: Player, dt: number) {
+    const w = this.world.get, b = p.body;
+    const creative = p.gamemode === 'creative';
+    p.poisonT = Math.max(0, p.poisonT - dt);
+    if (boxTouchesBlock(w, b, WATER, 0)) p.fireT = 0; // water puts you out
+    p.fireT = Math.max(0, p.fireT - dt);
+    if (this.fireproof(p)) p.fireT = 0;
+    p.effectT -= dt;
+    if (p.effectT <= 0 && !p.downed) { // (any damage while down would finish you off)
+      p.effectT = 1;
+      if (p.poisonT > 0 && p.health > 1) { p.invuln = 0; this.damagePlayer(p, 1, null, 'poison'); }
+      if (p.fireT > 0) { p.invuln = 0; this.damagePlayer(p, 1, null, 'fire'); }
+    }
+    const status = `${Math.ceil(p.poisonT)},${Math.ceil(p.fireT)}`;
+    if (status !== p.statusShown) { p.statusShown = status; p.conn.send({ t: 'status', poison: Math.ceil(p.poisonT), fire: Math.ceil(p.fireT) }); }
+    // Breath: runs out with your head under water (or oil), unless you wear the water helmet
+    const head = w(Math.floor(b.pos.x), Math.floor(b.pos.y + PLAYER_EYE), Math.floor(b.pos.z));
+    if ((head === WATER || head === OIL) && !creative && !p.downed && !this.wearing(p, 'water_helmet')) {
+      p.air -= dt;
+      if (p.air <= 0) { p.air = 1; p.invuln = 0; this.damagePlayer(p, 2, null, 'drown'); }
+    } else p.air = Math.min(AIR_SECONDS, p.air + dt * 5);
+    const tenths = Math.ceil((p.air / AIR_SECONDS) * 10);
+    if (tenths !== p.airShown) { p.airShown = tenths; p.conn.send({ t: 'air', air: tenths / 10 }); }
+    // Magma burns whoever stands on it
+    p.magmaT -= dt;
+    if (p.magmaT <= 0 && !creative && !p.downed && !this.fireproof(p) && (p.flags & MF_GROUND) && w(Math.floor(b.pos.x), Math.floor(b.pos.y - 0.1), Math.floor(b.pos.z)) === BLOCK_ID.magma_block) {
+      p.magmaT = 1; p.invuln = 0; this.damagePlayer(p, 1, null, 'magma');
+    }
+    // Earth leggings put on or taken off: the health bar grows or shrinks
+    const max = this.maxHp(p);
+    if (max !== p.maxShown) {
+      p.maxShown = max;
+      p.conn.send({ t: 'maxhp', max });
+      if (p.health > max) { p.health = max; p.conn.send({ t: 'health', hp: p.health }); }
+    }
   }
 
   private tellNear(x: number, z: number, r: number, text: string) {
@@ -1491,12 +1929,12 @@ export class Game {
   private sendBossBars() {
     for (const p of this.players.values()) {
       let boss: Mob | null = null;
-      for (const m of this.mobs.values()) if ((m.kind === 'robot_titan' || m.kind === 'frost_wraith') && m.dying < 0 && Math.hypot(m.body.pos.x - p.body.pos.x, m.body.pos.z - p.body.pos.z) < 48) boss = m;
+      for (const m of this.mobs.values()) if (BOSS_NAMES[m.kind] && m.dying < 0 && Math.hypot(m.body.pos.x - p.body.pos.x, m.body.pos.z - p.body.pos.z) < 48) boss = m;
       const hp = boss ? Math.max(0, Math.round(boss.health)) : -1;
       if (hp === p.bossHp) continue;
       p.bossHp = hp;
       const kind = boss?.kind ?? 'robot_titan';
-      p.conn.send({ t: 'boss', name: kind === 'frost_wraith' ? 'Frost Wraith' : 'Robot Titan', hp, max: MOB_SPECS[kind].health });
+      p.conn.send({ t: 'boss', name: BOSS_NAMES[kind]!, hp, max: MOB_SPECS[kind].health });
     }
   }
 
@@ -1639,7 +2077,7 @@ export class Game {
     }
     let foe: Mob | null = null, fd = Infinity;
     for (const o of this.mobs.values()) {
-      if (o === m || o.owner || o.dying >= 0 || !MOB_SPECS[o.kind].hostile) continue;
+      if (o === m || o.owner || o.dying >= 0 || !MOB_SPECS[o.kind].hostile || o.kind === 'hurricane') continue;
       const d = Math.hypot(o.body.pos.x - b.pos.x, o.body.pos.z - b.pos.z);
       if (d < 14 && d < fd && Math.abs(o.body.pos.y - b.pos.y) < 8 && Math.hypot(o.body.pos.x - home.x, o.body.pos.z - home.z) < 18) { fd = d; foe = o; }
     }
@@ -1733,14 +2171,15 @@ export class Game {
 
   // ---------------------------------------------------------------- Health
 
-  damagePlayer(p: Player, amount: number, from: { x: number; y: number; z: number } | null, cause: string, by?: string) {
+  damagePlayer(p: Player, amount: number, from: { x: number; y: number; z: number } | null, cause: string, by?: string, knock = 7, lift?: number) {
     if (p.dead || p.invuln > 0 || amount <= 0) return;
     if (p.gamemode === 'creative' && cause !== 'void') return;
-    if (cause === 'lava' && this.fullSet(p, 'obitite')) return; // full obitite armour: lava can't hurt you
+    // Lava, fire and magma can't hurt you in full obitite armour, or wearing the lava chestplate
+    if ((cause === 'lava' || cause === 'fire' || cause === 'magma') && this.fireproof(p)) return;
     if (p.downed) { this.killPlayer(p, cause, by); return; }
     let dmg = amount;
     if (MOB_CAUSES.has(cause)) dmg *= this.difficulty === 'easy' ? 0.5 : this.difficulty === 'hard' ? 1.5 : 1;
-    if (cause !== 'fall' && cause !== 'lava' && cause !== 'void' && cause !== 'starve' && cause !== 'freeze') {
+    if (!['fall', 'lava', 'void', 'starve', 'freeze', 'poison', 'fire', 'drown', 'magma'].includes(cause)) {
       dmg *= 1 - Math.min(20, armorPoints(p.inv)) * 0.04;
       // Beyond the armour cap, each tungsten piece takes off 2% more and each obitite piece 4%
       let tough = 0;
@@ -1754,7 +2193,7 @@ export class Game {
     p.sinceDamage = 0;
     if (cause !== 'starve') p.foodT = 0; // healing restarts its timer after a hit (no instant heal-back)
     p.conn.send({ t: 'health', hp: p.health });
-    p.conn.send({ t: 'hurt', from: from ? [from.x, from.y, from.z] : null, knock: from ? 7 : 0 });
+    p.conn.send({ t: 'hurt', from: from ? [from.x, from.y, from.z] : null, knock: from ? knock : 0, lift });
     this.broadcastAnim(p.eid, 'hurt');
     if (p.health <= 0) {
       if (this.maxPlayers > 1 && cause !== 'void') this.downPlayer(p, cause, by);
@@ -1798,7 +2237,9 @@ export class Game {
       fall: 'hit the ground too hard', lava: 'tried to swim in lava', zombie: 'was slain by a Zombie',
       husk: 'was slain by a Husk', frostbitten: 'was slain by a Frostbitten', spider: 'was slain by a Spider',
       skeleton: 'was shot by a Skeleton', slime: 'was squashed by a Slime', slimelet: 'was squashed by a Slime', robot: 'was zapped by a Robot', robot_titan: 'was destroyed by the Robot Titan',
-      frost_wraith: 'was frozen solid by the Frost Wraith',
+      frost_wraith: 'was frozen solid by the Frost Wraith', magma_colossus: 'was crushed by the Magma Colossus',
+      thorn_guardian: 'was strangled by the Thorn Guardian', tempest: 'was struck down by the Tempest',
+      poison: 'died of poison', fire: 'burned to death', drown: 'drowned', magma: 'discovered the floor was lava',
       cactus: 'was pricked to death', void: 'fell out of the world', starve: 'starved to death', freeze: 'froze to death', player: `was slain by ${by || 'a player'}`, kill: 'died',
     };
     const msg = messages[cause] || 'died';
@@ -1806,12 +2247,12 @@ export class Game {
     this.broadcast({ t: 'chat', from: null, text: `${p.name} ${msg}` });
   }
 
-  private damageMob(m: Mob, amount: number, from: { x: number; y: number; z: number }) {
-    if (m.dying >= 0 || m.hurt > 0.35) return;
+  private damageMob(m: Mob, amount: number, from: { x: number; y: number; z: number }, knock = 1) {
+    if (m.dying >= 0 || m.hurt > 0.35 || m.kind === 'hurricane') return; // (a hurricane can't be hurt)
     m.health -= amount;
     m.hurt = 0.5;
     const dx = m.body.pos.x - from.x, dz = m.body.pos.z - from.z, d = Math.hypot(dx, dz) || 1;
-    const kb = m.kind === 'robot_titan' || m.kind === 'frost_wraith' ? 0.15 : 1;
+    const kb = (BOSS_NAMES[m.kind] ? 0.15 : 1) * knock;
     m.body.vel.x = (dx / d) * 6 * kb; m.body.vel.z = (dz / d) * 6 * kb; m.body.vel.y = 5 * kb;
     if (!MOB_SPECS[m.kind].hostile) m.flee = 4;
     if (m.health <= 0) m.dying = 0;
@@ -1853,6 +2294,7 @@ export class Game {
     for (const it of this.items.values()) {
       it.age += dt;
       const b = it.body;
+      if (it.shot) { this.updateShot(it, dt); continue; }
       if (it.age > (it.type === 'arrow' ? 60 : 300)) { this.items.delete(it.eid); continue; }
       if (b.inWater) b.vel.y = Math.min(b.vel.y + 12 * dt, 1.5);
       else b.vel.y = Math.max(b.vel.y - 22 * dt, -30);
@@ -1940,15 +2382,17 @@ export class Game {
     const cap = Math.min(4, players.length) * (this.difficulty === 'easy' ? 0.5 : this.difficulty === 'hard' ? 1.5 : 1);
     const w = this.world;
 
-    if (isFrost(p.body.pos.x)) {
-      // The Frost World: frostbitten (and the odd skeleton) roam the snow at any hour
+    if (isElemental(p.body.pos.x)) {
+      // The Elemental World: each biome's monsters roam at any hour
       if (hostile >= 6 * cap) return;
       const a = Math.random() * Math.PI * 2, r = 16 + Math.random() * 24;
       const x = Math.floor(p.body.pos.x + Math.cos(a) * r), z = Math.floor(p.body.pos.z + Math.sin(a) * r);
-      if (!w.isLoaded(x, z) || !isFrost(x)) return;
+      if (!w.isLoaded(x, z) || !isElemental(x)) return;
       const top = w.surfaceHeight(x, z);
       if (!isSolid(w.get(x, top, z))) return;
-      const kind: MobKind = Math.random() < 0.75 ? 'frostbitten' : 'skeleton';
+      const biome = elementalBiome(x, z, w.seed), roll = Math.random();
+      const kind: MobKind = biome === 'volcano' ? (roll < 0.6 ? 'husk' : 'skeleton') : biome === 'jungle' ? (roll < 0.5 ? 'spider' : roll < 0.8 ? 'zombie' : 'slime')
+        : biome === 'clouds' ? 'skeleton' : roll < 0.75 ? 'frostbitten' : 'skeleton';
       if (!boxIntersectsSolid(w.get, x + 0.5, top + 1, z + 0.5, MOB_SPECS[kind].halfW, MOB_SPECS[kind].height)) this.spawnMob(kind, x + 0.5, top + 1, z + 0.5);
       return;
     }
@@ -2013,7 +2457,7 @@ export class Game {
     for (const m of this.mobs.values()) {
       const spec = MOB_SPECS[m.kind];
       const b = m.body;
-      const day = isRobotic(b.pos.x) ? ROBO_DAYLIGHT : isFrost(b.pos.x) ? FROST_DAYLIGHT : dayNow;
+      const day = isRobotic(b.pos.x) ? ROBO_DAYLIGHT : isElemental(b.pos.x) ? ELEM_DAYLIGHT : dayNow;
       const owner = m.owner ? this.playerByName(m.owner) : null;
       if (m.owner && !owner) { this.mobs.delete(m.eid); continue; }
       // Nearest living player
@@ -2043,13 +2487,20 @@ export class Game {
 
       let speed = spec.speed * (m.kind === 'robot_titan' && (m.phaseT ?? 0) % 14 > 10 ? 1.8 : 1);
       if ((m.slowT ?? 0) > 0) { m.slowT! -= dt; speed *= 0.4; } // chilled
+      // Poisoned or burning: a little damage every second
+      if ((m.poisonT ?? 0) > 0 || (m.fireT ?? 0) > 0) {
+        m.poisonT = Math.max(0, (m.poisonT ?? 0) - dt); m.fireT = Math.max(0, (m.fireT ?? 0) - dt);
+        m.effectT = (m.effectT ?? 0) - dt;
+        if (m.effectT <= 0) { m.effectT = 1; m.hurt = 0; this.damageMob(m, 1, { x: b.pos.x, y: b.pos.y, z: b.pos.z }, 0); }
+      }
       const dxp = target ? target.body.pos.x - b.pos.x : 0, dzp = target ? target.body.pos.z - b.pos.z : 0;
       // Spiders only hunt in the dark (or when attacked)
       const calm = m.kind === 'spider' && day > 0.6 && m.flee <= 0 && b.pos.y > this.world.surfaceHeight(Math.floor(b.pos.x), Math.floor(b.pos.z)) - 2;
       const chasing = spec.hostile && !owner && !calm && target && distP < 18 && Math.abs(target.body.pos.y - b.pos.y) < 8;
       if (owner) this.updatePet(m, owner);
       else if (m.kind === 'robot_titan') this.updateTitan(m, target, distP, dt);
-      else if (m.kind === 'frost_wraith') this.updateWraith(m, target, distP, dt);
+      else if (m.kind === 'frost_wraith' || m.kind === 'magma_colossus' || m.kind === 'thorn_guardian' || m.kind === 'tempest') this.updateElementalBoss(m, target, distP, dt);
+      else if (m.kind === 'hurricane') this.updateHurricane(m, target, distP, dt);
       else if (chasing && target && m.kind === 'robot') {
         // Keeps 4-12 blocks away and fires its laser when it can see you (3 hearts; it can miss)
         m.targetYaw = Math.atan2(-dxp, -dzp);
@@ -2111,8 +2562,13 @@ export class Game {
         b.vel.x += (tx - b.vel.x) * k;
         b.vel.z += (tz - b.vel.z) * k;
       }
-      const floats = m.kind === 'frost_wraith';
-      if (floats) { const want = this.world.surfaceHeight(Math.floor(b.pos.x), Math.floor(b.pos.z)) + 2.5; b.vel.y = Math.max(-4, Math.min(4, (want - b.pos.y) * 3)); }
+      const floats = FLOAT_HEIGHT[m.kind] !== undefined;
+      if (floats) {
+        // The Roc flies above whoever it's after (sky islands would otherwise lift it far out of reach); the Wraith hugs the ground
+        const ground = m.kind === 'tempest' && target && distP < 40 ? target.body.pos.y : this.world.surfaceHeight(Math.floor(b.pos.x), Math.floor(b.pos.z));
+        const want = ground + FLOAT_HEIGHT[m.kind]!;
+        b.vel.y = Math.max(-4, Math.min(4, (want - b.pos.y) * 3));
+      }
       else if (b.inWater || b.inLava) { b.vel.y = Math.min(b.vel.y + 14 * dt, 2); b.vel.x *= 0.9; b.vel.z *= 0.9; }
       else b.vel.y = Math.max(b.vel.y - 30 * dt, -50);
       moveBody(this.world.get, b, dt);
@@ -2197,10 +2653,12 @@ export class Game {
     if (p.cactusT <= 0 && boxTouchesBlock(w, b, BLOCK_ID.cactus)) { p.cactusT = 0.5; this.damagePlayer(p, 1, null, 'cactus'); }
     if (b.pos.y < -140) { p.invuln = 0; this.damagePlayer(p, 100, null, 'void'); }
     p.slowT = Math.max(0, p.slowT - dt);
-    // Stepping into a Frost World portal
-    const inPortal = boxTouchesBlock(w, b, FROST_PORTAL, -0.05);
-    if (inPortal && !p.inFrostPortal) this.frostTravel(p);
-    else p.inFrostPortal = inPortal;
+    this.updateEffects(p, dt);
+    if (p.dead) return;
+    // Stepping into an Elemental World portal
+    const inPortal = boxTouchesBlock(w, b, ELEM_PORTAL, -0.05);
+    if (inPortal && !p.inElemPortal) this.elementalTravel(p);
+    else p.inElemPortal = inPortal;
     if (p.downed) {
       // Revive progress builds while someone keeps holding Use on you
       if (p.reviveAt >= 0 && this.clock - p.reviveAt < 0.4) {
@@ -2233,7 +2691,7 @@ export class Game {
     } else p.freezeT = Math.max(0, p.freezeT - dt * 2);
     if (p.dead) return;
     if (this.difficulty === 'easy') {
-      if (p.health < MAX_HEALTH && p.sinceDamage > 4) {
+      if (p.health < this.maxHp(p) && p.sinceDamage > 4) {
         p.regen += dt;
         if (p.regen > 2.5) { p.regen = 0; p.health++; p.conn.send({ t: 'health', hp: p.health }); }
       }
@@ -2246,7 +2704,7 @@ export class Game {
       if (p.sat > 0) p.sat = Math.max(0, p.sat - 1); else { p.food = Math.max(0, p.food - 1); foodChanged = true; }
     }
     p.foodT += dt;
-    if (p.food >= 18 && p.health < MAX_HEALTH) {
+    if (p.food >= 18 && p.health < this.maxHp(p)) {
       // Well fed: heal (fast while saturated and full)
       if (p.foodT >= (p.food >= MAX_FOOD && p.sat > 0 ? 0.5 : 4)) {
         p.foodT = 0; p.health++; p.exhaustion += 6;
@@ -2287,7 +2745,7 @@ export class Game {
           yaw = e.yaw;
           if (e.hurt > 0.2) flags |= EF_HURT;
           if (e.dying >= 0) flags |= EF_DYING;
-          if (e.kind === 'robot_titan' && (e.phaseT ?? 0) % 14 > 10) flags |= EF_ANGRY;
+          if ((e.kind === 'robot_titan' && (e.phaseT ?? 0) % 14 > 10) || e.phase2) flags |= EF_ANGRY; // (an Elemental boss in phase two)
         }
         ents.push(e.eid, b.pos.x, b.pos.y, b.pos.z, yaw, pitch, flags);
       }

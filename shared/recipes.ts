@@ -85,6 +85,20 @@ for (const from of COLORS) for (const to of COLORS) if (from !== to) add([[woolO
 for (const c of COLORS) { const w = woolOf(c); add([[w, w, w], [w, w, w], [_, 'stick', _]], `${c}_banner`); }
 // Claim stone: stone bricks around an iron ingot
 add([['stone_bricks', 'stone_bricks', 'stone_bricks'], ['stone_bricks', 'iron_ingot', 'stone_bricks'], ['stone_bricks', 'stone_bricks', 'stone_bricks']], 'claim_stone');
+// Obitite blocks (for the Elemental World's portal)
+add(square('obitite'), 'obitite_block');
+add([['obitite_block']], 'obitite', 4);
+// The Elemental World
+add([['jungle_wood']], 'planks', 4);
+add(square('skystone'), 'skystone_bricks', 4);
+// Elemental armour: etherite in the usual shape, with the element's ore in the middle
+const E = 'etherite';
+add([[E, E, E], [E, 'water_ore', E]], 'water_helmet');
+add([[E, 'lava_ore', E], [E, E, E], [E, E, E]], 'lava_chestplate');
+add([[E, E, E], [E, 'earth_ore', E], [E, _, E]], 'earth_leggings');
+add([[E, _, E], [E, 'wind_ore', E]], 'wind_boots');
+// The poison sword: obitite and every element
+add([['water_ore', 'obitite', 'lava_ore'], ['earth_ore', 'obitite', 'wind_ore'], [_, 'stick', _]], 'poison_sword');
 // Moonstone blocks (4 moonstone each, and back)
 add(square('moonstone'), 'moonstone_block');
 add([['moonstone_block']], 'moonstone', 4);

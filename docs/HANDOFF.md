@@ -17,11 +17,22 @@ Poxel.io is a browser voxel sandbox game (its own game — never describe it as 
 - **Claim stones**: stone bricks around an iron ingot. In multiplayer, only the owner and players they `/trust` can build, dig, till, or open chests and furnaces within 16 blocks (any height). Only the owner (or an operator) can take the stone back. A claim can't be within 40 blocks of the world spawn or overlap someone else's. 3 per player. `/claims`, `/trust`, `/untrust`. "Entering X's land" toasts. Saved in `world.json` (`claims`, `trust`).
 - **Moonstone orbs**: moonstone around glass, 2 per craft. Use one to pick a destination: a friend (they must accept with Y/N or `/tpaccept`, `/tpdeny`), a set home, or where you last died. The orb is used up when you arrive.
 - **Robot squads**: G (or the pause menu, or 🤖 on phones, or `/robots <order>`) gives tamed robots orders. **Follow**; **Guard** (keeps watch where you stood; stays when you travel, goes back to its post when you rejoin); **Collect** (fetches dropped items within 12 blocks and hands them over). Orders, posts and carried items are saved with the player.
-- **The Frost World (secret)**: see `docs/frost-world.md`. You build a moonstone-block doorway with robot eyes inside, and it becomes a walk-in portal. There are snow, ice spikes, ice caves and glacite. The Frost Wraith boss slows you with ice, and glacite tools chill what they hit. The Frost Heart protects from cold.
+- **The Elemental World (secret)**: see `docs/elemental-world.md`. The portal frame is etherite blocks on top, gold below, obitite down one side and moonstone down the other, with robot eyes inside. It has four biomes (Frosted Lands, Volcano, Overgrown Jungle, Cloud Kingdom), each with a boss that drops its elemental ore. The ores make one armour piece each: a water helmet (breathing), a lava chestplate (lava immunity, . for fireballs), earth leggings (20 hearts, knockback) and wind boots (no fall damage). The poison sword uses every element. Drowning was added so the helmet matters.
 - **Armour**: a full tungsten set blocks robot lasers; a full obitite set (the jetpack counts) blocks lava.
 - **Creative code** changed (only its fingerprint is in `server/core/game.ts`). The owner has the code.
 - 7 new achievements (3 secret, shown as ??? until earned). New tests: `tests/unit/features.test.ts`, browser suite `features`.
-- **Protocol version 2.** Tabs still on the old client are told to refresh. The server must be restarted together with the website deploy.
+- **Boss fights upgraded** (see `docs/elemental-world.md`):
+  - Every Elemental boss has several moves on their own timers, plus a second phase below half health.
+  - The Frost Wraith has icicle volleys, icicle rain marked on the ground (freezes you solid) and a frost nova.
+  - The Magma Colossus gathers 5 magma balls and throws them one by one (10 hearts each without armour), slams the ground, and in phase two makes fireballs rain from the sky.
+  - The Thorn Guardian stomps (everything within 8 blocks is hurt and thrown about 8 blocks) and, in phase two, bursts into poison spores.
+  - The Tempest (renamed from the Storm Roc: a gold core in gold rings, with white wings) fires lasers from its core and summons hurricanes that fling you up.
+  - Each boss now has a temple with two loot chests. The Cloud Kingdom's floats at y 57 with a spiral stair.
+  - All bosses (the Robot Titan too) come back **5 minutes** after being defeated.
+  - Visuals: a particle system (`client/particles.ts`) with effects sent as `fx` messages, screen shake, projectiles with glows and trails, and new boss models.
+  - Armour is now drawn as plates over the body, with elemental trims. Ores have their own icons.
+  - Browser suite `bosses` screenshots all of it.
+- **Protocol version 3.** Tabs still on the old client are told to refresh. The server must be restarted together with the website deploy.
 - **Flaky browser checks seen under load** (each passes when rerun):
   - the critical hit in `actions` (jump timing);
   - "leave handled" in `mp` (a fixed 1.5 s wait);

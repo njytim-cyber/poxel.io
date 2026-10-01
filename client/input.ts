@@ -34,6 +34,7 @@ export const actions = {
   setHome: () => {},
   chat: (_prefill: string) => {},
   squad: () => {},                 // robot squad orders (G)
+  fireball: () => {},              // the lava chestplate's fireball (.)
   answer: (_accept: boolean) => {}, // a friend's teleport request (Y / N)
   jumpTap: () => {},         // each press of jump (creative: a double tap toggles flying)
   touchTap: () => {},        // quick tap on the view: attack a mob, else use/place
@@ -77,6 +78,7 @@ export function setupInput() {
       case 'F3': e.preventDefault(); actions.toggleDebug(); break;
       case 'KeyH': actions.setHome(); break;
       case 'KeyG': actions.squad(); break;
+      case 'Period': actions.fireball(); break;
       case 'KeyY': actions.answer(true); break;
       case 'KeyN': actions.answer(false); break;
       case 'KeyT': case 'Enter': e.preventDefault(); actions.chat(''); break;
@@ -216,6 +218,7 @@ function setupMobileInput() {
   bindBtn('btn-mobile-menu', h => { if (h) actions.escape(); });
   bindBtn('btn-mobile-chat', h => { if (h) actions.chat(''); });
   bindBtn('btn-mobile-squad', h => { if (h) actions.squad(); });
+  bindBtn('btn-mobile-fire', h => { if (h) actions.fireball(); });
 
   document.body.addEventListener('touchmove', e => {
     if ((e.target as HTMLElement)?.closest('#full-inventory-modal, #shop-screen, #main-menu, #pause-menu, .game-modal')) return;

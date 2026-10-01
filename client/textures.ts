@@ -515,7 +515,7 @@ function buildNewTiles(set: (i: number, t: Tile) => void, SNOW: string[], stoneB
   set(TILE.moonstone_block, storageBlock('#ffffff', '#ddd8f8', '#8f86c2'));
   const frame = storageBlock('#e8f8ff', '#c8d8f8', '#6a7ab8');
   for (let i = 0; i < 18; i++) frame[at(1 + Math.floor(rand() * 14), 1 + Math.floor(rand() * 14))] = pick(['#9ee8ff', '#ffffff']);
-  set(TILE.frost_frame, frame);
+  set(TILE.elemental_frame, frame);
   // The portal: swirling blue light with gaps you can see through
   const portal = newTile();
   for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
@@ -523,7 +523,7 @@ function buildNewTiles(set: (i: number, t: Tile) => void, SNOW: string[], stoneB
     const swirl = Math.sin(a * 3 + r * 0.9);
     portal[at(x, y)] = swirl > 0.55 ? '#e8fcff' : swirl > -0.1 ? pick(['#5ac8f8', '#4ab8f0', '#6ad4ff']) : swirl > -0.6 ? pick(['#2a78d8', '#3a88e0']) : null;
   }
-  set(TILE.frost_portal, portal);
+  set(TILE.elemental_portal, portal);
   const PERMAFROST = ['#5e6e7e', '#56667a', '#687888', '#4e5e70', '#7a8a9a'];
   const perm = blotchTile(PERMAFROST, 0.5);
   for (let i = 0; i < 14; i++) perm[at(Math.floor(rand() * 16), Math.floor(rand() * 16))] = pick(['#c8e4f4', '#e8f4fc']);
@@ -532,6 +532,34 @@ function buildNewTiles(set: (i: number, t: Tile) => void, SNOW: string[], stoneB
   const shrine = storageBlock('#d8f0ff', '#88b8e8', '#2a4a88');
   drawPixels(shrine, ['..cccc..', '.cCCCCc.', 'cCCwwCCc', 'cCCwwCCc', '.cCCCCc.', '..cccc..'], 4, 5, { c: '#2a78d8', C: '#6ad4ff', w: '#ffffff' });
   set(TILE.frost_shrine, shrine);
+  // The Elemental World's other biomes
+  set(TILE.obitite_block, storageBlock('#ff9a7a', '#d0304a', '#4a0c1c'));
+  const magma = newTile();
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const crack = Math.abs(Math.sin(x * 0.9 + y * 0.4) + Math.cos(y * 1.1 - x * 0.3)) < 0.35;
+    magma[at(x, y)] = crack ? pick(['#ffb030', '#ff7a1a', '#ffd060']) : pick(['#4a1a10', '#5a2214', '#3a140c']);
+  }
+  set(TILE.magma_block, magma);
+  set(TILE.volcanic_ash, blotchTile(['#5a5458', '#4e484c', '#66605e', '#3e3a3c'], 0.4));
+  const JUNGLE_BARK = ['#5a4a26', '#4e3e1e', '#66542e', '#46381a'];
+  const jSide = newTile();
+  for (let x = 0; x < 16; x++) { const base = pick(JUNGLE_BARK); for (let y = 0; y < 16; y++) jSide[at(x, y)] = rand() < 0.7 ? base : pick(['#3a6a2a', ...JUNGLE_BARK]); }
+  set(TILE.jungle_side, jSide);
+  set(TILE.jungle_top, logTop(JUNGLE_BARK, '#b8925a', '#9a7a48'));
+  set(TILE.jungle_leaves, leaves(['#2a7a1a', '#348a24', '#1e6a14', '#40962c'], 0.1));
+  set(TILE.moss_block, blotchTile(['#4a7a2a', '#568a32', '#3e6a22', '#62963a'], 0.5));
+  set(TILE.cloud, blotchTile(['#ffffff', '#f4f8fc', '#eaf0f8', '#ffffff'], 0.6));
+  const SKY = ['#d8e4f0', '#c8d8e8', '#e4ecf4', '#bccce0'];
+  set(TILE.skystone, blotchTile(SKY, 0.5));
+  set(TILE.skystone_bricks, brickTile(SKY, '#8c9cb8', '#f0f6fc'));
+  const shrineCore = (l: string, m: string, d: string, glow: string[]) => {
+    const t = storageBlock(l, m, d);
+    drawPixels(t, ['..cccc..', '.cCCCCc.', 'cCCwwCCc', 'cCCwwCCc', '.cCCCCc.', '..cccc..'], 4, 5, { c: glow[0], C: glow[1], w: glow[2] });
+    return t;
+  };
+  set(TILE.fire_shrine, shrineCore('#5a3a2a', '#3a1a10', '#1a0a04', ['#a02000', '#ff7a1a', '#ffe060']));
+  set(TILE.earth_shrine, shrineCore('#7a8a5a', '#4a5a2a', '#2a3a14', ['#2a6a1a', '#6ad040', '#e0ffb0']));
+  set(TILE.wind_shrine, shrineCore('#f0f6fc', '#b8c8e0', '#6a7a98', ['#6a8ab8', '#c8e0ff', '#ffffff']));
 }
 
 // Dye colours: [light, main, dark]
@@ -656,6 +684,12 @@ const TIER_PALETTE: Record<string, { l: string; m: string; d: string }> = {
   tungsten: { l: '#f0f4fc', m: '#a4aec2', d: '#4e586c' },
   obitite: { l: '#ff9a7a', m: '#d0304a', d: '#4a0c1c' },
   glacite: { l: '#f0ffff', m: '#6ae0ec', d: '#1a7890' },
+  // Elemental armour and the poison sword
+  water: { l: '#a0d8ff', m: '#2a78e0', d: '#0a2a6a' },
+  lava: { l: '#ffd060', m: '#ff5a10', d: '#6a1a00' },
+  earth: { l: '#a8d070', m: '#5a8a2a', d: '#2a3a10' },
+  wind: { l: '#ffffff', m: '#c8e4f4', d: '#6a8aa8' },
+  poison: { l: '#c8ff80', m: '#6ad020', d: '#1a4a08' },
 };
 
 const HEADS: Record<string, { top: number; rows: string[] }> = {
@@ -686,7 +720,7 @@ const SHAPES: Record<string, string[]> = {
 const ITEM_ART: Record<string, [string, Record<string, string>]> = {
   coal: ['lump', { l: '#4a4a4a', m: '#2b2b2b', d: '#111111' }],
   charcoal: ['lump', { l: '#5a4a3a', m: '#3a2e24', d: '#1a140f' }],
-  moonstone: ['lump', { l: '#ffffff', m: '#e6e6fa', d: '#8f86c2' }],
+  moonstone: ['crescent', { l: '#ffffff', m: '#d6d0f5', d: '#6f66a8', w: '#fff8c0' }],
   etherite: ['gem', TIER_PALETTE.etherite],
   obitite: ['crystal', TIER_PALETTE.obitite],
   laser_cannon_core: ['ball', { l: '#fff0a0', m: '#ff7a1a', d: '#7a2a00' }],
@@ -731,6 +765,18 @@ SHAPES.stew = ['', '', '', '', '', '', '...wwhwwhwwhw...', '..dddddddddddd..', '
 SHAPES.slice = ['', '', '', '', '..d.............', '..dd............', '..dwd...........', '..dwmd..........', '..dwmkd.........', '..dwmmmd........', '..dwmkmmd.......', '..dwmmmkmd......', '..dddddddddd....'];
 SHAPES.cookie = ['', '', '', '', '.....dddddd.....', '....dmmkmmmd....', '...dmmmmmkmmd...', '...dmkmmmmmmd...', '...dmmmmkmmmd...', '....dmmmmmkd....', '.....dddddd.....'];
 SHAPES.eye = ['', '', '', '', '.....dddddd.....', '....dmmmmmmd....', '...dmmwwwwmmd...', '...dmwkkkkwmd...', '...dmwkkkkwmd...', '...dmmwwwwmmd...', '....dmmmmmmd....', '.....dddddd.....'];
+SHAPES.droplet = ['', '.......d........', '......dld.......', '......dld.......', '.....dllmd......', '.....dlmmd......', '....dllmmmd.....', '....dlmmmmd.....',
+  '...dlwmmmmmd....', '...dlwmmmmmd....', '...dmmmmmmmd....', '...dmmmmmmhd....', '....dmmmmhd.....', '.....dddddd.....'];
+SHAPES.flame = ['........h.......', '.......hh.......', '......hlh..h....', '.....hllh.hh....', '....hlwlhhlh....', '....hlwwllh.....', '...dmlwwlmd.....',
+  '..dmmmllmmmd....', '..dmmlmmmmmd....', '.dddmmmmmlddd...', '.dmmdddddddmd...', '..ddmmmlmmdd....', '....dddddd......'];
+SHAPES.leafgem = ['', '..........hhh...', '.........hwwh...', '........hwwh....', '.......hhh......', '.....dddddd.....', '....dllmmmmd....', '...dllmmmmmmd...',
+  '...dlmmmwmmmd...', '...dmmmwwmmmd...', '...dmmmmmmmld...', '....dmmmmmld....', '.....dmmmld.....', '......dddd......'];
+SHAPES.windgem = ['', '.......dd.......', '......dlld......', '.....dmwwmd.....', '....dmwmmwmd....', '...dmwmwwmwmd...', '...dmwmmwmwmd...', '...dmmwwmmwmd...',
+  '...dmmmmmwmmd...', '....dmwwwmmd....', '.....dmmmmd.....', '......dmmd......', '.......dd.......'];
+SHAPES.crescent = ['', '......dddd......', '....ddllld......', '...dllmd.....w..', '..dlmmd.....www.', '..dlmd.......w..', '.dlmmd..........', '.dlmmd..........',
+  '.dlmmd....w.....', '..dlmmd.........', '..dmmmmd........', '...dmmmmdd......', '....ddmmmmddd...', '......dddd......'];
+SHAPES.cluster = ['', '.......d........', '......dld...d...', '.....dlwmd.dld..', '..d..dlwmd.dlmd.', '.dld.dlmmd.dlmd.', '.dlmddlmmd.dmmd.', '.dlmdlmmmd.dmd..',
+  '.dmmddlmmd.dmd..', '..dmmdmmmdddd...', '...dmmdmmddmd...', '....dmmmmmmd....', '.....dddddd.....'];
 SHAPES.heart = ['', '', '', '...ddd...ddd....', '..dllmd.dlmmd...', '.dllmmmdmmmmmd..', '.dlmmmmmmmmmmd..', '.dmmmmmmmmmmmd..', '..dmmmmmmmmmd...', '...dmmmmmmmd....', '....dmmmmmd.....', '.....dmmmd......', '......dmd.......', '.......d........'];
 SHAPES.arrow = ['', '............ddd.', '...........dlld.', '............dld.', '...........h.d..', '..........h.....', '.........h......', '........h.......', '.......h........', '......h.........', '..ww.h..........', '..wwh...........', '...ww...........'];
 Object.assign(ITEM_ART, {
@@ -751,8 +797,13 @@ Object.assign(ITEM_ART, {
   pink_dye: ['dye', { l: '#ffd0e0', m: '#ec90b0', d: '#8a3a5a', w: '#8a6a4a' }],
   cyan_dye: ['dye', { l: '#70e0e8', m: '#1e9aa0', d: '#0a4a4e', w: '#8a6a4a' }],
   moonstone_orb: ['ball', { l: '#ffffff', m: '#c8c0f8', d: '#5a4ea8' }],
-  glacite: ['crystal', { l: '#f0ffff', m: '#6ae0ec', d: '#1a7890' }],
+  glacite: ['cluster', { l: '#f0ffff', m: '#6ae0ec', d: '#1a7890', w: '#ffffff' }],
   frost_heart: ['heart', { l: '#ffffff', m: '#7ad8ff', d: '#1a5aa8' }],
+  water_ore: ['droplet', { l: '#c0e8ff', m: '#2a78e0', d: '#0a2a6a', w: '#ffffff', h: '#1a58b0' }],
+  lava_ore: ['flame', { l: '#ffd040', m: '#5a2a1a', d: '#2a1008', w: '#ffffa0', h: '#ff7a10' }],
+  earth_ore: ['leafgem', { l: '#c8f090', m: '#3a9a3a', d: '#14400e', w: '#e8ffd0', h: '#6a4a20' }],
+  wind_ore: ['windgem', { l: '#ffd040', m: '#b8dcf4', d: '#5a7a98', w: '#ffffff' }],
+  fireball: ['ball', { l: '#fff080', m: '#ff7a1a', d: '#a02000' }],
   sweet_berries: ['berries', { l: '#ff7080', m: '#d02040', d: '#6a0a1a', h: '#3a6a2a' }],
   snowberries: ['berries', { l: '#ffffff', m: '#c8d8ff', d: '#5a70b0', h: '#4a6a5a' }],
   melon_slice: ['slice', { d: '#2a5a14', w: '#8ac44a', m: '#e84848', k: '#1a1a1a' }],
@@ -789,7 +840,13 @@ function itemPixels(type: string): Tile | null {
     put(head.rows, pal);
     return t;
   }
-  if (pal && ARMOR[kind]) { put(ARMOR[kind], pal); return t; }
+  if (pal && ARMOR[kind]) {
+    put(ARMOR[kind], pal);
+    // Elemental armour: its element's trim across the middle
+    const trim = ({ water: '#9ef4ff', lava: '#ffd040', earth: '#f04080', wind: '#ffc830' } as Record<string, string>)[tierName];
+    if (trim) for (let i = 0; i < 256; i++) if (t[i] === pal.m && ((i >> 4) % 3 === 0 || (i & 15) % 5 === 2)) t[i] = trim;
+    return t;
+  }
   const art = ITEM_ART[type];
   if (art) { put(SHAPES[art[0]], art[1]); return t; }
   return null;

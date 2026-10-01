@@ -21,6 +21,7 @@ export interface MultiplayerHooks {
   characterSlot(): number; // the save chosen under "Name & server" (-1: this server's character)
   pingVisible(): boolean;  // false while the debug overlay (which shows the ping too) is open
 }
+// (set by main.ts once the saves have loaded: the timers and events below may fire before that)
 let hooks: MultiplayerHooks;
 export function initMultiplayer(h: MultiplayerHooks) { hooks = h; }
 
@@ -148,7 +149,7 @@ function showMenuError(text: string) {
 async function leaveToMenu(reason: string) {
   disconnect();
   ui.setConnectionBanner(''); // the reason moves to the menu
-  if (hooks.inMulti()) { stopCarry(); await savesSettled(); }
+  if (hooks?.inMulti()) { stopCarry(); await savesSettled(); }
   if (ui.state === 'menu') { showLoading(''); showMenuError(reason); hooks.showMenu('main'); hooks.endMulti(); return; }
   try { sessionStorage.setItem('poxel_menu_error', reason); } catch { /* storage blocked */ }
   location.reload();
@@ -205,7 +206,7 @@ onNetStatus((status, detail) => {
   else if (status === 'offline') {
     if (mpStatus && ui.state === 'menu') mpStatus.textContent = detail || 'Disconnected';
     // The session is over (refused, kicked, server unreachable): back to the menu with the reason
-    if (hooks.inMulti()) leaveToMenu(detail || 'Disconnected');
+    if (hooks?.inMulti()) leaveToMenu(detail || 'Disconnected');
     else ui.setConnectionBanner(detail || 'Disconnected');
   }
 });
@@ -214,7 +215,7 @@ onNetStatus((status, detail) => {
 const pingHud = document.getElementById('ping-hud');
 setInterval(() => {
   if (!pingHud) return;
-  const show = hooks.inMulti() && ui.state !== 'menu' && hooks.pingVisible() && pingMs >= 0;
+  const show = !!hooks?.inMulti() && ui.state !== 'menu' && hooks.pingVisible() && pingMs >= 0;
   pingHud.style.display = show ? 'block' : 'none';
   if (!show) return;
   pingHud.textContent = `${pingMs} ms`;

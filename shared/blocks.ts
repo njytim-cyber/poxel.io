@@ -34,10 +34,12 @@ export const TILE = {
   // More wool colours, then one banner per colour (in COLORS order), then the claim stone
   orange_wool: 117, purple_wool: 118, pink_wool: 119, cyan_wool: 120,
   banner_0: 121, claim_side: 131, claim_top: 132,
-  // The Frost World (a secret: see shared/frost.ts)
-  moonstone_block: 133, frost_frame: 134, frost_portal: 135, glacite_ore: 136, permafrost: 137, frost_shrine: 138,
+  // The Elemental World (a secret: see shared/elemental.ts)
+  moonstone_block: 133, elemental_frame: 134, elemental_portal: 135, glacite_ore: 136, permafrost: 137, frost_shrine: 138,
+  obitite_block: 139, magma_block: 140, volcanic_ash: 141, jungle_side: 142, jungle_top: 143, jungle_leaves: 144, moss_block: 145,
+  cloud: 146, skystone: 147, skystone_bricks: 148, fire_shrine: 149, earth_shrine: 150, wind_shrine: 151,
 } as const;
-export const TILE_COUNT = 139;
+export const TILE_COUNT = 152;
 
 // Dye colours, in the order banners use them. White wool is plain "wool".
 export const COLORS = ['white', 'red', 'yellow', 'blue', 'green', 'black', 'orange', 'purple', 'pink', 'cyan'] as const;
@@ -207,19 +209,38 @@ COLORS.forEach((c, i) => BLOCKS.push({ id: 106 + i, name: `${c}_banner`, hardnes
 // The claim stone protects the land around it (see server/core/game.ts claims)
 BLOCKS.push({ id: 116, name: 'claim_stone', hardness: 4, tool: 'pickaxe', harvestTier: -1, drop: 'claim_stone', glow: true,
   tiles: sided(TILE.claim_side, TILE.claim_top, TILE.claim_top) });
-// The Frost World. Its portal: an upright frame of moonstone blocks with a 2x3 hole, filled with robot eyes.
+// The Elemental World. Its portal: an upright frame (etherite blocks on top, gold below, obitite down one side,
+// moonstone down the other) around a 2x3 hole, filled with robot eyes.
 BLOCKS.push(
   { id: 117, name: 'moonstone_block', hardness: 5, tool: 'pickaxe', harvestTier: 2, drop: 'moonstone_block', tiles: all(TILE.moonstone_block) },
   // The return portal's frame, built on arrival: it drops nothing (travelling mustn't make free moonstone)
-  { id: 118, name: 'frost_frame', hardness: 5, tool: 'pickaxe', harvestTier: 0, drop: null, glow: true, tiles: all(TILE.frost_frame) },
+  { id: 118, name: 'elemental_frame', hardness: 5, tool: 'pickaxe', harvestTier: 0, drop: null, glow: true, tiles: all(TILE.elemental_frame) },
   // The portal itself: walk into it. It can't be mined; breaking the frame puts it out.
-  { id: 119, name: 'frost_portal', hardness: Infinity, tool: null, harvestTier: -1, drop: null, soft: true, transparent: true, glow: true, tiles: all(TILE.frost_portal) },
+  { id: 119, name: 'elemental_portal', hardness: Infinity, tool: null, harvestTier: -1, drop: null, soft: true, transparent: true, glow: true, tiles: all(TILE.elemental_portal) },
   { id: 120, name: 'glacite_ore', hardness: 4, tool: 'pickaxe', harvestTier: 4, drop: 'glacite', tiles: all(TILE.glacite_ore) },
   { id: 121, name: 'permafrost', hardness: 2, tool: 'pickaxe', harvestTier: 0, drop: 'permafrost', tiles: all(TILE.permafrost) },
   // The Frost Wraith's shrine (it wakes here); can't be mined
   { id: 122, name: 'frost_shrine', hardness: Infinity, tool: null, harvestTier: -1, drop: null, glow: true, tiles: all(TILE.frost_shrine) },
+  { id: 123, name: 'obitite_block', hardness: 8, tool: 'pickaxe', harvestTier: 4, drop: 'obitite_block', tiles: all(TILE.obitite_block) },
+  // The Volcano: magma burns whoever stands on it
+  { id: 124, name: 'magma_block', hardness: 1.5, tool: 'pickaxe', harvestTier: 0, drop: 'magma_block', glow: true, tiles: all(TILE.magma_block) },
+  { id: 125, name: 'volcanic_ash', hardness: 0.5, tool: 'shovel', harvestTier: -1, drop: 'volcanic_ash', tiles: all(TILE.volcanic_ash) },
+  // The Overgrown Jungle
+  { id: 126, name: 'jungle_wood', hardness: 2, tool: 'axe', harvestTier: -1, drop: 'jungle_wood', tiles: sided(TILE.jungle_side, TILE.jungle_top, TILE.jungle_top) },
+  { id: 127, name: 'jungle_leaves', hardness: 0.2, tool: 'hoe', harvestTier: -1, drop: null, transparent: true, tiles: all(TILE.jungle_leaves) },
+  { id: 128, name: 'moss_block', hardness: 0.6, tool: 'hoe', harvestTier: -1, drop: 'moss_block', tiles: all(TILE.moss_block) },
+  // The Cloud Kingdom
+  { id: 129, name: 'cloud', hardness: 0.3, tool: 'shovel', harvestTier: -1, drop: 'cloud', tiles: all(TILE.cloud) },
+  { id: 130, name: 'skystone', hardness: 1.5, tool: 'pickaxe', harvestTier: 0, drop: 'skystone', tiles: all(TILE.skystone) },
+  { id: 131, name: 'skystone_bricks', hardness: 1.5, tool: 'pickaxe', harvestTier: 0, drop: 'skystone_bricks', tiles: all(TILE.skystone_bricks) },
+  // The other bosses' shrines (can't be mined)
+  { id: 132, name: 'fire_shrine', hardness: Infinity, tool: null, harvestTier: -1, drop: null, glow: true, tiles: all(TILE.fire_shrine) },
+  { id: 133, name: 'earth_shrine', hardness: Infinity, tool: null, harvestTier: -1, drop: null, glow: true, tiles: all(TILE.earth_shrine) },
+  { id: 134, name: 'wind_shrine', hardness: Infinity, tool: null, harvestTier: -1, drop: null, glow: true, tiles: all(TILE.wind_shrine) },
 );
-export const FROST_PORTAL = 119;
+// Bosses' shrines: never mined, never built over
+export const isShrine = (id: number) => id === 122 || (id >= 132 && id <= 134);
+export const ELEM_PORTAL = 119;
 
 export const WATER = 21;
 export const LAVA = 26;
@@ -233,7 +254,7 @@ export const isSolid = (id: number) => id !== 0 && !BLOCKS[id].liquid && !BLOCKS
 export const POWDER_SNOW = 42;
 export const CHEST = 90;
 export const isLiquid = (id: number) => id === WATER || id === LAVA || id === OIL;
-export const isLeaves = (id: number) => id === 7 || id === 24 || id === 25;
+export const isLeaves = (id: number) => id === 7 || id === 24 || id === 25 || id === 127;
 // Hides the face of a neighbouring block
 // (not surface liquids: their tops sit lower, so the land beside them must still draw its side)
 export const isOccluding = (id: number) => id !== 0 && id !== WATER && id !== OIL && !BLOCKS[id].transparent;
@@ -269,6 +290,7 @@ export interface ItemDef {
   damage?: number;
   plants?: string;         // using it on farmland plants this block (seeds, carrots, potatoes)
   chill?: boolean;         // glacite weapons: a hit slows the target down for a while
+  poison?: boolean;        // the poison sword: a hit poisons the target
   returns?: string;        // item left in hand after eating (stew -> bowl)
 }
 
@@ -415,6 +437,30 @@ export const ITEMS: Record<string, ItemDef> = {
   permafrost: { name: 'Permafrost', stack: 64, block: 121 },
   glacite: { name: 'Glacite', stack: 64 },                       // the Frost World's gem: tools that chill what they hit
   frost_heart: { name: 'Frost Heart', stack: 1 },                // the Frost Wraith's heart: held (or in the offhand), cold can't touch you
+  obitite_block: { name: 'Block of Obitite', stack: 64, block: 123 },
+  magma_block: { name: 'Magma Block', stack: 64, block: 124 },
+  volcanic_ash: { name: 'Volcanic Ash', stack: 64, block: 125 },
+  jungle_wood: { name: 'Jungle Log', stack: 64, block: 126, fuel: 7.5, smelt: 'charcoal' },
+  jungle_leaves: { name: 'Jungle Leaves', stack: 64, block: 127 },
+  moss_block: { name: 'Moss Block', stack: 64, block: 128 },
+  cloud: { name: 'Cloud', stack: 64, block: 129 },
+  skystone: { name: 'Skystone', stack: 64, block: 130 },
+  skystone_bricks: { name: 'Skystone Bricks', stack: 64, block: 131 },
+  // Elemental ores: each boss of the Elemental World drops its own
+  water_ore: { name: 'Water Ore', stack: 64 },   // the Frost Wraith (Frosted Lands)
+  lava_ore: { name: 'Lava Ore', stack: 64 },     // the Magma Colossus (Volcano)
+  earth_ore: { name: 'Earth Ore', stack: 64 },   // the Thorn Guardian (Overgrown Jungle)
+  wind_ore: { name: 'Wind Ore', stack: 64 },     // the Tempest (Cloud Kingdom)
+  // Elemental armour: one piece per element, made with etherite
+  water_helmet: { name: 'Water Helmet', stack: 1, armor: { slot: 0, points: 4 } },        // breathe underwater, swim fast
+  lava_chestplate: { name: 'Lava Chestplate', stack: 1, armor: { slot: 1, points: 11 } }, // lava can't hurt you; . shoots fireballs
+  earth_leggings: { name: 'Earth Leggings', stack: 1, armor: { slot: 2, points: 7 } },    // 20 hearts, and your hits knock harder
+  wind_boots: { name: 'Wind Boots', stack: 1, armor: { slot: 3, points: 4 } },            // no fall damage
+  // The poison sword: obitite and every element
+  poison_sword: { name: 'Poison Sword', stack: 1, tool: { kind: 'sword', tier: 8 }, damage: 13, poison: true },
+  fireball: { name: 'Fireball', stack: 1 },      // (only ever flying: the lava chestplate's, and the Magma Colossus's)
+  magma_ball: { name: 'Magma Ball', stack: 1 },  // (the Magma Colossus's)
+  icicle: { name: 'Icicle', stack: 1 },          // (the Frost Wraith's)
   // Plants
   red_mushroom: { name: 'Red Mushroom', stack: 64, block: 72 },
   brown_mushroom: { name: 'Brown Mushroom', stack: 64, block: 73 },

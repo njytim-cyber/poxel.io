@@ -17,7 +17,7 @@ ws.on('message', (data, isBinary) => {
   if (m.t === 'welcome') welcome = m;
 });
 await new Promise((res, rej) => { ws.on('open', res); ws.on('error', rej); });
-ws.send(JSON.stringify({ t: 'hello', v: 2, name, look: { skin: '#ffcc99' } }));
+ws.send(JSON.stringify({ t: 'hello', v: 3, name, look: { skin: '#ffcc99' } }));
 await sleep(1500);
 check('welcome received', !!welcome, welcome ? `seed=${welcome.seed} eid=${welcome.eid} pos=${welcome.you.x.toFixed(1)},${welcome.you.y},${welcome.you.z.toFixed(1)}` : '');
 if (!welcome) { ws.close(); finish(); process.exit(); }

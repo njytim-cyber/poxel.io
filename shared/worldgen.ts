@@ -3,7 +3,7 @@
 import { BLOCKS, BLOCK_ID, WATER, LAVA, OIL, isOccluding, isFacingBlock } from './blocks.ts';
 import { Noise, hash3 } from './noise.ts';
 import { isRobotic, roboticHeight, generateRoboticChunk } from './robotic.ts';
-import { isFrost, frostHeight, generateFrostChunk } from './frost.ts';
+import { isElemental, elementalHeight, elementalBiome, generateElementalChunk } from './elemental.ts';
 
 export const CHUNK = 16;
 export const MIN_Y = -104;
@@ -28,11 +28,11 @@ function G(seed: number): Gen {
 
 // ------------------------------------------------------------------ Terrain
 
-export type Biome = 'plains' | 'forest' | 'pine' | 'desert' | 'snowy' | 'mountains' | 'robotic' | 'frost';
+export type Biome = 'plains' | 'forest' | 'pine' | 'desert' | 'snowy' | 'mountains' | 'robotic' | 'frost' | 'volcano' | 'jungle' | 'clouds';
 
 export function columnInfo(x: number, z: number, seed: number): { h: number; biome: Biome } {
   if (isRobotic(x)) return { h: roboticHeight(x, z, seed), biome: 'robotic' };
-  if (isFrost(x)) return { h: Math.min(frostHeight(x, z, seed), MAX_Y - 40), biome: 'frost' };
+  if (isElemental(x)) return { h: elementalHeight(x, z, seed), biome: elementalBiome(x, z, seed) };
   const { n, nb, nc } = G(seed);
   const temp = nb.fbm2(x / 300, z / 300, 2);
   const humid = nc.fbm2(x / 260 + 50, z / 260 + 50, 2);
@@ -63,7 +63,7 @@ function column(arr: Float32Array, out: Float64Array, c00: number, c10: number, 
 
 export function generateChunkData(cx: number, cz: number, seed: number): Uint8Array {
   if (isRobotic(cx * CHUNK)) return generateRoboticChunk(cx, cz, seed);
-  if (isFrost(cx * CHUNK)) return generateFrostChunk(cx, cz, seed);
+  if (isElemental(cx * CHUNK)) return generateElementalChunk(cx, cz, seed);
   const { n: noise, nb: noiseB, nc: noiseC } = G(seed);
   const d = new Uint8Array(CHUNK_VOLUME);
   const x0 = cx * CHUNK, z0 = cz * CHUNK;
@@ -223,7 +223,7 @@ function placeFeatures(data: Uint8Array, cx: number, cz: number, seed: number) {
     const r = hash3(x, 7, z, seed);
     if (r > 0.04) continue; // quick reject before computing terrain
     const { h, biome } = columnInfo(x, z, seed);
-    if (h < SEA_LEVEL + 1 || biome === 'robotic' || biome === 'frost') continue;
+    if (h < SEA_LEVEL + 1 || biome === 'robotic' || isElemental(x)) continue;
     if (Math.abs(x) < 4 && Math.abs(z) < 4) continue; // clear spawn
     const r2 = hash3(x, 8, z, seed);
     if (biome === 'desert') {
@@ -283,7 +283,7 @@ export function structureInRegion(rx: number, rz: number, seed: number, undergro
   const x = rx * REGION + 8 + Math.floor(hash3(rx, salt + 1, rz, seed) * (REGION - 16));
   const z = rz * REGION + 8 + Math.floor(hash3(rx, salt + 2, rz, seed) * (REGION - 16));
   if (Math.abs(x) < 24 && Math.abs(z) < 24) return null; // keep the world spawn clear
-  if (isRobotic(x) || isFrost(x)) return null;
+  if (isRobotic(x) || isElemental(x)) return null;
   const { h, biome } = columnInfo(x, z, seed);
   if (underground) {
     if (r > 0.55) return null;

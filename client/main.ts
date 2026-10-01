@@ -2,13 +2,14 @@ import * as THREE from 'three';
 import { worldMaterials, worldGroup, updateWorld, chunkCount, biomeAt, getBlock, setBlock, loadAreaNow, surfaceHeight, benchmarkWorld, resetWorld, workerStatus, raycast, setRenderDistance, RENDER_DIST } from './world';
 import { setupInput, isMobile, actions, releaseAllKeys, keys } from './input';
 import { initPlayer, updatePlayer, controls, updateLocalLook, body, handScene, handCamera, headInWater, headInLava, headInOil,
-  isDead, health, MAX_HEALTH, setYawPitch, setPlayerFeet, getYawPitch, aimTarget } from './player';
+  isDead, health, MAX_HEALTH, setYawPitch, setPlayerFeet, getYawPitch, aimTarget, wearsWaterHelmet, getMaxHealth } from './player';
 import { applyHairGeometry, addBigEyes, savedLook } from './avatar';
 import { initInventory, inventory, setSelectedSlot } from './inventory';
 import { getSaveMeta, readSave, writeSave, deleteSave, initSaves, savesSettled, storageUsage } from './saves';
 import { store } from './store';
 import { profileName, canCarry, stopCarry, carryDebug } from './character';
 import { initRemote, updateRemote, entityCounts, entityList } from './remote';
+import { initParticles, updateParticles } from './particles';
 import { initSky, updateSky, getDaylight, getTimeOfDay } from './sky';
 import { preloadIcons } from './textures';
 import { onServerMessage, startLocal, startRemote, send, disconnect, requestLocalSave, setLocalPaused, isMultiplayer, type LocalSave } from './net';
@@ -51,6 +52,7 @@ scene.add(worldGroup);
 initSky(scene, ambientLight, directionalLight);
 setupInput();
 initRemote(scene);
+initParticles(scene);
 initPlayer(perspectiveCamera, scene);
 initInventory();
 // Item icons are drawn a few at a time while idle (they're needed only once an inventory shows)
@@ -644,9 +646,10 @@ function frame() {
     updateWorld(body.pos);
     const t2 = performance.now();
     updateRemote(dt, controls.object.position);
+    updateParticles(dt);
     const t3 = performance.now();
 
-    const liquid = headInLava ? 'lava' : headInOil ? 'oil' : headInWater ? 'water' : 'none';
+    const liquid = headInLava ? 'lava' : headInOil ? 'oil' : headInWater && !wearsWaterHelmet() ? 'water' : 'none'; // (the water helmet: clear sight underwater)
     const eye = controls.object.position;
     const depth = surfaceHeight(Math.floor(eye.x), Math.floor(eye.z)) - eye.y;
     const worldRunning = !inMenu && !(mode === 'single' && ui.state === 'paused');
@@ -679,7 +682,7 @@ function frame() {
         `XYZ: ${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}<br>` +
         `Biome: ${biomeAt(p.x, p.z)} &nbsp; Block below: ${getBlock(Math.floor(p.x), Math.floor(p.y) - 1, Math.floor(p.z))}<br>` +
         `Chunks: ${chunkCount()} &nbsp; Mobs: ${c.mobs} &nbsp; Items: ${c.items} &nbsp; Players: ${c.players + 1}<br>` +
-        `Time: ${hours}:00 &nbsp; HP: ${health}/${MAX_HEALTH}`;
+        `Time: ${hours}:00 &nbsp; HP: ${health}/${getMaxHealth()}`;
     }
   } catch (err) {
     reportError(err);

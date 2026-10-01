@@ -382,10 +382,10 @@ const HEART_HALF = 'data:image/svg+xml;utf8,' + encodeURIComponent(
 
 let lastHealth = -1;
 export function renderHealth(hp: number, max: number) {
-  if (hp === lastHealth) return;
   const el = $('health-bar');
   if (!el) return;
   const hearts = max / 2;
+  if (hp === lastHealth && el.children.length === hearts) return; // (earth leggings change the number of hearts)
   if (el.children.length !== hearts) {
     el.innerHTML = '';
     for (let i = 0; i < hearts; i++) el.appendChild(document.createElement('img'));
@@ -474,6 +474,22 @@ export function renderFood(food: number) {
   }
   el.classList.toggle('low', food >= 0 && food <= 6);
   lastFood = food;
+}
+
+// Breath underwater: ten bubbles over the hunger bar, shown only while you're running out
+export function renderAir(air: number) {
+  const el = $('air-bar');
+  if (!el) return;
+  el.style.visibility = air >= 1 ? 'hidden' : 'visible';
+  if (el.children.length !== 10) { el.innerHTML = ''; for (let i = 0; i < 10; i++) { const b = document.createElement('span'); b.className = 'bubble'; el.appendChild(b); } }
+  const n = Math.ceil(air * 10);
+  for (let i = 0; i < 10; i++) (el.children[9 - i] as HTMLElement).classList.toggle('popped', i >= n);
+}
+
+// Poisoned (green) or on fire (orange): a tint round the edge of the screen
+export function setStatus(poison: number, fire: number) {
+  if (poison > 0) document.body.dataset.poisoned = '1'; else delete document.body.dataset.poisoned;
+  if (fire > 0) document.body.dataset.burning = '1'; else delete document.body.dataset.burning;
 }
 
 export function flashHurt() {

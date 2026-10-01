@@ -26,12 +26,14 @@
             <button class="mobile-btn mobile-btn-sm" id="btn-mobile-drop" aria-label="Drop item">⤵</button>
             <button class="mobile-btn mobile-btn-sm" id="btn-mobile-chat" aria-label="Chat">💬</button>
             <button class="mobile-btn mobile-btn-sm" id="btn-mobile-squad" aria-label="Robot squad" style="display: none;">🤖</button>
+            <button class="mobile-btn mobile-btn-sm" id="btn-mobile-fire" aria-label="Fireball" style="display: none;">🔥</button>
         </div>
     </div>
 
     <div id="ui">
       <div id="liquid-overlay" class="none"></div>
       <div id="hurt-overlay"></div>
+      <div id="status-overlay"></div>
       <div id="crosshair">+</div>
       <div id="debug"></div>
       <div id="net-banner"></div>
@@ -53,7 +55,7 @@
       <div id="jet-fuel" style="display: none;"><span>Fuel</span><div id="jet-fuel-track"><div id="jet-fuel-fill"></div></div></div>
       <div id="game-hud" style="display: none;">
         <div id="item-name-popup"></div>
-        <div id="status-bars"><div id="health-bar"></div><div id="food-bar"></div></div>
+        <div id="status-bars"><div id="health-bar"></div><div class="right-bars"><div id="air-bar" style="visibility: hidden;"></div><div id="food-bar"></div></div></div>
         <div id="inventory-bar"></div>
       </div>
 
@@ -81,6 +83,7 @@
             <div><kbd>T</kbd> / <kbd>Enter</kbd> Chat (<kbd>/</kbd> for commands)</div>
             <div><kbd>G</kbd> Robot squad (orders for tamed robots)</div>
             <div><kbd>Y</kbd> / <kbd>N</kbd> Answer a teleport request</div>
+            <div><kbd>.</kbd> Shoot a fireball (lava chestplate)</div>
             <div><kbd>F3</kbd> Debug info</div>
             <div><kbd>Esc</kbd> Pause</div>
           </div></details>

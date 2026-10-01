@@ -1,6 +1,6 @@
 // The newer features, played in the browser (single player, dev build): put up a banner, tame a robot and
 // give it orders in the squad panel (G), die and use a moonstone orb to go back, and light the secret
-// Frost World portal and walk through it to meet the Frost Wraith. Screenshots in tests/e2e/out/features-*.png.
+// Elemental World portal and walk through it to meet a boss. Screenshots in tests/e2e/out/features-*.png.
 import { OUT, launch, openGame, sleep, suite } from './lib.mjs';
 const browser = await launch();
 const page = await openGame(browser);
@@ -18,7 +18,7 @@ const pos = () => ev(() => ({ ...window.poxel.body.pos }));
 const block = (x, y, z) => ev(({ x, y, z }) => window.poxel.getBlock(x, y, z), { x, y, z });
 const id = name => ev(n => window.poxel.blockId(n), name);
 const visible = sel => ev(s => { const el = document.querySelector(s); return !!el && getComputedStyle(el).display !== 'none'; }, sel);
-const isFrost = x => x >= -130000 && x < -70000;
+const isElemental = x => x >= -130000 && x < -70000;
 // Clears a flat floor (stone) around a spot, with air above
 const clearFloor = (c, r = 4, h = 6) => ev(({ c, r, h }) => {
   const list = [];
@@ -99,11 +99,11 @@ try {
   const away = await pos();
   await give('moonstone_orb', 1); // (after dying: death drops everything)
   await sleep(500);
-  await hold('moonstone_orb');
+  // (wait until the orb is really in hand; then use it, again if the first click came too soon)
+  for (let k = 0; k < 20 && (await hold('moonstone_orb')) < 0; k++) await sleep(150);
   await page.mouse.move(640, 360);
   await ev(() => window.poxel.setYawPitch(0, 0.6)); // at the sky: nothing to place on
-  await rightClick();
-  await sleep(600);
+  for (let k = 0; k < 3 && !(await visible('#orb-modal')); k++) { await ev(() => window.poxel.ui.forcePlaying()); await rightClick(); await sleep(600); }
   check('using the orb opens its menu', await visible('#orb-modal'));
   const choices = await ev(() => [...document.querySelectorAll('#orb-list .menu-btn')].map(b => b.textContent));
   check('it offers where we died', choices.some(c => /died/.test(c)), JSON.stringify(choices));
@@ -115,15 +115,16 @@ try {
   check('the orb is used up', (await ev(() => window.poxel.inv.filter(s => s && s.type === 'moonstone_orb').length)) === 0);
   await ev(() => window.poxel.ui.forcePlaying());
 
-  // ---- 4. The secret: a moonstone frame with robot eyes inside becomes a portal to the Frost World
+  // ---- 4. The secret: an etherite, gold, obitite and moonstone frame with robot eyes inside becomes a portal to the Elemental World
   const here = await pos();
   const f = { x: Math.floor(here.x) + 2, y: Math.floor(here.y), z: Math.floor(here.z) - 4 };
   await clearFloor({ x: f.x, y: f.y, z: f.z }, 5, 7);
   await sleep(500);
   await ev(c => {
-    const M = window.poxel.blockId('moonstone_block'), E = window.poxel.blockId('robot_eye'), list = [];
-    for (const i of [0, 1]) list.push(c.x + i, c.y, c.z, M, c.x + i, c.y + 4, c.z, M);
-    for (let j = 1; j <= 3; j++) list.push(c.x - 1, c.y + j, c.z, M, c.x + 2, c.y + j, c.z, M);
+    // Etherite along the top, gold along the bottom, obitite down the left, moonstone down the right
+    const id = n => window.poxel.blockId(n), E = id('robot_eye'), list = [];
+    for (let i = -1; i <= 2; i++) list.push(c.x + i, c.y, c.z, id('gold_block'), c.x + i, c.y + 4, c.z, id('etherite_block'));
+    for (let j = 1; j <= 3; j++) list.push(c.x - 1, c.y + j, c.z, id('obitite_block'), c.x + 2, c.y + j, c.z, id('moonstone_block'));
     for (const [i, j] of [[0, 1], [1, 1], [0, 2], [1, 2], [0, 3]]) list.push(c.x + i, c.y + j, c.z, E);
     window.poxel.send({ t: 'dev', blocks: list });
   }, f);
@@ -138,7 +139,7 @@ try {
   info(`aiming at ${JSON.stringify(target)}`);
   await rightClick();
   await sleep(800);
-  const portalId = await id('frost_portal');
+  const portalId = await id('elemental_portal');
   check('the eyes turn into a portal', (await block(f.x, f.y + 1, f.z)) === portalId && (await block(f.x + 1, f.y + 3, f.z)) === portalId,
     `${await block(f.x, f.y + 1, f.z)} ${await block(f.x + 1, f.y + 3, f.z)}`);
   await aimAt(f.x + 1, f.y + 2.5, f.z + 0.5);
@@ -146,7 +147,7 @@ try {
   await ev(p => window.poxel.glide(p.x + 1, p.y + 1, p.z + 0.5, 4), f);
   await sleep(4000);
   const there = await pos();
-  check('walking in takes us to the Frost World', isFrost(there.x), `x=${there.x.toFixed(1)}`);
+  check('walking in takes us to the Elemental World', isElemental(there.x), `x=${there.x.toFixed(1)}`);
   await ev(() => window.poxel.setYawPitch(0.4, -0.1));
   await sleep(2500);
   await page.screenshot({ path: `${OUT}/features-frost.png` });
@@ -155,7 +156,8 @@ try {
     for (let dx = -10; dx <= 10; dx++) for (let dz = -10; dz <= 10; dz++) for (let dy = -6; dy <= 3; dy++) seen.add(window.poxel.getBlock(Math.floor(p.x) + dx, Math.floor(p.y) + dy, Math.floor(p.z) + dz));
     return [...seen];
   }, there);
-  check('snow and ice all around', kinds.includes(await id('snow_block')) || kinds.includes(await id('packed_ice')), JSON.stringify(kinds));
+  const ground = await ev(() => ['snow_block', 'packed_ice', 'basalt', 'volcanic_ash', 'magma_block', 'grass', 'moss_block', 'cloud'].map(n => window.poxel.blockId(n)));
+  check('elemental ground all around', kinds.some(k => ground.includes(k)), JSON.stringify(kinds));
   check('a return portal beside us', kinds.includes(portalId));
   // The Frost Wraith
   await ev(() => window.poxel.send({ t: 'chat', text: '/gamemode creative' }));
@@ -167,6 +169,16 @@ try {
   const wraith = await ev(() => window.poxel.entities().find(e => e.kind === 'frost_wraith'));
   check('the Frost Wraith can appear', !!wraith);
   if (wraith) { await aimAt(wraith.x, wraith.y + 2, wraith.z); await sleep(500); await page.screenshot({ path: `${OUT}/features-wraith.png` }); }
+  // The other three bosses (each spawned, looked at, then cleared away with /kill-free creative: they ignore us)
+  for (const kind of ['magma_colossus', 'thorn_guardian', 'tempest']) {
+    await ev(() => window.poxel.setYawPitch(Math.PI, 0));
+    await ev(k => window.poxel.send({ t: 'dev', spawn: k }), kind);
+    await sleep(1500);
+    const boss = await ev(k => window.poxel.entities().find(e => e.kind === k), kind);
+    check(`the ${kind.replace('_', ' ')} can appear`, !!boss);
+    if (boss) { await aimAt(boss.x, boss.y + 1.5, boss.z); await sleep(600); await page.screenshot({ path: `${OUT}/features-${kind}.png` }); }
+    await ev(p => window.poxel.glide(p.x + 12, p.y + 3, p.z + 6, 12), await ev(() => ({ ...window.poxel.body.pos })));
+  }
 } catch (e) {
   check('suite completed without a script error', false, e.message);
 } finally {

@@ -26,7 +26,7 @@ Decisions: "enderite" in the drawing means the game's existing **Etherite**. Bui
 
 ## New boss
 - Hostile, 5 blocks tall.
-- Spawns with a new altar. Respawns every 30 minutes.
+- Spawns with a new altar. Respawns every 5 minutes.
 - Shoots lasers with its laser cannon core.
 - Uses its grinder to shred players, 1 heart per second (only sometimes). Attacks normally too.
 - After it's killed once, a new ore appears: obitite. The boss also has a 50% chance to drop its laser cannon core.
@@ -50,7 +50,7 @@ Decisions: "enderite" in the drawing means the game's existing **Etherite**. Bui
 **Stage 2 (done):**
 - The Robot Titan: 5 blocks tall, 300 health. It wakes at an altar when a player comes within 40 blocks. Altars are raised metal platforms with glowing pillars, about one per 256 x 256 blocks, and can't be mined.
   - It fires a laser (4 hearts), charges with its grinder for 4 s of every 14 (1 heart a second), and punches up close.
-  - It drops 6-10 obitite, and half the time its laser cannon core. It wakes again 30 minutes after being defeated.
+  - It drops 6-10 obitite, and half the time its laser cannon core. It wakes again 5 minutes after being defeated.
   - A health bar shows for players within 48 blocks.
 - Tungsten and obitite tools and armour are the two top tiers. Their armour adds toughness beyond the armour cap: each piece takes off another 2% (tungsten) or 4% (obitite) of damage.
   - A **full set of tungsten armour** (helmet, chestplate, leggings and boots) makes you immune to robot lasers, the Titan's included.

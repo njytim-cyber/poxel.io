@@ -21,7 +21,7 @@ function fakeConn() {
   return { got, conn: { send: (m: ServerMsg) => { got.push(m); }, close: () => {} } };
 }
 
-const hello = (name: string) => ({ t: 'hello', v: 2, name, look: {}, token: 'tok-' + name });
+const hello = (name: string) => ({ t: 'hello', v: 3, name, look: {}, token: 'tok-' + name });
 const edits = (flat: number[]) => { const o: string[] = []; for (let i = 0; i < flat.length; i += 4) o.push(flat.slice(i, i + 4).join(',')); return o; };
 const tick = (g: Game, n: number) => { for (let i = 0; i < n; i++) g.tick(0.05); };
 
@@ -884,7 +884,7 @@ test('/sethome and /tphome (one home per piece of etherite armour)', () => {
   assert.equal(again.homes[1]?.name, 'Home 2', 'saved');
 });
 
-test('the Robot Titan wakes at its altar, drops obitite, and returns 30 minutes after being defeated', async () => {
+test('the Robot Titan wakes at its altar, drops obitite, and returns 5 minutes after being defeated', async () => {
   const { nearestAltar } = await import('../../shared/robotic.ts');
   const { s, storage } = memoryStorage();
   const g = new Game(storage, { creativeCode: TEST_CODE, seed: 5 });
@@ -911,9 +911,9 @@ test('the Robot Titan wakes at its altar, drops obitite, and returns 30 minutes 
   assert.ok(obitite >= 6, `dropped ${obitite} obitite`);
   assert.ok(chatReplies(c.got).some(t => t.includes('defeated')));
   tick(g, 60);
-  assert.equal(titans().length, 0, 'stays away for 30 minutes');
+  assert.equal(titans().length, 0, 'stays away for 5 minutes');
   g.saveAll(true);
-  assert.ok(s.world?.titans && Object.values(s.world.titans)[0] > 1700, 'respawn time saved');
+  assert.ok(s.world?.titans && Object.values(s.world.titans)[0] > 200, 'respawn time saved');
 });
 
 test('laser cannon (in hand or offhand) hits mobs; a compass bounces robot lasers back', () => {

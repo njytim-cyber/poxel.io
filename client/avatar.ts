@@ -60,7 +60,7 @@ export function disposeOwned(root: THREE.Object3D) {
     const mats = m.material ? (Array.isArray(m.material) ? m.material : [m.material]) : [];
     for (const mat of mats) {
       if (!mat.userData.owned) continue;
-      (mat as any).map?.dispose?.();
+      if (!mat.userData.sharedMap) (mat as any).map?.dispose?.(); // (a texture shared by many, like the projectiles' glow, stays)
       mat.dispose();
     }
   });
@@ -72,15 +72,44 @@ export function makeHeldMesh(type: string, blockSize: number, planeSize: number)
   return new THREE.Mesh(new THREE.PlaneGeometry(planeSize, planeSize), itemPlaneMat(type));
 }
 
-const ARMOR_COLORS: Record<string, number> = { wood: 0xa07844, iron: 0xd8d8d8, gold: 0xfad64a, diamond: 0x33ebcb, moonstone: 0xd6d0f5, etherite: 0x3a3448, tungsten: 0xa4aec2, obitite: 0xd0304a };
-const armorMats = new Map<string, THREE.MeshLambertMaterial>();
-function armorMat(type: string | null | undefined): THREE.MeshLambertMaterial | null {
+// Armour is worn over the body as plates (like real armour), not painted onto the skin. Each material gets a texture:
+// its colour, darker edges, a highlight and rivets; helmets have an opening for the face. Elemental pieces carry their
+// element's trim: waves (water), glowing cracks (lava), vines and flowers (earth), gold swirls (wind).
+const ARMOR_COLORS: Record<string, string> = { wood: '#a07844', iron: '#d8d8d8', gold: '#fad64a', diamond: '#33ebcb', moonstone: '#d6d0f5', etherite: '#4a4458',
+  tungsten: '#a4aec2', obitite: '#d0304a', water: '#2a78e0', lava: '#5a2a1a', earth: '#5a7a2a', wind: '#e8f0f8' };
+const armorTex = new Map<string, THREE.MeshLambertMaterial>();
+function shade(hex: string, f: number) { const c = new THREE.Color(hex); c.multiplyScalar(f); return `#${c.getHexString()}`; }
+function armorMat(type: string | null | undefined, face = false): THREE.MeshLambertMaterial | null {
   if (!type) return null;
   const tier = type.split('_')[0];
-  const col = ARMOR_COLORS[tier];
-  if (col === undefined) return null;
-  let m = armorMats.get(tier);
-  if (!m) { m = new THREE.MeshLambertMaterial({ color: col }); armorMats.set(tier, m); }
+  const base = ARMOR_COLORS[tier];
+  if (!base) return null;
+  const key = tier + (face ? ':face' : '');
+  let m = armorTex.get(key);
+  if (m) return m;
+  const c = document.createElement('canvas'); c.width = c.height = 16;
+  const g = c.getContext('2d')!;
+  const px = (x: number, y: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, 1, 1); };
+  let seed = tier.length * 97;
+  const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) px(x, y, shade(base, 0.9 + rnd() * 0.2));
+  for (let i = 0; i < 16; i++) { px(i, 0, shade(base, 1.25)); px(0, i, shade(base, 1.2)); px(i, 15, shade(base, 0.55)); px(15, i, shade(base, 0.6)); }
+  for (const [x, y] of [[2, 2], [13, 2], [2, 13], [13, 13]]) px(x, y, shade(base, 0.5));
+  for (let i = 2; i < 7; i++) px(i, 8 - i, shade(base, 1.35)); // a shine
+  const trims: Record<string, (x: number, y: number) => string | null> = {
+    water: (x, y) => (y === Math.round(3 + Math.sin(x * 0.8) * 1.2) || y === Math.round(12 + Math.sin(x * 0.8 + 2) * 1.2) ? (x % 3 ? '#9ef4ff' : '#ffffff') : null),
+    lava: (x, y) => (Math.abs(Math.sin(x * 0.9 + y * 0.5) + Math.cos(y * 1.3 - x * 0.4)) < 0.28 ? (rnd() < 0.5 ? '#ffd040' : '#ff6a10') : null),
+    earth: (x, y) => ((x === 1 || x === 14) && y % 2 === 0 ? '#3a8a22' : (x === 1 || x === 14) && y % 4 === 1 ? '#f04080' : (y === 1 || y === 14) && x % 3 === 0 ? '#6ad040' : null),
+    wind: (x, y) => { const d = Math.hypot(x - 7.5, y - 7.5), a = Math.atan2(y - 7.5, x - 7.5); return Math.abs(((a + d * 0.55) % 1.6 + 1.6) % 1.6 - 0.8) < 0.18 && d > 2 && d < 7.5 ? '#ffc830' : null; },
+  };
+  const trim: ((x: number, y: number) => string | null) | undefined = trims[tier];
+  if (trim) for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { const t = trim(x, y); if (t) px(x, y, t); }
+  if (face) g.clearRect(3, 5, 10, 7); // the face shows through the helmet
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter; tex.colorSpace = THREE.SRGBColorSpace;
+  m = new THREE.MeshLambertMaterial({ map: tex, transparent: face, alphaTest: face ? 0.5 : 0 });
+  if (tier in trims) { m.emissive.set(tier === 'lava' ? '#401000' : tier === 'water' ? '#001830' : '#101008'); }
+  armorTex.set(key, m);
   return m;
 }
 
@@ -141,6 +170,20 @@ export function createAvatar(look: Look = DEFAULT_LOOK): Avatar {
   lGlove.visible = rGlove.visible = false;
   model.add(leftArm, rightArm, leftLeg, rightLeg);
 
+  // Armour plates, a little bigger than what they cover (shown when worn)
+  const plate = (w: number, h: number, d: number, parent: THREE.Object3D, y: number) => {
+    const m = new THREE.Mesh<THREE.BoxGeometry, THREE.Material | THREE.Material[]>(new THREE.BoxGeometry(w, h, d), skin);
+    m.position.y = y; m.visible = false; parent.add(m);
+    return m;
+  };
+  const helmet = plate(0.58, 0.58, 0.58, head, 0.02);
+  const chestPlate = plate(0.5, 0.8, 0.31, torso, 0);
+  const shoulders = [plate(0.24, 0.42, 0.24, leftArm, -0.2), plate(0.24, 0.42, 0.24, rightArm, -0.2)];
+  const belt = plate(0.5, 0.16, 0.31, torso, -0.32);
+  const thighs = [plate(0.27, 0.5, 0.27, leftLeg, -0.25), plate(0.27, 0.5, 0.27, rightLeg, -0.25)];
+  const boots = [plate(0.28, 0.27, 0.29, leftLeg, -0.63), plate(0.28, 0.27, 0.29, rightLeg, -0.63)];
+  const gloves = [plate(0.23, 0.28, 0.23, leftArm, -0.62), plate(0.23, 0.28, 0.23, rightArm, -0.62)];
+
   // Super-shop cosmetics
   const black = new THREE.MeshLambertMaterial({ color: 0x111111 });
   black.userData.owned = true;
@@ -163,16 +206,18 @@ export function createAvatar(look: Look = DEFAULT_LOOK): Avatar {
   let armor: (string | null)[] = [null, null, null, null, null];
 
   const applyArmor = () => {
-    const helm = armorMat(armor[0]), chest = armorMat(armor[1]), legs = armorMat(armor[2]), boots = armorMat(armor[3]), hands = armorMat(armor[4]);
-    head.material = helm || skin;
+    const wear = (meshes: THREE.Mesh<THREE.BoxGeometry, THREE.Material | THREE.Material[]>[], mat: THREE.Material | null) => { for (const m of meshes) { m.visible = !!mat; if (mat) m.material = mat; } };
+    const helm = armorMat(armor[0]);
+    helmet.visible = !!helm;
+    // (the front of the helmet has the face opening)
+    if (helm) helmet.material = [helm, helm, helm, helm, helm, armorMat(armor[0], true)!];
     hair.visible = !helm;
-    torso.material = chest || shirt;
-    lArmMesh.material = rArmMesh.material = chest || skin;
-    lLegMesh.material = rLegMesh.material = legs || pants;
-    lShoe.material = rShoe.material = boots || shoes;
-    lGlove.visible = rGlove.visible = !!hands;
-    if (hands) lGlove.material = rGlove.material = hands;
+    wear([chestPlate, ...shoulders], armorMat(armor[1]));
+    wear([belt, ...thighs], armorMat(armor[2]));
+    wear(boots, armorMat(armor[3]));
+    wear(gloves, armorMat(armor[4]));
   };
+  void lArmMesh; void rArmMesh; void lLegMesh; void rLegMesh; void lShoe; void rShoe;
 
   const av: Avatar = {
     root, head, skinMat: skin,

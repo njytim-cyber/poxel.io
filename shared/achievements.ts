@@ -1,7 +1,7 @@
 // Achievements: unlocked by the server (it sees what really happens), saved with each character,
 // shown as a banner when earned and listed in the pause menu.
 
-// secret: shown as "???" until earned (the Frost World is a secret)
+// secret: shown as "???" until earned (the Elemental World is a secret)
 export interface Achievement { id: string; name: string; desc: string; secret?: boolean }
 
 export const ACHIEVEMENTS: Achievement[] = [
@@ -25,9 +25,13 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'claim', name: 'Home Turf', desc: 'Claim land with a claim stone' },
   { id: 'orb', name: 'Moonwalk', desc: 'Teleport with a moonstone orb' },
   { id: 'squad', name: 'Squad Leader', desc: 'Give your robots an order' },
-  { id: 'frost', name: 'Cold Feet', desc: 'Find the Frost World', secret: true },
+  { id: 'frost', name: 'Elemental', desc: 'Find the Elemental World', secret: true },
   { id: 'glacite', name: 'Deep Freeze', desc: 'Get glacite', secret: true },
   { id: 'wraith', name: 'Thaw', desc: 'Defeat the Frost Wraith', secret: true },
+  { id: 'colossus', name: 'Cooled Down', desc: 'Defeat the Magma Colossus', secret: true },
+  { id: 'thorn', name: 'Weed Killer', desc: 'Defeat the Thorn Guardian', secret: true },
+  { id: 'roc', name: 'Grounded', desc: 'Defeat the Tempest', secret: true },
+  { id: 'venom', name: 'Venomous', desc: 'Make the poison sword', secret: true },
 ];
 
 export const ACHIEVEMENT_IDS = new Set(ACHIEVEMENTS.map(a => a.id));
@@ -35,7 +39,7 @@ export const ACHIEVEMENT_IDS = new Set(ACHIEVEMENTS.map(a => a.id));
 // Having one of these items (anywhere in your inventory) earns the achievement
 export const ITEM_ACHIEVEMENTS: Record<string, string> = {
   crafting_table: 'table', iron_ingot: 'iron', diamond: 'diamond', etherite: 'etherite',
-  tungsten_ingot: 'tungsten', obitite: 'obitite', laser_cannon: 'cannon', jetpack: 'jetpack', glacite: 'glacite',
+  tungsten_ingot: 'tungsten', obitite: 'obitite', laser_cannon: 'cannon', jetpack: 'jetpack', glacite: 'glacite', poison_sword: 'venom',
 };
 export function itemAchievement(type: string): string | undefined {
   return ITEM_ACHIEVEMENTS[type] ?? (type.endsWith('_pickaxe') ? 'pickaxe' : undefined);

@@ -5,6 +5,7 @@ import * as player from './player';
 import { setInvState, resetInventory, setFurnaceState, setChestState, setSelectedFromServer } from './inventory';
 import { clearRemote, onSpawn, onDespawn, onSnap, onEquip, onAnim, showBeam, setAwayPlayers } from './remote';
 import { setTimeOfDay } from './sky';
+import { onFx } from './particles';
 import * as ui from './ui';
 import { send } from './net';
 
@@ -53,11 +54,15 @@ export function handleServerMessage(m: ServerMsg) {
     case 'snap': onSnap(m.ents); return;
     case 'spawn': onSpawn(m.ents.filter(e => e.eid !== myEid)); return;
     case 'despawn': onDespawn(m.eids); return;
-    case 'beam': showBeam(m.a, m.b, m.pet, m.ice); return;
+    case 'beam': showBeam(m.a, m.b, m.pet, m.ice, m.color); return;
+    case 'air': ui.renderAir(m.air); return;
+    case 'maxhp': player.onMaxHealth(m.max); return;
+    case 'status': ui.setStatus(m.poison, m.fire); return;
     case 'orbmenu': ui.showOrbMenu(m.players, m.homes, m.death); return;
     case 'tpask': ui.showTpAsk(m.from); return;
     case 'squad': ui.setSquad(m.list); return;
-    case 'slow': player.onSlow(m.seconds); return;
+    case 'slow': player.onSlow(m.seconds, m.freeze); return;
+    case 'fx': onFx(m, player.controls.object.position); return;
     case 'boss': ui.setBossBar(m.name, m.hp, m.max); return;
     case 'fuel': player.onFuel(m.f); return;
     case 'achievements': ui.setAchievements(m.ids, m.unlocked); return;
@@ -87,7 +92,7 @@ export function handleServerMessage(m: ServerMsg) {
     case 'health': player.onHealth(m.hp); return;
     case 'food': player.onFood(m.food); return;
     case 'gamemode': player.onGamemode(m.mode); return;
-    case 'hurt': player.onHurt(m.from, m.knock); return;
+    case 'hurt': player.onHurt(m.from, m.knock, m.lift); return;
     case 'death': player.onDeath(m.msg); return;
     case 'downed': player.onDowned(m.seconds); return;
     case 'revived': player.onRevived(); return;
