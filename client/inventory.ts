@@ -340,7 +340,8 @@ export function setCreativeInventory(on: boolean) {
   if (hint) hint.textContent = on ? 'Click: take one · Shift/right-click: a stack · Click here holding something: delete it' : 'Click: fill grid · Shift+click: craft max';
   if (isOpen) renderRecipeBook();
 }
-const ALL_ITEMS = Object.keys(ITEMS);
+// (not the projectiles: a fireball, magma ball or icicle only exists in flight)
+const ALL_ITEMS = Object.keys(ITEMS).filter(t => t !== 'fireball' && t !== 'magma_ball' && t !== 'icicle');
 
 function renderCreativeList(gridEl: HTMLElement) {
   const search = (document.getElementById('recipe-search') as HTMLInputElement)?.value.trim().toLowerCase() || '';
