@@ -40,6 +40,7 @@
       </div>
       <div id="toast"></div>
       <div id="error-banner"></div>
+      <div id="ping-hud" style="display: none;"></div>
 
       <!-- Over the whole screen: boss health (top), compass and jetpack fuel (above the hotbar) -->
       <div id="achievement-banner" style="display: none;"><div class="ach-title">Achievement unlocked!</div><div id="achievement-name"></div></div>
@@ -76,6 +77,7 @@
           </div>
           <details id="achievements-panel"><summary id="achievements-summary">Achievements</summary><ul id="achievements-list"></ul></details>
           <div id="online-list" style="display: none;"></div>
+          <button id="btn-invite" class="menu-btn" style="display: none;">Invite friends</button>
           <button id="btn-save-quit" class="menu-btn">Save &amp; Quit</button>
         </div>
       </div>
@@ -146,10 +148,37 @@
       <div id="cursor-item" class="slot"></div>
     </div>
 
+    <!-- Joining a server: shown until the ground around you has loaded -->
+    <div id="loading-screen" style="display: none;">
+      <div class="loading-box">
+        <div class="loading-spinner"></div>
+        <p id="loading-text">Connecting...</p>
+        <button id="btn-loading-cancel" class="menu-btn">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Invite friends: a link (share / copy) and a QR code for phones -->
+    <div id="invite-modal" style="display: none;">
+      <div class="invite-box">
+        <h2>Invite friends</h2>
+        <p class="mp-hint">Anyone who opens this link joins this world. New players start right next to you.</p>
+        <input id="invite-link" class="mp-input" readonly />
+        <div class="invite-buttons">
+          <button id="btn-invite-share" class="menu-btn primary">Share</button>
+          <button id="btn-invite-copy" class="menu-btn">Copy link</button>
+        </div>
+        <div id="invite-qr"></div>
+        <p class="mp-hint">Scan with a phone to play on it.</p>
+        <button id="btn-invite-close" class="menu-btn">Close</button>
+      </div>
+    </div>
+
     <!-- Main Menu Overlay -->
     <div id="main-menu">
       <div class="menu-content" id="menu-screen-main">
         <h1>Poxel.io</h1>
+        <div id="menu-error" style="display: none;"><b>Disconnected</b><span id="menu-error-text"></span></div>
+        <button id="btn-play-online" class="menu-btn primary" style="display: none;"><span id="play-online-label">Play Online</span></button>
         <button id="btn-new-game" class="menu-btn primary">
           <span>New Game</span>
           <div class="bp-anim anim-jump">

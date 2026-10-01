@@ -1011,3 +1011,68 @@ test('critical hits (falling after a jump) and achievements', () => {
   g.leave(p);
   assert.ok(s.players['Champ'].achievements?.includes('crit'));
 });
+
+test('a dropped player keeps their place for a minute and picks up where they were', () => {
+  const { s, storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 7, maxPlayers: 4 });
+  const a = fakeConn();
+  const p = g.join(a.conn, hello('Dropper'))!;
+  p.inv.slots[0] = { type: 'dirt', count: 5 };
+  g.disconnect(p, a.conn);
+  tick(g, 20 * 30); // 30s: still in the world
+  assert.equal(g.playerCount, 1);
+  // Reconnecting resumes the same player (no new character, no "joined" spam)
+  const b = fakeConn();
+  const again = g.join(b.conn, hello('Dropper'))!;
+  assert.equal(again, p);
+  assert.ok(b.got.some(m => m.t === 'welcome'));
+  assert.equal(again.inv.slots[0]?.type, 'dirt');
+  // A late close of the old connection doesn't drop the new one
+  g.disconnect(p, a.conn);
+  tick(g, 20 * 70);
+  assert.equal(g.playerCount, 1);
+  // Dropping for longer than the hold: they leave and are saved
+  g.disconnect(p, b.conn);
+  tick(g, 20 * 61);
+  assert.equal(g.playerCount, 0);
+  assert.equal(s.players['Dropper']?.inv.slots[0]?.type, 'dirt');
+});
+
+test('quitting on purpose leaves straight away (no held place)', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 7, maxPlayers: 4 });
+  const a = fakeConn();
+  const p = g.join(a.conn, hello('Quitter'))!;
+  g.disconnect(p, a.conn, false);
+  assert.equal(g.playerCount, 0);
+});
+
+test('another tab with the same character takes over; someone else cannot take a held name', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 7, maxPlayers: 4 });
+  let closed = '';
+  const first = { send: () => {}, close: (r: string) => { closed = r; } };
+  const p = g.join(first, hello('Tabby'))!;
+  const second = fakeConn();
+  assert.equal(g.join(second.conn, hello('Tabby')), p);
+  assert.match(closed, /somewhere else/);
+  g.disconnect(p, second.conn);
+  let refused = '';
+  assert.equal(g.join({ send: () => {}, close: r => { refused = r; } }, { ...hello('Tabby'), token: 'someone-else' }), null);
+  assert.match(refused, /already playing/);
+});
+
+test('an invite link starts a newcomer next to the friend who sent it', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 7, maxPlayers: 4 });
+  const host = g.join(fakeConn().conn, hello('Host'))!;
+  host.body.pos.x += 40; host.body.pos.z += 25;
+  const c = fakeConn();
+  const guest = g.join(c.conn, { ...hello('Guest'), near: 'host' })!;
+  assert.ok(Math.hypot(guest.body.pos.x - host.body.pos.x, guest.body.pos.z - host.body.pos.z) < 2, 'beside the host');
+  // A returning player keeps their own saved place
+  g.leave(guest);
+  host.body.pos.x += 100;
+  const back = g.join(fakeConn().conn, { ...hello('Guest'), near: 'Host' })!;
+  assert.ok(Math.abs(back.body.pos.x - host.body.pos.x) > 50);
+});

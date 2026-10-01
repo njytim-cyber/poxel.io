@@ -35,6 +35,7 @@
   },
   "dependencies": {
     "nipplejs": "^1.0.1",
+    "qrcode-generator": "^2.0.4",
     "ws": "^8.22.0"
   },
   "engines": {

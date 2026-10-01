@@ -103,7 +103,7 @@ function renderOnlineList() {
   const el = document.getElementById('online-list');
   if (!el) return;
   el.innerHTML = '';
-  if (onlinePlayers.length <= 1) { el.style.display = 'none'; return; }
+  if (!onlinePlayers.length) { el.style.display = 'none'; return; }
   el.style.display = 'block';
   const h = document.createElement('div');
   h.className = 'online-title';

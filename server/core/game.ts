@@ -79,6 +79,8 @@ const MOB_CAUSES = new Set(['zombie', 'husk', 'frostbitten', 'spider', 'skeleton
 const JET_SECONDS = 30;       // a full jetpack tank lasts this long
 const TITAN_RESPAWN = 30 * 60; // seconds after a Robot Titan is defeated before it wakes again
 const MAX_PETS = 3;
+const SEAT_HOLD = 60;       // seconds a dropped player stays in the world, so a quick reconnect picks up where they were
+const NO_CONN: Conn = { send() {}, close() {} };
 // /gamemode creative needs the owner's code. Only its fingerprint is kept here (the source is public).
 const CREATIVE_CODE = 'ff78b193';
 export function creativeCodeHash(code: string): string {
@@ -150,6 +152,7 @@ interface Player {
   jetFuel: number;           // jetpack fuel, 0..1 (a full tank is JET_SECONDS of thrust)
   achievements: Set<string>;
   bossHp: number;            // boss health last shown to this player (-1: no bar)
+  awayAt: number;            // clock time the connection dropped (-1: connected); see SEAT_HOLD
 }
 interface Mob {
   kind: MobKind; eid: number; body: Body; yaw: number; targetYaw: number; health: number;
@@ -251,15 +254,15 @@ export class Game {
 
   join(conn: Conn, hello: any): Player | null {
     if (!hello || hello.t !== 'hello' || hello.v !== PROTOCOL_VERSION) { conn.close('Version mismatch: please refresh the page'); return null; }
-    if (this.players.size >= this.maxPlayers) { conn.close('Server is full'); return null; }
     const name = sanitizeName(hello.name);
     const token = typeof hello.token === 'string' ? hello.token.slice(0, 64) : '';
     const online = [...this.players.values()].find(o => o.name.toLowerCase() === name.toLowerCase());
     if (online) {
-      // Same person reconnecting before their old connection timed out: replace the stale one
-      if (token && online.token === token) { online.conn.close('Connected again from somewhere else'); this.leave(online); }
-      else { conn.close(`The name "${name}" is already playing. Pick another name.`); return null; }
+      // Same person coming back (a dropped connection, or another tab): carry on where they are
+      if (token && online.token === token) return this.resume(online, conn, hello);
+      conn.close(`The name "${name}" is already playing. Pick another name.`); return null;
     }
+    if (this.players.size >= this.maxPlayers) { conn.close('Server is full'); return null; }
     let saved = this.storage.loadPlayer(name);
     if (saved?.token && saved.token !== token) { conn.close(`The name "${name}" belongs to another player. Pick another name.`); return null; }
     // Rename: the owner of the old name (same token) takes their character to the new, unclaimed name,
@@ -277,7 +280,10 @@ export class Game {
     // the client writes what happens here (items found, lost on death) back into that save
     const carry = this.allowCarry && hello.carry && typeof hello.carry === 'object' ? hello.carry : null;
     const spawn = saved?.spawn || this.spawnPoint;
-    const pos = saved && [saved.x, saved.y, saved.z].every(isNum) ? { x: saved.x, y: saved.y, z: saved.z } : { x: spawn[0], y: spawn[1], z: spawn[2] };
+    // Invited by a friend (an invite link): a newcomer starts beside them instead of at the world spawn
+    const friend = !saved && typeof hello.near === 'string' ? [...this.players.values()].find(o => o.name.toLowerCase() === sanitizeName(hello.near).toLowerCase() && o.awayAt < 0 && !o.dead) : undefined;
+    const pos = saved && [saved.x, saved.y, saved.z].every(isNum) ? { x: saved.x, y: saved.y, z: saved.z }
+      : friend ? { x: friend.body.pos.x + 1, y: friend.body.pos.y, z: friend.body.pos.z } : { x: spawn[0], y: spawn[1], z: spawn[2] };
     // Don't start inside blocks (terrain may have changed)
     if (boxIntersectsSolid(this.world.get, pos.x, pos.y, pos.z, PLAYER_HALF_WIDTH, PLAYER_HEIGHT)) pos.y = this.world.surfaceHeight(Math.floor(pos.x), Math.floor(pos.z)) + 1;
 
@@ -296,7 +302,7 @@ export class Game {
       moveBudget: 3, climbBudget: 3, dropCredit: 8, chatCredit: 5, token,
       editChunks: new Set(), editCenter: '',
       home: carry ? (saved ? { inv: saved.inv, health: saved.health, food: saved.food, saturation: saved.saturation } : { inv: { slots: [], cursor: null, selected: 0, ack: 0 }, health: MAX_HEALTH }) : undefined,
-      cheated: !!saved?.cheated, portalCd: 0, bossHp: -1, fireCd: 0, achievements: new Set(Array.isArray(saved?.achievements) ? saved!.achievements!.filter(a => ACHIEVEMENT_IDS.has(a)) : []), jetFuel: isNum(saved?.jetFuel) ? Math.max(0, Math.min(1, saved!.jetFuel!)) : 0,
+      cheated: !!saved?.cheated, portalCd: 0, bossHp: -1, awayAt: -1, fireCd: 0, achievements: new Set(Array.isArray(saved?.achievements) ? saved!.achievements!.filter(a => ACHIEVEMENT_IDS.has(a)) : []), jetFuel: isNum(saved?.jetFuel) ? Math.max(0, Math.min(1, saved!.jetFuel!)) : 0,
     };
     this.players.set(p.eid, p);
     if (Array.isArray(saved?.pets)) for (const hp of saved!.pets!.slice(0, MAX_PETS)) {
@@ -313,20 +319,53 @@ export class Game {
       }, `renaming ${renamedFrom}`);
       this.log(`${renamedFrom} is now called ${name}`);
     }
-    // Only the edits around the player: the rest stream in as they move (see streamEdits),
-    // so joining a long-lived world doesn't mean downloading every edit ever made
-    conn.send({
-      t: 'welcome', eid: p.eid, seed: this.world.seed, time: this.time,
-      edits: this.collectEdits(p), facing: this.world.exportFacing(), carried: !!carry, difficulty: this.difficulty,
-      you: { ...pos, yaw: p.yaw, pitch: p.pitch, health: p.health, food: p.food, gamemode: p.gamemode, inv: this.invState(p), spawn: p.spawn },
-    });
-    this.sendHomes(p);
-    conn.send({ t: 'fuel', f: p.jetFuel });
-    conn.send({ t: 'achievements', ids: [...p.achievements] });
+    this.sendWelcome(p);
+    if (friend) friend.conn.send({ t: 'chat', from: null, text: `${name} joined you from your invite link` });
     if (this.maxPlayers > 1) this.broadcast({ t: 'chat', from: null, text: `${name} joined the game` });
     this.log(`${name} joined (${this.players.size} online)`);
     this.sendPlayerList();
     return p;
+  }
+
+  // Everything a (re)connecting client needs to start playing
+  private sendWelcome(p: Player) {
+    // Only the edits around the player: the rest stream in as they move (see streamEdits),
+    // so joining a long-lived world doesn't mean downloading every edit ever made
+    const pos = p.body.pos;
+    p.conn.send({
+      t: 'welcome', eid: p.eid, seed: this.world.seed, time: this.time,
+      edits: this.collectEdits(p), facing: this.world.exportFacing(), carried: !!p.home, difficulty: this.difficulty,
+      you: { x: pos.x, y: pos.y, z: pos.z, yaw: p.yaw, pitch: p.pitch, health: p.health, food: p.food, gamemode: p.gamemode, inv: this.invState(p), spawn: p.spawn },
+    });
+    this.sendHomes(p);
+    p.conn.send({ t: 'fuel', f: p.jetFuel });
+    p.conn.send({ t: 'achievements', ids: [...p.achievements] });
+  }
+
+  // A player whose seat is held (or who is still connected in another tab) takes it back with the new connection
+  private resume(p: Player, conn: Conn, hello: any): Player {
+    if (p.awayAt < 0) p.conn.close('Connected again from somewhere else');
+    p.conn = conn;
+    p.awayAt = -1;
+    p.look = sanitizeLook(hello.look);
+    p.seen.clear(); p.editChunks.clear(); p.editCenter = ''; // the new client starts with an empty view
+    p.bossHp = -1;
+    if (p.dead) this.onRespawn(p);
+    this.sendWelcome(p);
+    this.log(`${p.name} reconnected`);
+    this.sendPlayerList();
+    return p;
+  }
+
+  // The connection dropped unexpectedly. In multiplayer the player stays put for SEAT_HOLD seconds (see tick), so
+  // a quick reconnect carries on seamlessly; otherwise they leave now. Stale connections are ignored.
+  disconnect(p: Player, conn: Conn, holdSeat = true) {
+    if (p.conn !== conn || !this.players.has(p.eid)) return;
+    if (this.maxPlayers <= 1 || !holdSeat) { this.leave(p); return; }
+    p.conn = NO_CONN;
+    p.awayAt = this.clock;
+    if (p.screen) { closeScreen(p.inv, (t, n) => this.dropFrom(p, t, n)); p.screen = null; p.furnaceKey = null; p.screenAt = null; }
+    this.log(`${p.name} dropped; holding their place for ${SEAT_HOLD}s`);
   }
 
   leave(p: Player) {
@@ -1558,7 +1597,10 @@ export class Game {
     const day = daylight(this.time);
     this.world.tick(dt);
 
-    for (const p of this.players.values()) this.updatePlayer(p, dt);
+    for (const p of this.players.values()) {
+      if (p.awayAt >= 0 && this.clock - p.awayAt > SEAT_HOLD) { this.leave(p); continue; }
+      this.updatePlayer(p, dt);
+    }
     if (this.tickCount % 5 === 0) for (const p of this.players.values()) this.streamEdits(p);
     this.spawnTimer -= dt;
     if (this.spawnTimer <= 0) { this.spawnTimer = 1; this.trySpawnMobs(day); this.growCrops(); this.wakeTitans(); }

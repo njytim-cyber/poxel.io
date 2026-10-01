@@ -1252,3 +1252,56 @@ body:not([data-state="playing"]) #mobile-hud { display: none !important; }
 
 /* Touch screens have no crosshair: taps and long-presses act where you touch */
 body.touch-ui #crosshair { display: none; }
+
+/* Multiplayer: error card on the main menu, loading screen, invite dialog, ping */
+#menu-error {
+  background: rgba(150, 30, 30, 0.85); border: 2px solid #ff8080; padding: 8px 14px; margin-bottom: 6px;
+  max-width: 360px; font-size: 14px; display: flex; flex-direction: column; gap: 2px; text-align: center;
+}
+#loading-screen {
+  position: fixed; inset: 0; z-index: 10001; display: flex; align-items: center; justify-content: center;
+  background: rgba(10, 12, 20, 0.92); color: #fff;
+}
+.loading-box { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+#loading-text { font-size: 18px; margin: 0; }
+.loading-spinner {
+  width: 40px; height: 40px; border: 5px solid rgba(255, 255, 255, 0.2); border-top-color: #ffd23a;
+  animation: loading-spin 0.9s linear infinite;
+}
+@keyframes loading-spin { to { transform: rotate(360deg); } }
+#invite-modal {
+  position: fixed; inset: 0; z-index: 10002; display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.7); color: #fff;
+}
+.invite-box {
+  background: rgba(25, 25, 35, 0.97); border: 2px solid #888; padding: 16px 20px; width: min(380px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px); overflow-y: auto; display: flex; flex-direction: column; align-items: stretch; gap: 8px; text-align: center;
+}
+.invite-box h2 { margin: 0; }
+.invite-buttons { display: flex; gap: 8px; }
+.invite-buttons .menu-btn { flex: 1; }
+#invite-qr { align-self: center; background: #fff; padding: 6px; line-height: 0; }
+#invite-qr svg { width: 150px; height: 150px; }
+#ping-hud {
+  position: absolute; top: 6px; left: 8px; z-index: 20; pointer-events: none;
+  font-size: 12px; color: #fff; text-shadow: 1px 1px 0 #000; opacity: 0.85;
+}
+#ping-hud.ok { color: #8f8; } #ping-hud.meh { color: #ff8; } #ping-hud.bad { color: #f88; }
+@media (max-height: 500px) { #invite-qr svg { width: 110px; height: 110px; } }
+body.touch-ui #ping-hud { left: auto; right: 10px; top: 8px; } /* the phone toolbar is top left */
+.invite-box .menu-btn { justify-content: center; text-align: center; white-space: nowrap; padding-left: 8px; padding-right: 8px; }
+/* The menu scrolls instead of clipping when it's taller than the screen (centred when it fits) */
+#main-menu { overflow-y: auto; align-items: flex-start; padding: 12px 0; box-sizing: border-box; }
+#main-menu > .menu-content { margin: auto 0; }
+@media (max-height: 720px) {
+  #menu-screen-main { gap: 10px; }
+  #menu-screen-main h1 { font-size: 44px; margin: 0 0 4px; }
+  #menu-screen-main .menu-btn { padding-top: 8px; padding-bottom: 8px; }
+}
+@media (max-height: 450px) {
+  #menu-screen-main { gap: 6px; }
+  #menu-screen-main h1 { font-size: 30px; margin: 0; }
+  #menu-screen-main .menu-btn { padding-top: 5px; padding-bottom: 5px; font-size: 16px; }
+  #menu-screen-main .bp-anim { transform: scale(0.6); }
+  #menu-error { padding: 4px 10px; font-size: 12px; }
+}

@@ -5,7 +5,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, existsSync, openSync, writeSync, fsyncSync, closeSync, copyFileSync, appendFileSync, statSync, rmSync } from 'node:fs';
 import { join, normalize, extname, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
-import { Game, type Storage, type WorldSave, type PlayerSave, type Player } from './core/game.ts';
+import { Game, type Conn, type Storage, type WorldSave, type PlayerSave, type Player } from './core/game.ts';
 import { encodeSnap, decodeBinary, TICK_RATE, type ClientMsg, type ServerMsg } from '../shared/protocol.ts';
 
 const PORT = Number(process.env.PORT) || 8080;
@@ -129,7 +129,7 @@ function fromEdge(req: IncomingMessage): boolean {
   return got.length === want.length && timingSafeEqual(got, want);
 }
 
-interface Client { ws: WebSocket; ip: string; player: Player | null; tokens: number; lastRefill: number; strikes: number; alive: boolean; pingSent: number }
+interface Client { ws: WebSocket; conn: Conn; ip: string; player: Player | null; tokens: number; lastRefill: number; strikes: number; alive: boolean; pingSent: number }
 const clients = new Set<Client>();
 const MAX_PER_IP = Number(process.env.MAX_PER_IP) || 4;
 
@@ -168,7 +168,8 @@ wss.on('connection', (ws, req) => {
     || (viaProxy && (req.headers['fly-client-ip'] || req.headers['cf-connecting-ip'])) as string || direct;
   // One household/host can't take every slot
   if ([...clients].filter(o => o.ip === ip).length >= MAX_PER_IP) { ws.close(4000, 'Too many connections from your network'); return; }
-  const c: Client = { ws, ip, player: null, tokens: RATE_BURST, lastRefill: Date.now(), strikes: 0, alive: true, pingSent: 0 };
+  const c: Client = { ws, conn: null!, ip, player: null, tokens: RATE_BURST, lastRefill: Date.now(), strikes: 0, alive: true, pingSent: 0 };
+  c.conn = { send: m => send(c, m), close: reason => ws.close(4000, reason.slice(0, 120)) };
   clients.add(c);
   const helloTimer = setTimeout(() => { if (!c.player) ws.close(4001, 'No hello'); }, HELLO_TIMEOUT);
 
@@ -193,7 +194,7 @@ wss.on('connection', (ws, req) => {
     if (!msg || typeof msg !== 'object') return;
     try {
       if (!c.player) {
-        c.player = game.join({ send: m => send(c, m), close: reason => ws.close(4000, reason.slice(0, 120)) }, msg);
+        c.player = game.join(c.conn, msg);
         if (c.player) { clearTimeout(helloTimer); log(`${c.player.name} connected from ${ip}`); }
         return;
       }
@@ -203,11 +204,13 @@ wss.on('connection', (ws, req) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', code => {
     clearTimeout(helloTimer);
     clients.delete(c);
     if (c.player) {
-      try { game.leave(c.player); } catch (e) { log(`Error on leave: ${e}`); }
+      // 1000/1001: the player quit or closed the tab, so they leave now. Anything else (network, a proxy
+      // restarting, a dead connection) holds their place for a quick reconnect.
+      try { game.disconnect(c.player, c.conn, code !== 1000 && code !== 1001); } catch (e) { log(`Error on leave: ${e}`); }
     }
   });
   ws.on('error', e => log(`Socket error (${ip}): ${e.message}`));
