@@ -20,7 +20,9 @@ async function startServer(env: Record<string, string> = {}, dataDir = mkdtempSy
   proc.stdout!.on('data', d => { out += d; });
   proc.stderr!.on('data', d => { out += d; });
   for (let i = 0; i < 100; i++) { if ((await get(port, '/health').catch(() => null))?.status === 200) break; await sleep(100); }
-  return { port, dataDir, proc, log: () => out, stop: () => proc.kill() };
+  // In coverage runs the server saves its record every second; give it that second before stopping it
+  const stop = async () => { if (process.env.NODE_V8_COVERAGE) await sleep(1100); proc.kill(); };
+  return { port, dataDir, proc, log: () => out, stop };
 }
 function get(port: number, path: string): Promise<{ status: number; body: string; headers: Record<string, any> }> {
   return new Promise((res, rej) => {
@@ -61,7 +63,7 @@ test('http: health, the game page, and bad or sneaky addresses', async () => {
     const other = await get(s.port, '/nothing-here');
     assert.match(other.body, /game server is running/);
     assert.equal((await get(s.port, '/health')).status, 200, 'still up after all that');
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('websocket: garbage is ignored, a real hello still joins; oversized messages close the connection', async () => {
@@ -82,7 +84,7 @@ test('websocket: garbage is ignored, a real hello still joins; oversized message
     const big = await connect(s.port, { hello: false, send: ws => ws.send('x'.repeat(40 * 1024)) });
     assert.match(big, /^closed 1009/, big);
     assert.equal((await get(s.port, '/health')).status, 200);
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('websocket: floods are cut off, and one network cannot take every slot', async () => {
@@ -101,7 +103,7 @@ test('websocket: floods are cut off, and one network cannot take every slot', as
     const third = await connect(s.port);
     assert.equal(third, 'closed 4000 Too many connections from your network');
     a.terminate(); b.terminate();
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('behind the Cloudflare Worker: only connections with the shared secret get in, with the real player address', async () => {
@@ -112,14 +114,14 @@ test('behind the Cloudflare Worker: only connections with the shared secret get 
     assert.equal(await connect(s.port, { headers: { 'x-poxel-secret': 'sekrit', 'x-poxel-client-ip': '203.0.113.7' } }), 'welcome');
     await sleep(200);
     assert.match(s.log(), /connected from 203\.0\.113\.7/);
-  } finally { s.stop(); }
+  } finally { await s.stop(); }
 });
 
 test('a damaged save is moved aside and the backup is used', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'poxel-srv-'));
   const first = await startServer({ SEED: '4242' }, dir);
   await sleep(300);
-  first.stop();
+  await first.stop();
   await sleep(500);
   const good = readFileSync(join(dir, 'world.json'), 'utf8');
   writeFileSync(join(dir, 'world.json.bak'), good);
@@ -134,5 +136,5 @@ test('a damaged save is moved aside and the backup is used', async () => {
     assert.ok(readdirSync(dir).some(f => f.startsWith('world.json.corrupt-')), 'the damaged file is kept for inspection');
     // A damaged player file: that player can still join (with a fresh character), and the server stays up
     assert.equal(await connect(second.port, { send: ws => ws.send(JSON.stringify({ t: 'hello', v: 1, name: 'broken', look: {}, token: 'x' })) , hello: false }), 'welcome');
-  } finally { second.stop(); }
+  } finally { await second.stop(); }
 });

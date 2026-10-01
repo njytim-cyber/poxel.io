@@ -5,7 +5,7 @@
 // Usage: npm run coverage               (full; line-by-line HTML report for server/shared in coverage/server)
 //        npm run coverage -- unit       (unit tests only, quick)
 //        npm run coverage -- sp mp      (unit tests + just these browser suites)
-// perf is left out: coverage tracking slows the game, so its frame-time budgets would fail.
+// perf and mpcuj are left out by default (see below).
 import { spawn } from 'node:child_process';
 import { readdirSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -15,9 +15,10 @@ import { TraceMap, originalPositionFor } from '@jridgewell/trace-mapping';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const RAW = join(ROOT, 'coverage', 'raw');
 const unitOnly = process.argv.includes('unit');
-const ALL_SUITES = ['bot', 'sp', 'cuj', 'respawn', 'mp', 'join', 'mpcuj', 'carry', 'content', 'robotic', 'crash', 'phone', 'tablet'];
 const picked = process.argv.slice(2).filter(a => a !== 'unit');
-const suites = picked.length ? picked : ALL_SUITES;
+// The standard set (tests/e2e/run.mjs) without perf (coverage slows the game past its frame budgets) and
+// mpcuj (under coverage its Save & Quit reload hangs the page: "detached Frame"; it passes without coverage)
+const suites = picked.length ? picked : ['-perf', '-mpcuj'];
 rmSync(join(ROOT, 'coverage'), { recursive: true, force: true });
 mkdirSync(join(RAW, 'server'), { recursive: true });
 

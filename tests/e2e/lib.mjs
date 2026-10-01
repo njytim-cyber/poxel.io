@@ -56,8 +56,9 @@ const COVERAGE = process.env.POXEL_COVERAGE;
 const COVERAGE_OPTS = { resetOnNavigation: false, includeRawScriptCoverage: true };
 let coverageFiles = 0;
 const textSaved = new Set(); // each script's source is written once per test process (it's large)
-// Saves what has run since the last save. Also every few seconds while the page is open, so a page that
-// reloads (or closes with its browser context) keeps nearly all of its record.
+// Saves what ran on a page when it (or its browser context, or the browser) closes. A page that reloads
+// (Save & Quit, back to the menu) loses what ran before the reload: saving more often stalls the page and
+// breaks the tests' timing checks, so that small gap is accepted.
 async function saveCoverage(page, final) {
   if (!COVERAGE || page.__coverageDone) return;
   if (final) page.__coverageDone = true;
@@ -85,10 +86,8 @@ function withTestHooks(ctx) {
     await page.evaluateOnNewDocument(fakePointerLock);
     if (COVERAGE) {
       await page.coverage.startJSCoverage(COVERAGE_OPTS);
-      const timer = setInterval(() => saveCoverage(page, false), 3000);
-      page.once('close', () => clearInterval(timer));
       const close = page.close.bind(page);
-      page.close = async (...b) => { clearInterval(timer); await saveCoverage(page, true); return close(...b); };
+      page.close = async (...b) => { await saveCoverage(page, true); return close(...b); };
     }
     return page;
   };

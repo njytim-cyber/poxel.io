@@ -155,7 +155,7 @@ try {
   const z = await A.evaluate(() => window.poxel.entities().find(e => e.kind === 'zombie'));
   check('zombie spawned', !!z);
   if (z) {
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 24; i++) { // a sword kills in 4 hits; extra tries for a slow machine
       const zz = await A.evaluate(eid => window.poxel.entities().find(e => e.eid === eid), z.eid);
       if (!zz) break;
       await A.evaluate(p => { const b = window.poxel.body.pos; const dx = p.x - b.x, dy = p.y + 1 - (b.y + 1.62), dz = p.z - b.z; window.poxel.setYawPitch(Math.atan2(-dx, -dz), Math.atan2(dy, Math.hypot(dx, dz))); }, zz);

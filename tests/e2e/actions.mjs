@@ -120,12 +120,13 @@ try {
   await ev(() => window.poxel.send({ t: 'dev', spawn: 'zombie' }));
   await sleep(1500);
   let crit = false;
-  for (let i = 0; i < 6 && !crit; i++) {
-    const z = await ev(() => window.poxel.entities().find(e => e.kind === 'zombie'));
-    if (!z) break;
+  // (several tries at slightly different moments: a slow machine shifts when "falling" starts)
+  for (let i = 0; i < 12 && !crit; i++) {
+    let z = await ev(() => window.poxel.entities().find(e => e.kind === 'zombie'));
+    if (!z) { await ev(() => window.poxel.send({ t: 'dev', spawn: 'zombie' })); await sleep(1200); z = await ev(() => window.poxel.entities().find(e => e.kind === 'zombie')); if (!z) break; }
     await aimAt(z.x, z.y + 1, z.z);
     await page.keyboard.down('Space'); await sleep(90); await page.keyboard.up('Space');
-    await sleep(330); // past the top of the jump, falling
+    await sleep(300 + (i % 4) * 60); // past the top of the jump, falling
     await page.mouse.click(640, 360);
     for (let k = 0; k < 6 && !crit; k++) { await sleep(60); crit = await ev(() => document.getElementById('crit-flash').classList.contains('show')); }
     await sleep(700);

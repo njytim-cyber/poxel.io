@@ -17,7 +17,11 @@ const SUITES = {
   soak: ['soak.mjs', `ws://localhost:${TEST_PORT}`, process.env.SOAK_BOTS || '15', process.env.SOAK_SECONDS || '60'],
 };
 const DEFAULT = ['bot', 'sp', 'cuj', 'respawn', 'mp', 'join', 'mpcuj', 'actions', 'carry', 'content', 'robotic', 'crash', 'phone', 'tablet', 'perf'];
-const wanted = process.argv.slice(2).length ? process.argv.slice(2) : DEFAULT;
+// Suites to run: the ones named, or the standard set; "-name" leaves one out of the standard set (e.g. -perf)
+const args = process.argv.slice(2);
+const skip = args.filter(a => a.startsWith('-')).map(a => a.slice(1));
+const named = args.filter(a => !a.startsWith('-'));
+const wanted = (named.length ? named : DEFAULT).filter(n => !skip.includes(n));
 for (const w of wanted) if (!SUITES[w]) { console.error(`Unknown suite "${w}". Known: ${Object.keys(SUITES).join(', ')}`); process.exit(2); }
 
 const children = [];
