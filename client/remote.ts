@@ -14,7 +14,7 @@ interface MobModel { model: THREE.Group; parts: { mesh: THREE.Mesh; swing: numbe
 interface View {
   eid: number; kind: EntityKind; obj: THREE.Object3D; samples: Sample[];
   pos: THREE.Vector3; yaw: number; pitch: number; flags: number; hspeed: number;
-  avatar?: Avatar; mob?: MobModel; name?: string; owner?: string; tag?: THREE.Sprite;
+  avatar?: Avatar; mob?: MobModel; name?: string; owner?: string; tag?: THREE.Sprite; away?: boolean;
   swing: number; walk: number; age: number; dying: number;
 }
 
@@ -230,10 +230,8 @@ export function onSpawn(list: SpawnInfo[]) {
       const av = createAvatar(s.player.look);
       av.setArmor(s.player.armor || []);
       av.setHeld(s.player.held || '');
-      const tag = nametag(s.player.name);
-      tag.position.y = 2.15;
-      av.root.add(tag);
-      v.avatar = av; v.name = s.player.name; v.tag = tag;
+      v.avatar = av; v.name = s.player.name;
+      setTag(v, awayPlayers.has(s.eid));
       obj = av.root;
     } else if (s.kind === 'item' && s.item) {
       obj = itemMesh(s.item.type);
@@ -411,8 +409,22 @@ export function entityName(eid: number): string {
 }
 
 // For tests (window.poxel.entities)
+// Players whose connection dropped (the server holds their place): their tag says so
+let awayPlayers = new Set<number>();
+export function setAwayPlayers(away: Set<number>) {
+  awayPlayers = away;
+  for (const v of views.values()) if (v.kind === 'player' && v.name && !!v.away !== away.has(v.eid)) setTag(v, away.has(v.eid));
+}
+function setTag(v: View, away: boolean) {
+  if (v.tag) { v.tag.removeFromParent(); (v.tag.material as THREE.SpriteMaterial).map?.dispose(); v.tag.material.dispose(); }
+  const tag = nametag(away ? `${v.name} (reconnecting...)` : v.name!);
+  tag.position.y = 2.15;
+  v.avatar!.root.add(tag);
+  v.tag = tag; v.away = away;
+}
+
 export function entityList() {
-  return [...views.values()].map(v => ({ eid: v.eid, kind: v.kind, x: v.pos.x, y: v.pos.y, z: v.pos.z, owner: v.owner }));
+  return [...views.values()].map(v => ({ eid: v.eid, kind: v.kind, x: v.pos.x, y: v.pos.y, z: v.pos.z, owner: v.owner, name: v.name }));
 }
 
 export function entityCounts() {

@@ -384,6 +384,7 @@ export class Game {
     p.awayAt = this.clock;
     if (p.screen) { closeScreen(p.inv, (t, n) => this.dropFrom(p, t, n)); p.screen = null; p.furnaceKey = null; p.screenAt = null; }
     this.log(`${p.name} dropped; holding their place for ${SEAT_HOLD}s`);
+    this.sendPlayerList(); // others see them as reconnecting
   }
 
   leave(p: Player) {
@@ -1810,7 +1811,7 @@ export class Game {
     for (const o of this.players.values()) if (o.seen.has(eid)) o.conn.send({ t: 'anim', eid, a });
   }
   private sendPlayerList() {
-    this.broadcast({ t: 'players', list: [...this.players.values()].map(p => ({ eid: p.eid, name: p.name, ping: p.ping })) });
+    this.broadcast({ t: 'players', list: [...this.players.values()].map(p => ({ eid: p.eid, name: p.name, ping: p.ping, away: p.awayAt >= 0 || undefined })) });
   }
   broadcast(msg: ServerMsg) {
     for (const p of this.players.values()) p.conn.send(msg);

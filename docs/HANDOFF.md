@@ -51,6 +51,7 @@ server/
   node.ts        HTTP + WebSocket transport, static hosting, rate limits, heartbeat, crash-safe saves
 client/
   main.ts        menus, game loop, autosave, dev hooks (window.poxel only in dev)
+  multiplayer.ts Play Online, joining (loading screen), invite links + QR, errors back to the menu, ping
   net.ts         Connection: local (Web Worker running server/core = single player) or remote WebSocket
   serverWorker.ts  the integrated single-player server
   session.ts     applies ServerMsg to client state (welcome/reconnect resync, blocks, inv, screens, health...)
@@ -64,12 +65,16 @@ client/
 - **Who decides what:** the server is authoritative for blocks, mobs, items, furnaces, inventories and health. The client predicts movement, digging, placing and inventory clicks, and the server corrects it.
 - **Single player** runs the same server code in a worker, so there is one set of rules. It pauses when the pause menu is open.
 - **Identity:** player names are owned by a random token stored in the browser (`poxel_token`). Clearing browser data or switching devices means picking a new name on that server.
+- **Held seats:** if a connection drops unexpectedly (any close code but 1000/1001), the server keeps the player in the world for 60 s (`SEAT_HOLD`) and others see them as "reconnecting". Reconnecting with the same token resumes them. Quitting or closing the tab leaves at once.
+- **E2E tests and the real mouse:** on Windows, Chrome's pointer lock clips the real cursor even for headless pages, so `lib.mjs` gives every test page a stand-in pointer lock. Close test pages with `page.close()` (a clean close) before `browser.close()`, or their players stay held on the server and leak into the next suite.
 
 ## Testing
 
 - The scripts use `puppeteer-core` with the local Chrome. For real GPU numbers use `--use-angle=d3d11`. For two-tab multiplayer tests add `--disable-renderer-backgrounding --disable-background-timer-throttling --disable-backgrounding-occluded-windows`.
 - **Suites:**
   - `cuj.mjs`: the critical journey (tree → planks → table → pickaxe → cobblestone → save/load).
+  - `mpcuj.mjs`: the multiplayer journey (desktop host + phone friend: Play Online, invite, chat, fight, downed, a real connection drop and reconnect into the held place, quit), with join time, frame times and network use.
+  - `join.mjs`: one-tap Play, loading screen, invite links, refusals and offline servers landing on the menu.
   - `sp.mjs`, `mp.mjs`, `respawn.mjs`.
   - `crash.mjs`: hard-kills the server and checks reconnect and consistency.
   - `mobile.mjs phone|tablet`, `tunnel.mjs <url>`.

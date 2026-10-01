@@ -1,5 +1,5 @@
 // Shared helpers for the end-to-end suites: paths, browser launch, checks and exit codes.
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,15 +50,44 @@ function fakePointerLock() {
   Element.prototype.requestPointerLock = function () { locked = this; changed(); return Promise.resolve(); };
   Document.prototype.exitPointerLock = function () { if (locked) { locked = null; changed(); } };
 }
-function withFakeLock(ctx) {
+// Coverage runs (npm run coverage sets POXEL_COVERAGE): each page records which client code ran and
+// saves it when the page or browser closes
+const COVERAGE = process.env.POXEL_COVERAGE;
+let coverageFiles = 0;
+async function saveCoverage(page) {
+  if (!COVERAGE || page.__coverageSaved) return;
+  page.__coverageSaved = true;
+  try {
+    const entries = (await page.coverage.stopJSCoverage()).filter(e => /\/(client|shared)\/[^?]*\.ts/.test(e.url));
+    mkdirSync(join(COVERAGE, 'client'), { recursive: true });
+    writeFileSync(join(COVERAGE, 'client', `${process.pid}-${coverageFiles++}.json`), JSON.stringify(entries.map(e => ({ url: e.url, text: e.text, functions: e.rawScriptCoverage?.functions || [] }))));
+  } catch { /* page already gone */ }
+}
+function withTestHooks(ctx) {
   const newPage = ctx.newPage.bind(ctx);
-  ctx.newPage = async (...a) => { const page = await newPage(...a); await page.evaluateOnNewDocument(fakePointerLock); return page; };
+  ctx.newPage = async (...a) => {
+    const page = await newPage(...a);
+    await page.evaluateOnNewDocument(fakePointerLock);
+    if (COVERAGE) {
+      await page.coverage.startJSCoverage({ resetOnNavigation: false, includeRawScriptCoverage: true });
+      const close = page.close.bind(page);
+      page.close = async (...b) => { await saveCoverage(page); return close(...b); };
+    }
+    return page;
+  };
   return ctx;
 }
 export async function launch({ args = GPU_ARGS, viewport = { width: 1280, height: 720 } } = {}) {
-  const browser = withFakeLock(await puppeteer.launch({ executablePath: findChrome(), headless: 'new', args, defaultViewport: viewport }));
+  const browser = withTestHooks(await puppeteer.launch({ executablePath: findChrome(), headless: 'new', args, defaultViewport: viewport }));
   const createContext = browser.createBrowserContext.bind(browser);
-  browser.createBrowserContext = async (...a) => withFakeLock(await createContext(...a));
+  browser.createBrowserContext = async (...a) => withTestHooks(await createContext(...a));
+  if (COVERAGE) {
+    const close = browser.close.bind(browser);
+    browser.close = async () => {
+      for (const c of [browser.defaultBrowserContext(), ...browser.browserContexts()]) for (const p of await c.pages().catch(() => [])) await saveCoverage(p);
+      return close();
+    };
+  }
   return browser;
 }
 
@@ -103,7 +132,7 @@ export async function openGame(browser, { ctx = false } = {}) {
 
 // Starts a game server on its own port and data folder, and waits until /health answers.
 export async function startServer({ port, dataDir = join(tmpdir(), `poxel-e2e-${port}`), env = {}, stdio = 'ignore' }) {
-  const proc = spawn(process.execPath, ['server/node.ts'], { cwd: ROOT, env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ...env }, stdio });
+  const proc = spawn(process.execPath, ['server/node.ts'], { cwd: ROOT, env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, ...(process.env.POXEL_COVERAGE ? { NODE_V8_COVERAGE: join(process.env.POXEL_COVERAGE, 'server') } : {}), ...env }, stdio });
   for (let i = 0; i < 100; i++) {
     try { if ((await (await fetch(`http://localhost:${port}/health`)).json()).ok) return proc; } catch { /* not up yet */ }
     if (proc.exitCode !== null) throw new Error(`Game server on :${port} exited with code ${proc.exitCode}`);

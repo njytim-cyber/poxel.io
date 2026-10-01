@@ -1018,23 +1018,28 @@ test('a dropped player keeps their place for a minute and picks up where they we
   const a = fakeConn();
   const p = g.join(a.conn, hello('Dropper'))!;
   p.inv.slots[0] = { type: 'dirt', count: 5 };
+  const watcher = fakeConn();
+  g.join(watcher.conn, hello('Watcher'));
   g.disconnect(p, a.conn);
+  const lastList = () => (watcher.got.filter(m => m.t === 'players').pop() as any).list;
+  assert.ok(lastList().find((x: any) => x.name === 'Dropper').away, 'others see them as reconnecting');
   tick(g, 20 * 30); // 30s: still in the world
-  assert.equal(g.playerCount, 1);
+  assert.equal(g.playerCount, 2); // the watcher and the held Dropper
   // Reconnecting resumes the same player (no new character, no "joined" spam)
   const b = fakeConn();
   const again = g.join(b.conn, hello('Dropper'))!;
   assert.equal(again, p);
   assert.ok(b.got.some(m => m.t === 'welcome'));
   assert.equal(again.inv.slots[0]?.type, 'dirt');
+  assert.ok(!lastList().find((x: any) => x.name === 'Dropper').away, 'back to normal');
   // A late close of the old connection doesn't drop the new one
   g.disconnect(p, a.conn);
   tick(g, 20 * 70);
-  assert.equal(g.playerCount, 1);
+  assert.equal(g.playerCount, 2);
   // Dropping for longer than the hold: they leave and are saved
   g.disconnect(p, b.conn);
   tick(g, 20 * 61);
-  assert.equal(g.playerCount, 0);
+  assert.equal(g.playerCount, 1); // only the watcher
   assert.equal(s.players['Dropper']?.inv.slots[0]?.type, 'dirt');
 });
 

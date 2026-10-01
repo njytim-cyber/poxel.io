@@ -398,13 +398,17 @@ function playerOverlapsBlock(x: number, y: number, z: number) {
 // ------------------------------------------------------------------ Jetpack
 let jetFuel = 0, jetting = false;
 export function onFuel(f: number) { jetFuel = f; }
+// Runs every frame, so it only touches the page when what it shows changes
+let jetShown = '';
 function updateJetHud() {
-  const el = document.getElementById('jet-fuel');
-  if (!el) return;
   const worn = inventory[56]?.type === 'jetpack';
-  el.style.display = worn ? 'block' : 'none';
+  const now = worn ? String(Math.round(jetFuel * 100)) : '';
+  if (now === jetShown) return;
+  jetShown = now;
+  const el = document.getElementById('jet-fuel');
+  if (el) el.style.display = worn ? 'block' : 'none';
   const fill = document.getElementById('jet-fuel-fill');
-  if (worn && fill) fill.style.width = `${Math.round(jetFuel * 100)}%`;
+  if (worn && fill) fill.style.width = `${now}%`;
 }
 // Holding a jetpack, right-click oil (the aim passes through liquids to find it) to refuel
 function tryRefuel(): boolean {

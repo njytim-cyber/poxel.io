@@ -6,3 +6,4 @@ data/
 tests/e2e/out/
 dist-cf/
 .wrangler/
+coverage/

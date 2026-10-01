@@ -2,6 +2,7 @@
 //   PORT=8080  DATA_DIR=./data  MAX_PLAYERS=16  SEED=<number>
 import { createServer, type IncomingMessage } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import { takeCoverage } from 'node:v8';
 import { mkdirSync, readFileSync, renameSync, existsSync, openSync, writeSync, fsyncSync, closeSync, copyFileSync, appendFileSync, statSync, rmSync } from 'node:fs';
 import { join, normalize, extname, sep } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
@@ -16,6 +17,9 @@ const RATE_PER_SEC = 80;       // messages/second allowed per client (moves are 
 const RATE_BURST = 160;
 const HELLO_TIMEOUT = 10_000;
 const log = (msg: string) => console.log(`[${new Date().toISOString()}] ${msg}`);
+// Test coverage runs only (NODE_V8_COVERAGE is set by the test tools): tests often kill the server outright,
+// which skips the usual write at exit, so save what has run every few seconds
+if (process.env.NODE_V8_COVERAGE) setInterval(takeCoverage, 3000).unref();
 
 // ------------------------------------------------------------------ Storage (atomic JSON files)
 

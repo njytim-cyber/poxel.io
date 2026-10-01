@@ -18,7 +18,8 @@
     "test": "npm run test:unit && npm run test:e2e",
     "build:cf": "vite build --base=/ --outDir dist-cf",
     "deploy:cf": "npm run build:cf && wrangler deploy --config cloudflare/wrangler.jsonc",
-    "host:cf": "node scripts/host-cf.mjs"
+    "host:cf": "node scripts/host-cf.mjs",
+    "coverage": "node scripts/coverage.mjs"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +29,7 @@
     "@types/node": "^26.6.3",
     "@types/three": "^0.183.1",
     "@types/ws": "^8.18.1",
+    "c8": "^10.1.3",
     "puppeteer-core": "^23.11.1",
     "three": "^0.183.2",
     "typescript": "^6.0.2",

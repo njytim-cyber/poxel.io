@@ -3,7 +3,7 @@ import type { ServerMsg } from '../shared/protocol.ts';
 import { resetWorld, importEditsFlat, importFacingFlat, loadAreaNow, setBlock, setFacing, getSeed } from './world';
 import * as player from './player';
 import { setInvState, resetInventory, setFurnaceState, setChestState, setSelectedFromServer } from './inventory';
-import { clearRemote, onSpawn, onDespawn, onSnap, onEquip, onAnim, showBeam } from './remote';
+import { clearRemote, onSpawn, onDespawn, onSnap, onEquip, onAnim, showBeam, setAwayPlayers } from './remote';
 import { setTimeOfDay } from './sky';
 import * as ui from './ui';
 import { send } from './net';
@@ -13,7 +13,7 @@ let myEid = -1;
 let readyHandler: () => void = () => {};
 let lastPing = 0;
 export let pingMs = -1; // -1 until the first pong
-export let onlinePlayers: { eid: number; name: string; ping: number }[] = [];
+export let onlinePlayers: { eid: number; name: string; ping: number; away?: boolean }[] = [];
 
 export function onReady(fn: () => void) { readyHandler = fn; }
 export function resetSession() { started = false; myEid = -1; onlinePlayers = []; }
@@ -91,7 +91,7 @@ export function handleServerMessage(m: ServerMsg) {
     case 'pos': player.setPlayerFeet(m); return;
     case 'chat': ui.addChatLine(m.from, m.text); return;
     case 'time': setTimeOfDay(m.time); return;
-    case 'players': onlinePlayers = m.list; renderOnlineList(); return;
+    case 'players': onlinePlayers = m.list; renderOnlineList(); setAwayPlayers(new Set(m.list.filter(p => p.away).map(p => p.eid))); return;
     case 'toast': ui.toast(m.text); return;
     case 'homes': player.onHomes(m.list, m.slots); return;
     case 'kick': ui.setConnectionBanner(m.reason); return;
@@ -111,7 +111,7 @@ function renderOnlineList() {
   el.appendChild(h);
   for (const p of onlinePlayers) {
     const row = document.createElement('div');
-    row.textContent = `${p.name}${p.eid === myEid ? ' (you)' : ''}  ${p.ping ? p.ping + 'ms' : ''}`;
+    row.textContent = `${p.name}${p.eid === myEid ? ' (you)' : ''}  ${p.away ? 'reconnecting...' : p.ping ? p.ping + 'ms' : ''}`;
     el.appendChild(row);
   }
 }

@@ -98,7 +98,7 @@ export type ServerMsg =
   | { t: 'anim'; eid: number; a: 'swing' | 'hurt' }
   | { t: 'chat'; from: string | null; text: string }
   | { t: 'time'; time: number }
-  | { t: 'players'; list: { eid: number; name: string; ping: number }[] }
+  | { t: 'players'; list: { eid: number; name: string; ping: number; away?: boolean }[] } // away: dropped, place held (reconnecting)
   | { t: 'toast'; text: string }
   | { t: 'boss'; name: string; hp: number; max: number } // a boss nearby (hp < 0: none, hide the bar)
   | { t: 'fuel'; f: number }                             // jetpack fuel, 0..1
