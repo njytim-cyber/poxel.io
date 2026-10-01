@@ -1,20 +1,29 @@
-# Poxel.io — Session Handoff (2026-09-30)
+# Poxel.io — Session Handoff (2026-10-01)
 
-Poxel.io is a browser voxel sandbox game (its own game — never describe it as a clone of anything) with single player and a self-hosted multiplayer server. Latest commit: `36a65c5` on `master`, pushed to https://github.com/njytim-cyber/poxel.io.
+Poxel.io is a browser voxel sandbox game (its own game — never describe it as a clone of anything) with single player and multiplayer. Everything is on `master`, pushed to https://github.com/njytim-cyber/poxel.io. **Live:** https://poxel.njytim.workers.dev (Cloudflare).
 
-## Status (2026-09-30)
+## Status (2026-10-01)
 
-- **Done since the last handoff:** tests in `tests/` (`npm test`, `test:unit`, `test:e2e`, `test:perf`, `test:soak`, budgets in `tests/e2e/budgets.json`); health log (`data/health.log`); edits streamed per chunk; single-player saves in IndexedDB; view-distance slider in the pause menu.
-- **Bug sweep (this session):** item dupes when carrying a single-player character (the server now keeps its own character separately), leaving while downed, no default operator (see below), cheated saves can't be carried, IndexedDB/localStorage save rollback, facing of chests and jack o'lanterns, and anti-cheat: walking through blocks, 1-second digging, chests used from far away, faked ground/water to skip fall damage, downed players running or /spawn-ing away. Also death loot deleted when the inventory was full, spoofable per-IP headers, furnace stack sizes, `/give constructor`, the downed inventory freeze, mobile give-up, Esc in the recipe search, an inventory close button, and GPU/material leaks.
-- **Operators:** nobody by default. List names in `OPS=a,b` or one per line in `DATA_DIR/ops.txt` (this PC has `data/ops.txt` with player9989). An operator's old name stays locked when they rename. Single player allows cheats, but `/give`, creative or dev tools mark the save `cheated`, and cheated saves can't be taken into a server.
-- **New: The Robotic World** (stage 1 of 2; design in `docs/robotic-world.md`, code in `shared/robotic.ts`). It's a far-off strip of the same world (x 70,000 to 130,000, bedrock walls), so saves, streaming and multiplayer are unchanged. Stage 2 is still to do: boss and altar, obitite, laser cannon and offhand, compass deflecting lasers, jetpack.
+- **Gameplay added:** 16 achievements (server-side, saved per character; banner + pause-menu list), critical hits (1.5x while falling after a jump), touch screens act where you tap (no crosshair), aiming passes through your own tamed robots.
+- **Hosting:** website and multiplayer entrance on Cloudflare (a Worker on workers.dev, account njytim@gmail.com). The game server runs on the owner's PC behind a quick tunnel: `npm.cmd run host:cf` (see How to run). No domain or paid server yet, on purpose (see Decisions).
+- **Multiplayer UX:** one-tap **Play Online**; **Invite friends** (pause menu: share/copy link + QR; newcomers start 2 blocks from the inviter on solid ground, facing them); loading screen; refusals/kicks/offline go back to the menu with the reason; **held seats** (an unexpected drop keeps you in the world 60 s; others see "reconnecting..."); ping always on screen; player list shown even alone; click (desktop) / tap (touch) to give up while down; name tags fade up close.
+- **Code:** multiplayer menu flow moved to `client/multiplayer.ts` (main.ts 871 → 690 lines).
+- **Tests:** 82 unit tests (incl. `items.test.ts`: smelting, every click type, 15,000 random clicks with no duplication/loss; `server.test.ts`: the real network server vs bad input). 15 browser suites incl. new `join`, `mpcuj` (multiplayer journey) and `actions`. `npm run coverage`: server+shared **94% of lines**; **83% of named client functions** run in browser tests.
+- **Probed:** a 4x-slowed phone CPU and 150-300 ms round trips: frames stay ~7 ms, no server corrections, smooth remote movement. Real low-end phones, iPhones (Safari) and many players at once are still untested.
+
+## Decisions (and why)
+
+- **No spending until multiplayer is proven.** Then: pick the game's new name (Poxel clashes with the poxel.io shooter), buy the domain on Cloudflare (~US$10/yr), and put the server behind a **named Cloudflare Tunnel** (free, stable). An always-on server later: a small VPS (e.g. DigitalOcean Singapore) behind the same tunnel. Without a domain, the researched options were Northflank (free sandbox, if it allows Singapore + a volume: unverified), Render ($7.25/mo) and Railway (~$5/mo, rough 2026 reliability).
+- **Fly.io dropped:** its Windows CLI is unsigned, and **Smart App Control is On** on this PC and must stay on. Railway, Render, Koyeb and DigitalOcean CLIs are unsigned too. Signed tools that work: `cloudflared`, `wrangler` (npm), `gh`, `ssh`, Node. Never suggest turning Smart App Control off.
+- **No automatic GitHub Actions** (the owner watches Actions minutes). Tests run on this PC before every push.
 
 ## Next session: priorities
 
-1. **Robotic World stage 2** (see `docs/robotic-world.md`).
-2. **Performance:** chunk meshing is about 17 ms against the 12 ms budget. The new terrain is more varied, so greedy meshing merges less. Meshing runs on workers, so the budget may need a deliberate re-baseline, or the mesher needs optimising. One 70-150 ms GPU-process stall about 3 s into the perf run has no cause found yet: it isn't a shader compile, and chunk uploads are already capped at 2 per frame. Run perf with other Chrome windows closed: with the owner's Chrome open, even the previous commit dropped to 30 FPS.
-3. **Server autosave** still rewrites the whole `world.json` (logged as a warning when a save takes over 100 ms). Move to per-chunk region files before worlds get big.
-4. **Still to test by hand:** a 60-minute soak, real phones and tablets over the tunnel, and a low-end GPU at view distance 2-3.
+1. **Playtest with friends** through the live link (`npm.cmd run host:cf`), ideally including a real phone and an iPhone. That's the "multiplayer proven" gate for the name + domain step.
+2. **Name + domain**, then the named tunnel (no more quick-tunnel restarts).
+3. **Coverage gaps:** `npm run coverage` lists client functions that never ran. Known holes: migrating old saves, creative-mode details, some network-server branches. `mpcuj` hangs under coverage (its Save & Quit reload: "detached Frame"; it passes normally), so coverage leaves it out; fix if coverage of that journey is wanted.
+4. **Robotic World stage 2** follow-ups and **server autosave** (whole `world.json` each save; move to per-chunk files before worlds get big).
+5. Ideas from the multiplayer research (not started): Cloudflare Turnstile on join, a chat filter + mute/report/kick, recovering a name on a new device, `/tp <friend>`, a world list once there's more than one world.
 
 ## How to run
 
@@ -24,7 +33,13 @@ npm run dev        # Vite dev client at http://localhost:5173/poxel.io/ (has win
 npm run host       # build + start the game server on :8080 (also serves the built game at /poxel.io/)
 npm run tunnel     # Cloudflare quick tunnel -> prints https://<random>.trycloudflare.com to share
 npm run deploy     # build + publish static client to GitHub Pages (single player + manual server address)
+npm run deploy:cf  # build + deploy the website/Worker to Cloudflare (https://poxel.njytim.workers.dev)
+npm run host:cf    # multiplayer for the live site: game server on this PC + quick tunnel, Worker re-pointed
+npm test           # unit + all browser suites;  npm run test:unit  /  npm run test:e2e [suite...] [-suite]
+npm run coverage   # coverage: server+shared lines (HTML in coverage/server) + client functions never run
 ```
+
+- **Hosting a session:** in the owner's PowerShell run `npm.cmd run host:cf` (not `npm`: script execution policy blocks `npm.ps1`/`npx.ps1`). Wait for "Multiplayer is live", then share https://poxel.njytim.workers.dev. Ctrl+C saves and stops. Server-side code changes only take effect after restarting it.
 
 - `cloudflared` is the official standalone binary in `%USERPROFILE%\.cloudflared-bin\cloudflared.exe`. It is not on PATH, and `npm run tunnel` uses the full path.
 - **Quick tunnels expire without warning** ("Tunnel not found" in the cloudflared log). Restart `npm run tunnel` to get a new link. A stable URL needs a free Cloudflare account and a named tunnel.
@@ -82,17 +97,9 @@ client/
   - `content.mjs` (loot chests, farming, ice, new mobs) and `robotic.mjs` (portal, taming, the trip home).
   - `perf.mjs`.
 - `npm run test:e2e` starts the Vite dev client and a test server (with `DEV_TOOLS=1`, so `window.poxel.glide` can teleport when the straight path is blocked; the server refuses moves into blocks). Never set `DEV_TOOLS` on a real server.
-- **Last results:**
-
-  | Suite | Result |
-  |---|---|
-  | CUJ | 12/12 |
-  | Respawn | 8/8 |
-  | Crash | 6/6 |
-  | Tablet | 14/14 |
-  | Phone | 13/14 (a dandelion correctly can't be planted off-grass) |
-  | 10-minute soak | 0 errors |
-  | Tunnel with two players | pass, 15 ms ping |
+  - `actions.mjs`: furnace screen, long-press split, Q / Ctrl+Q, eating, H for a home (+ toast), a critical hit, window resize, creative flying.
+  - Unit: `tests/unit/game.test.ts` (rules), `items.test.ts` (smelting, clicks, no-dupe fuzz), `server.test.ts` (real server vs bad input).
+- **Last results (2026-10-01):** unit 82/82; all 15 browser suites pass (bot, sp, cuj, respawn, mp, join, mpcuj 20/20, actions 13/13, carry, content, robotic, crash, phone, tablet, perf 6/6 at ~7 ms frames). Live check through Cloudflare: two players, join in under a second, 16 ms ping.
 
 - **Test pitfalls learned the hard way:**
   - Blocks set only on the client (`window.poxel.setBlock`) aren't on the server, which now refuses moves into its solid blocks. Also send `{ t: 'dev', blocks: [x, y, z, id, ...] }`.
@@ -103,6 +110,9 @@ client/
   - Names get claimed across runs. Use unique names.
   - Vite HMR changes module URLs. Use the `window.poxel` hooks, not `import()`.
   - Background tabs throttle `requestAnimationFrame`.
+  - In the dev client the page also has Vite's live-reload WebSocket: closing it reloads the page. Filter by host when cutting the game's socket.
+  - Timing checks (jump-then-hit) need retries at slightly different moments; coverage instrumentation slows the game.
+  - Run the whole suite with `node tests/e2e/run.mjs` (or `npm run test:e2e`); `-name` leaves a suite out.
 
 ## Recent fixes (for context)
 
@@ -126,3 +136,6 @@ client/
 
 - The owner only sees the final message of each assistant turn. Put questions, instructions and status there, and stop at milestones instead of working silently for a long time.
 - Keep Poxel.io's own identity: never call it a Minecraft clone in titles, UI, docs or commits.
+- Do setup through command-line tools by default; ask the owner only for what needs them (a browser approval, a payment method). No workarounds around security protections.
+- Test for bugs (typecheck, unit, browser suites) before every push or deploy.
+- Minimise spending until there's a working product.
