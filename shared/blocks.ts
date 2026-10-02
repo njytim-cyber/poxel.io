@@ -1,4 +1,5 @@
 // Central registry of blocks and items. Everything else looks up properties here.
+import { MOB_KINDS } from './mobs.ts';
 
 export type ToolKind = 'pickaxe' | 'axe' | 'shovel' | 'hoe' | 'sword';
 
@@ -38,8 +39,9 @@ export const TILE = {
   moonstone_block: 133, elemental_frame: 134, elemental_portal: 135, glacite_ore: 136, permafrost: 137, frost_shrine: 138,
   obitite_block: 139, magma_block: 140, volcanic_ash: 141, jungle_side: 142, jungle_top: 143, jungle_leaves: 144, moss_block: 145,
   cloud: 146, skystone: 147, skystone_bricks: 148, fire_shrine: 149, earth_shrine: 150, wind_shrine: 151,
+  altar_side: 152, altar_top: 153, rail: 154, boss_crystal: 155,
 } as const;
-export const TILE_COUNT = 152;
+export const TILE_COUNT = 156;
 
 // Dye colours, in the order banners use them. White wool is plain "wool".
 export const COLORS = ['white', 'red', 'yellow', 'blue', 'green', 'black', 'orange', 'purple', 'pink', 'cyan'] as const;
@@ -71,6 +73,7 @@ export interface BlockDef {
   slippery?: number;         // ice: how much of its speed a body keeps each step when sliding (0..1)
   glow?: boolean;            // always drawn fully lit (torches, lanterns)
   banner?: boolean;          // a plant drawn as one flat cloth, turned to face whoever placed it
+  flat?: boolean;            // a plant drawn flat on the ground (rails), turned the way it was placed
   sturdy?: boolean;          // a plant that placing a block next to it doesn't replace (torches, banners)
   dropCount?: [number, number]; // min/max count of `drop` (default 1)
   // tiles: [right(+x), left(-x), top(+y), bottom(-y), front(+z), back(-z)]
@@ -238,6 +241,15 @@ BLOCKS.push(
   { id: 133, name: 'earth_shrine', hardness: Infinity, tool: null, harvestTier: -1, drop: null, glow: true, tiles: all(TILE.earth_shrine) },
   { id: 134, name: 'wind_shrine', hardness: Infinity, tool: null, harvestTier: -1, drop: null, glow: true, tiles: all(TILE.wind_shrine) },
 );
+// The Elemental Altar summons the Elemental Core; rails carry minecarts
+BLOCKS.push(
+  { id: 135, name: 'elemental_altar', hardness: 8, tool: 'pickaxe', harvestTier: 4, drop: 'elemental_altar', glow: true, tiles: sided(TILE.altar_side, TILE.altar_top, TILE.altar_side) },
+  { id: 136, name: 'rail', hardness: 0.7, tool: 'pickaxe', harvestTier: -1, drop: 'rail', plant: true, plantOn: 'any', transparent: true, sturdy: true, flat: true, tiles: all(TILE.rail) },
+  // On top of each temple tower: its boss heals from these while they stand (break them!)
+  { id: 137, name: 'boss_crystal', hardness: 1.5, tool: null, harvestTier: -1, drop: null, glow: true, tiles: all(TILE.boss_crystal) },
+);
+export const BOSS_CRYSTAL = 137;
+export const RAIL = 136;
 // Bosses' shrines: never mined, never built over
 export const isShrine = (id: number) => id === 122 || (id >= 132 && id <= 134);
 export const ELEM_PORTAL = 119;
@@ -259,7 +271,7 @@ export const isLeaves = (id: number) => id === 7 || id === 24 || id === 25 || id
 // (not surface liquids: their tops sit lower, so the land beside them must still draw its side)
 export const isOccluding = (id: number) => id !== 0 && id !== WATER && id !== OIL && !BLOCKS[id].transparent;
 // Blocks whose +z "front" texture turns to face the player when placed
-export const isFacingBlock = (id: number) => id === 10 || id === 32 || id === 80 || id === 90 || (id >= 106 && id <= 115);
+export const isFacingBlock = (id: number) => id === 10 || id === 32 || id === 80 || id === 90 || (id >= 106 && id <= 115) || id === 136;
 // Where a plant may stand: crops need farmland, torches/mushrooms any solid block, others soil
 export function plantCanStand(plant: number, below: number): boolean {
   const on = BLOCKS[plant].plantOn || 'soil';
@@ -291,6 +303,8 @@ export interface ItemDef {
   plants?: string;         // using it on farmland plants this block (seeds, carrots, potatoes)
   chill?: boolean;         // glacite weapons: a hit slows the target down for a while
   poison?: boolean;        // the poison sword: a hit poisons the target
+  egg?: string;            // a spawn egg: use it on a block and this mob appears there
+  element?: 'water' | 'lava' | 'earth' | 'wind'; // elemental tools (see the elemental tools below)
   returns?: string;        // item left in hand after eating (stew -> bowl)
 }
 
@@ -459,6 +473,11 @@ export const ITEMS: Record<string, ItemDef> = {
   // The poison sword: obitite and every element
   poison_sword: { name: 'Poison Sword', stack: 1, tool: { kind: 'sword', tier: 8 }, damage: 13, poison: true },
   fireball: { name: 'Fireball', stack: 1 },      // (only ever flying: the lava chestplate's, and the Magma Colossus's)
+  elemental_altar: { name: 'Elemental Altar', stack: 1, block: 135 }, // use it (once the four elemental bosses are beaten) to summon the Elemental Core
+  elemental_wings: { name: 'Elemental Wings', stack: 1, armor: { slot: 1, points: 8 } }, // the Elemental Core's prize: worn, hold jump while falling to glide
+  rail: { name: 'Rail', stack: 64, block: 136 },
+  minecart: { name: 'Minecart', stack: 1 },      // use it on a rail to ride; sneak to get off
+  boat: { name: 'Boat', stack: 1, fuel: 15 },     // use it on water to sail; sneak to get off
   magma_ball: { name: 'Magma Ball', stack: 1 },  // (the Magma Colossus's)
   icicle: { name: 'Icicle', stack: 1 },          // (the Frost Wraith's)
   // Plants
@@ -517,6 +536,19 @@ for (const kind of TOOL_KINDS) {
     damage: kind === 'sword' ? SWORD_DAMAGE[t] : kind === 'axe' ? SWORD_DAMAGE[t] - 1 : 2 + Math.floor(t / 2) };
 }
 
+// Elemental tools: an obitite tool with an elemental ore. Blazing (lava): sets things alight, ores come out smelted.
+// Tidal (water): heals you a little with each hit, mines faster. Quaking (earth): knocks foes far, mines 3x3.
+// Gale (wind): throws foes into the air, mines twice as fast.
+export const ELEMENTAL_TOOLS = { blazing: 'lava', tidal: 'water', quaking: 'earth', gale: 'wind' } as const;
+for (const [pre, element] of Object.entries(ELEMENTAL_TOOLS)) for (const kind of ['sword', 'pickaxe', 'axe', 'shovel'] as ToolKind[]) {
+  const t = 8;
+  ITEMS[`${pre}_${kind}`] = { name: title(`${pre}_${kind}`), stack: 1, tool: { kind, tier: t }, element,
+    damage: kind === 'sword' ? SWORD_DAMAGE[t] : kind === 'axe' ? SWORD_DAMAGE[t] - 1 : 2 + Math.floor(t / 2) };
+}
+
+// Spawn eggs (the creative menu): one for every creature but the Tempest's hurricanes
+for (const kind of MOB_KINDS) if (kind !== 'hurricane') ITEMS[`${kind}_spawn_egg`] = { name: `${title(kind)} Spawn Egg`, stack: 64, egg: kind };
+
 export function itemDef(type: string): ItemDef {
   return ITEMS[type] || { name: title(type), stack: 64 };
 }
@@ -533,6 +565,9 @@ export function miningInfo(blockId: number, held: string | null): { time: number
   const rightTool = !!tool && b.tool === tool.kind;
   const canHarvest = b.harvestTier < 0 || (rightTool && tool!.tier >= b.harvestTier);
   let speed = rightTool ? TIER_SPEED[tool!.tier] : 1;
+  const element = held ? ITEMS[held]?.element : undefined;
+  if (rightTool && element === 'wind') speed *= 2;   // gale tools
+  if (rightTool && element === 'water') speed *= 1.5; // tidal tools
   if (tool?.kind === 'sword' && b.name === 'leaves') speed = 1.5;
   const time = b.hardness * (canHarvest ? 1.5 : 5) / speed;
   return { time: Math.max(0.05, time), drops: canHarvest };

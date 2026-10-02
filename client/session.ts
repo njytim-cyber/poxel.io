@@ -3,9 +3,10 @@ import type { ServerMsg } from '../shared/protocol.ts';
 import { resetWorld, importEditsFlat, importFacingFlat, loadAreaNow, setBlock, setFacing, getSeed } from './world';
 import * as player from './player';
 import { setInvState, resetInventory, setFurnaceState, setChestState, setSelectedFromServer } from './inventory';
-import { clearRemote, onSpawn, onDespawn, onSnap, onEquip, onAnim, showBeam, setAwayPlayers } from './remote';
+import { clearRemote, onSpawn, onDespawn, onSnap, onEquip, onAnim, showBeam, setAwayPlayers, TEAM_COLORS } from './remote';
 import { setTimeOfDay } from './sky';
 import { onFx } from './particles';
+import { setWeather, strikeLightning } from './weather';
 import * as ui from './ui';
 import { send } from './net';
 
@@ -14,10 +15,10 @@ let myEid = -1;
 let readyHandler: () => void = () => {};
 let lastPing = 0;
 export let pingMs = -1; // -1 until the first pong
-export let onlinePlayers: { eid: number; name: string; ping: number; away?: boolean }[] = [];
+export let onlinePlayers: { eid: number; name: string; ping: number; away?: boolean; team?: string }[] = [];
 
 export function onReady(fn: () => void) { readyHandler = fn; }
-export function resetSession() { started = false; myEid = -1; onlinePlayers = []; }
+export function resetSession() { started = false; myEid = -1; onlinePlayers = []; ui.setBossBar('', -1, 1); }
 export function markPingSent(ts: number) { lastPing = ts; }
 
 export function handleServerMessage(m: ServerMsg) {
@@ -61,13 +62,16 @@ export function handleServerMessage(m: ServerMsg) {
     case 'orbmenu': ui.showOrbMenu(m.players, m.homes, m.death); return;
     case 'tpask': ui.showTpAsk(m.from); return;
     case 'squad': ui.setSquad(m.list); return;
-    case 'slow': player.onSlow(m.seconds, m.freeze); return;
+    case 'slow': player.onSlow(m.seconds, m.freeze, m.held); return;
     case 'fx': onFx(m, player.controls.object.position); return;
     case 'boss': ui.setBossBar(m.name, m.hp, m.max); return;
     case 'fuel': player.onFuel(m.f); return;
     case 'achievements': ui.setAchievements(m.ids, m.unlocked); return;
     case 'crit': ui.critFlash(); return;
-    case 'equip': onEquip(m.eid, m.held, m.armor); return;
+    case 'equip': onEquip(m.eid, m.held, m.armor, m.ride, m.team); return;
+    case 'ride': player.onRide(m.kind); return;
+    case 'weather': setWeather(m.kind); return;
+    case 'lightning': strikeLightning(m.x, m.y, m.z, player.controls.object.position); return;
     case 'anim': onAnim(m.eid, m.a); return;
     case 'edits': importEditsFlat(m.list); return;
     case 'blocks': {
@@ -92,7 +96,7 @@ export function handleServerMessage(m: ServerMsg) {
     case 'health': player.onHealth(m.hp); return;
     case 'food': player.onFood(m.food); return;
     case 'gamemode': player.onGamemode(m.mode); return;
-    case 'hurt': player.onHurt(m.from, m.knock, m.lift); return;
+    case 'hurt': player.onHurt(m.from, m.knock, m.lift, m.pull); return;
     case 'death': player.onDeath(m.msg); return;
     case 'downed': player.onDowned(m.seconds); return;
     case 'revived': player.onRevived(); return;
@@ -121,6 +125,7 @@ function renderOnlineList() {
   for (const p of onlinePlayers) {
     const row = document.createElement('div');
     row.textContent = `${p.name}${p.eid === myEid ? ' (you)' : ''}  ${p.away ? 'reconnecting...' : p.ping ? p.ping + 'ms' : ''}`;
+    if (p.team && TEAM_COLORS[p.team]) { row.style.borderLeft = `6px solid ${TEAM_COLORS[p.team]}`; row.style.paddingLeft = '4px'; row.title = `${p.team} team`; }
     el.appendChild(row);
   }
 }

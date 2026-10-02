@@ -38,7 +38,7 @@ function connect(port: number, opts: { headers?: Record<string, string>; hello?:
     const ws = new WebSocket(`ws://127.0.0.1:${port}`, { headers: opts.headers });
     const done = (r: string) => { try { ws.terminate(); } catch { /* gone */ } res(r); };
     ws.on('open', () => {
-      if (opts.hello !== false) ws.send(JSON.stringify({ t: 'hello', v: 3, name: 'Tester' + Math.floor(Math.random() * 1e4), look: {}, token: 't' + Math.random() }));
+      if (opts.hello !== false) ws.send(JSON.stringify({ t: 'hello', v: 4, name: 'Tester' + Math.floor(Math.random() * 1e4), look: {}, token: 't' + Math.random() }));
       opts.send?.(ws); // after the hello (unless hello: false)
     });
     ws.on('message', d => { const s = d.toString(); if (s.startsWith('{') && JSON.parse(s).t === 'welcome') done('welcome'); });
@@ -75,7 +75,7 @@ test('websocket: garbage is ignored, a real hello still joins; oversized message
     // After joining: garbage doesn't get you kicked or crash the server
     const ws = new WebSocket(`ws://127.0.0.1:${s.port}`);
     await new Promise(r => ws.on('open', r));
-    ws.send(JSON.stringify({ t: 'hello', v: 3, name: 'Garbler', look: {}, token: 'g' }));
+    ws.send(JSON.stringify({ t: 'hello', v: 4, name: 'Garbler', look: {}, token: 'g' }));
     for (const junk of ['not json {', 'null', '[]', '{"t":"nope"}', '{"t":"dig","x":"a"}', '{"t":"__proto__"}']) ws.send(junk);
     ws.send(Buffer.from([7, 7, 7])); ws.send(Buffer.from([1, 2, 3, 250, 255]));
     await sleep(500);
@@ -93,7 +93,7 @@ test('websocket: floods are cut off, and one network cannot take every slot', as
     // A client spamming messages (way past the burst allowance) is disconnected
     const fl = new WebSocket(`ws://127.0.0.1:${s.port}`);
     await new Promise(r => fl.on('open', r));
-    fl.send(JSON.stringify({ t: 'hello', v: 3, name: 'Flooder', look: {}, token: 'f' }));
+    fl.send(JSON.stringify({ t: 'hello', v: 4, name: 'Flooder', look: {}, token: 'f' }));
     const closed = new Promise<string>(r => fl.on('close', (code, reason) => r(`${code} ${reason}`)));
     for (let i = 0; i < 1000; i++) fl.send(JSON.stringify({ t: 'ping', ts: i }));
     assert.equal(await Promise.race([closed, sleep(5000).then(() => 'still open')]), '4008 Too many messages');
@@ -135,6 +135,6 @@ test('a damaged save is moved aside and the backup is used', async () => {
     assert.match(second.log(), /World seed 4242/, 'the same world, not a new one');
     assert.ok(readdirSync(dir).some(f => f.startsWith('world.json.corrupt-')), 'the damaged file is kept for inspection');
     // A damaged player file: that player can still join (with a fresh character), and the server stays up
-    assert.equal(await connect(second.port, { send: ws => ws.send(JSON.stringify({ t: 'hello', v: 3, name: 'broken', look: {}, token: 'x' })) , hello: false }), 'welcome');
+    assert.equal(await connect(second.port, { send: ws => ws.send(JSON.stringify({ t: 'hello', v: 4, name: 'broken', look: {}, token: 'x' })) , hello: false }), 'welcome');
   } finally { await second.stop(); }
 });

@@ -25,12 +25,13 @@ The game never tells players how to get here. There is no hint in the recipe boo
 - Each biome has its own sky: pale polar twilight, smoky red, steamy green, or bright blue above the clouds.
 
 ## Bosses and their temples
-- **Temples:** each boss guards a temple, about one per 256 × 256 area, built in its biome's style.
-  - A round arena 19 blocks across, with a low wall and four gateways.
-  - Six pillars topped with braziers.
+- **Temples:** each biome has one temple, at the very middle of the biome, built in its style.
+  - A round arena 33 blocks across, with a low wall and four gateways.
+  - **Four great towers** (3 × 3, 16 blocks tall), each crowned with a glowing **boss crystal**.
   - The shrine's core in the middle, which can't be mined.
   - **Two loot chests** at the back, with diamonds, etherite, golden apples, moonstone orbs, the biome's own blocks, and a small chance of the element's ore.
-- **The Cloud Kingdom's temple** floats on a skystone platform at y 57, high above the cloud sea. A spiral stair climbs to its east gateway.
+- **Crystals heal the boss:** while a tower's crystal stands, a beam links it to the boss and heals it 4 health a second. Climb the towers and break the crystals (they drop nothing) to stop it. They grow back when the boss next rises.
+- **The Cloud Kingdom's temple** floats on a skystone platform at y 48, high above the cloud sea. A spiral stair climbs to its east gateway.
 - **When bosses rise:** a boss rises when a player comes within 40 blocks, and returns 5 minutes after being defeated. A held compass points to the nearest temple.
 - **Phase two:** below half health every boss is **enraged** ("The ... is enraged!", a burst of light and a red pulse). Its waits between moves are 40% shorter, and it gains new moves.
 - **Leaping:** walking bosses that lose sight of you for 4 s leap towards you, so a pillar won't keep them stuck.
@@ -40,7 +41,16 @@ The game never tells players how to get here. There is no hint in the recipe boo
 | **Frost Wraith** (floats; icicle shards circle it) | Icicle volleys (3 icicles, 2 hearts and a chill each). **Icicle rain**: 5 icicles drop from above; each landing spot is marked on the ground first; they freeze you solid for 1.5 s. **Frost nova** up close: freezes everyone for 2 s. Calls up frostbitten. A chilling touch. | 5-icicle volleys, 8-icicle rain | Water ore 2-4, glacite, sometimes a Frost Heart |
 | **Magma Colossus** (a molten core in its chest, a spiked back) | Fireballs. **Magma barrage**: gathers 5 balls of magma circling its head, then throws them one by one in high arcs. Each does **10 hearts** to a player without armour, and splashes and burns everyone close. **Ground slam**: throws everyone close up and burns them. Punches. | **Eruption**: fireballs rain from the sky around you; faster throws | Lava ore 2-4, obsidian, magma blocks |
 | **Thorn Guardian** (bark, moss, thorns, a crown of flowers) | Poison thorns. Roots you to the spot. **Stomp**: it rears up with a warning ring, then everything within 8 blocks, players and mobs alike, is hurt (3 hearts) and **thrown about 8 blocks**. Heavy hits. | **Poison spores** all around (10 blocks) | Earth ore 2-4, moss, jungle logs |
-| **Tempest** (flies; a gold core inside three spinning gold rings, on white wings) | **Lasers from its core** (2.5 hearts). Gusts blow everyone away. **Hurricanes**: summons 2 that chase you for 12 s and fling you high into the air. They can't be hurt. | Bursts of three lasers, 3 hurricanes | Wind ore 2-4, feathers, clouds |
+| **Tempest** (flies, 960 health; a gold core inside three spinning gold rings, on white wings; perches on its towers) | **Lasers from its core** (2.5 hearts). Gusts blow everyone away. **Hurricanes**: summons 2 that chase you for 12 s and fling you high into the air. They can't be hurt. | **Its second form** (below) | Wind ore 2-4, feathers, clouds |
+
+### The Tempest's second form
+At half health the Tempest **transforms** (3 s, a blinding burst and a column of light). It draws in every crystal still standing (60 health each), its rings fade away to bare the core, it grows **four wings**, and an **angel's ring** appears above it.
+- **Shield:** a shimmering shield round the core turns back every projectile (fireballs, magma balls, icicles) at whoever threw it. Fight it with blades.
+- **Lightning bolts:** every few seconds, a bolt blasts down on you (4 hearts). Keep moving.
+- **Swoop:** it shoots its wings down, grabs you and launches you high into the air.
+- **Hurricanes** are twice as big and **pull you in**.
+- **Sky lasers:** its core splits into five beams shot into the sky. Five seconds later they rain down. Each landing spot gets a **red warning symbol 2 s before**. A hit does 9 hearts.
+- **The four-wing charge:** it charges all four wings and a golden ring closes round you ("MOVE!"). If you're still there when it lunges, it wraps you in its wings, drags you to its core and finishes you with a beam (20 hearts: a one-hit kill through any armour). Dodge it.
 
 ### What you see
 - **Particles:** every boss gives off its own: embers, leaves, snowflakes, sparks, whirling dust. There are more of them when it's enraged.
@@ -73,5 +83,30 @@ All armour is now drawn as plates worn over the body, like real armour, instead 
 - **Glacite tools**: as strong as etherite, and every hit chills (slows) the target.
 - **Frost Heart**: held, or in the offhand, it keeps cold out: no slowing, no freezing in powder snow.
 
+## The Elemental Core (the final boss)
+- **The Elemental Altar:** water, lava, earth and wind ore, 2 Blocks of Etherite, 2 Blocks of Diamond and a Block of Obitite:
+  ```
+  water ore    | etherite block | lava ore
+  diamond block| obitite block  | diamond block
+  earth ore    | etherite block | wind ore
+  ```
+- **Summoning:** place the altar in the Elemental World and use it. It only answers once you've defeated all four elemental bosses (their achievements).
+- **The fight:** the Core rises above the altar. It's a floating crystal heart with an orb of each element on its own ring, and it has 2000 health. Every 12 s (8 s when enraged) it **turns to the next element**: ice, fire, earth, wind. It glows that colour and fights with that boss's moves:
+  - ice: icicle rain and novas;
+  - fire: magma barrages and slams;
+  - earth: stomps and spores;
+  - wind: lasers, gusts and hurricanes.
+- **Drops:** **Elemental Wings**, 1-2 of each elemental ore, and 1-3 Blocks of Diamond. Only one Core can be awake in the whole world at a time, and it can be summoned again 5 minutes after it is defeated (from any altar).
+- **Elemental Wings** (worn in the chest slot, 8 armour): while falling, hold jump to **glide** forwards the way you look (about 9.5 blocks a second, dropping slowly). There's no fall damage while gliding.
+
+## Elemental tools
+An **obitite** sword, pickaxe, axe or shovel, crafted with an elemental ore (either way round), makes an elemental tool. It's as strong as obitite, plus:
+| Tool | Ore | Weapon power | Mining power |
+|---|---|---|---|
+| **Blazing** | lava | sets what you hit on fire | what you mine comes out smelted (iron ore gives an iron ingot) |
+| **Tidal** | water | each hit heals you half a heart | mines 1.5× faster |
+| **Quaking** | earth | knocks foes 3× further | mines a 3×3 square (the blocks it suits) |
+| **Gale** | wind | throws foes into the air | mines 2× faster |
+
 ## Achievements (all secret)
-Elemental (find the world), Deep Freeze (glacite), Thaw (Frost Wraith), Cooled Down (Magma Colossus), Weed Killer (Thorn Guardian), Grounded (Tempest), Venomous (make the poison sword).
+Elemental (find the world), Deep Freeze (glacite), Thaw (Frost Wraith), Cooled Down (Magma Colossus), Weed Killer (Thorn Guardian), Grounded (Tempest), Venomous (make the poison sword), Master of the Elements (the Elemental Core).

@@ -16,11 +16,14 @@ interface MobModel {
   spinners: { obj: THREE.Object3D; speed: number; axis: 'x' | 'y' | 'z' }[]; // parts that keep turning (rings, shards, a core)
   wings: { obj: THREE.Object3D; side: number }[];                           // the Tempest's wings beat
   aura?: { colors: number[]; rise: number; height: number; width: number }; // a boss's particles (more of them when enraged)
+  core?: THREE.Mesh;                                                        // the Elemental Core's crystal
+  // The Tempest's second form, eased in over two seconds (t: 0..1) once it's enraged
+  form2?: { rings: THREE.Object3D[]; ringMat: THREE.MeshLambertMaterial; extraWings: THREE.Object3D[]; halo: THREE.Mesh; shield: THREE.Mesh; t: number };
 }
 interface View {
   eid: number; kind: EntityKind; obj: THREE.Object3D; samples: Sample[];
   pos: THREE.Vector3; yaw: number; pitch: number; flags: number; hspeed: number;
-  avatar?: Avatar; mob?: MobModel; name?: string; owner?: string; tag?: THREE.Sprite; away?: boolean; itemType?: string;
+  avatar?: Avatar; mob?: MobModel; name?: string; owner?: string; tag?: THREE.Sprite; away?: boolean; itemType?: string; team?: string | null;
   swing: number; walk: number; age: number; dying: number;
 }
 
@@ -40,14 +43,19 @@ function removeView(v: View) {
 
 // ------------------------------------------------------------------ Models
 
-function nametag(text: string): THREE.Sprite {
+// Team colours (the dye colours), for name tags and the player list
+export const TEAM_COLORS: Record<string, string> = {
+  white: '#e8e8e8', red: '#d83030', yellow: '#e8c830', blue: '#3a5ae0', green: '#4a9a2a', black: '#2a2a2e',
+  orange: '#e8801a', purple: '#9040c8', pink: '#f088b0', cyan: '#20a8b0',
+};
+function nametag(text: string, team?: string | null): THREE.Sprite {
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d')!;
   ctx.font = 'bold 32px Courier New, monospace';
   const w = Math.ceil(ctx.measureText(text).width) + 20;
   c.width = w; c.height = 44;
   ctx.font = 'bold 32px Courier New, monospace';
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillStyle = team && TEAM_COLORS[team] ? TEAM_COLORS[team] + 'b0' : 'rgba(0,0,0,0.45)'; // a teammate's tag is their team's colour
   ctx.fillRect(0, 0, w, 44);
   ctx.fillStyle = '#fff';
   ctx.textBaseline = 'middle';
@@ -91,6 +99,8 @@ function buildMob(kind: MobKind, owner?: string): MobModel {
   // Glowing parts (cores, eyes, magma): unlit, so they shine in the dark
   const glowMat = (c: number) => { const m = new THREE.MeshBasicMaterial({ color: c }); m.userData.owned = true; return m; };
   const spinners: MobModel['spinners'] = [], wings: MobModel['wings'] = [];
+  let v_core: THREE.Mesh | undefined; // the Elemental Core's crystal (it takes the colour of its current element)
+  let form2: MobModel['form2'];
   let aura: MobModel['aura'];
   if (kind === 'pig') {
     const pink = mat(0xf0a0a8), dark = mat(0xd88088);
@@ -231,11 +241,37 @@ function buildMob(kind: MobKind, owner?: string): MobModel {
     const halo = new THREE.Mesh(new THREE.SphereGeometry(0.8, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffd040, transparent: true, opacity: 0.25, depthWrite: false, blending: THREE.AdditiveBlending }));
     (halo.material as THREE.Material).userData.owned = true;
     core.add(halo);
+    // (the rings have their own material, so they can fade away in its second form)
+    const ringMat = new THREE.MeshLambertMaterial({ color: 0xffc830, emissive: 0x7a5000, transparent: true }); ringMat.userData.owned = true; mats.push(ringMat);
+    const rings: THREE.Object3D[] = [];
     for (const [r, speed, tilt] of [[1.0, 2.2, 0], [1.25, -1.6, 1.2], [1.5, 1.1, 2.1]] as const) {
-      const ringMesh = new THREE.Mesh(new THREE.TorusGeometry(r, 0.06, 6, 40), gold);
+      const ringMesh = new THREE.Mesh(new THREE.TorusGeometry(r, 0.06, 6, 40), ringMat);
       const holder = new THREE.Group(); holder.position.y = 1.2; holder.rotation.x = tilt; holder.add(ringMesh); model.add(holder);
       spinners.push({ obj: ringMesh, speed, axis: 'x' });
+      rings.push(holder);
     }
+    // The second form: two more wings below the first, an angel's ring above, and a shield round the bare core
+    const extraWings: THREE.Object3D[] = [];
+    for (const side of [-1, 1]) {
+      const wing = new THREE.Group();
+      wing.position.set(side * 0.8, 0.9, 0.3);
+      for (let k = 0; k < 5; k++) {
+        const f = box(1.6 - k * 0.15, 0.08, 0.3, k > 2 ? tip : white, side * (0.85 - k * 0.05), -k * 0.1, k * 0.24, wing);
+        f.rotation.y = side * -k * 0.14;
+      }
+      wing.rotation.x = 0.35;
+      wing.scale.setScalar(0.001);
+      model.add(wing);
+      wings.push({ obj: wing, side });
+      extraWings.push(wing);
+    }
+    const haloRing = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.07, 8, 32), glowMat(0xfff4a0));
+    haloRing.rotation.x = Math.PI / 2; haloRing.position.y = 2.5; haloRing.visible = false;
+    model.add(haloRing);
+    const shield = new THREE.Mesh(new THREE.SphereGeometry(2.1, 24, 16), new THREE.MeshBasicMaterial({ color: 0xc8e8ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
+    (shield.material as THREE.Material).userData.owned = true;
+    shield.position.y = 1.2; model.add(shield);
+    form2 = { rings, ringMat, extraWings, halo: haloRing, shield, t: 0 };
     for (const side of [-1, 1]) {
       // Each wing: a fan of long feathers
       const wing = new THREE.Group();
@@ -248,6 +284,24 @@ function buildMob(kind: MobKind, owner?: string): MobModel {
       wings.push({ obj: wing, side });
     }
     aura = { colors: [0xffd040, 0xffffff, 0xfff080], rise: 0, height: 2.4, width: 1.6 };
+  } else if (kind === 'elemental_core') {
+    // The final boss: a great crystal heart of the four elements, with an orb of each circling it on its own ring
+    const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.9), glowMat(0xffffff));
+    crystal.position.y = 1.6; crystal.scale.y = 1.4; model.add(crystal);
+    spinners.push({ obj: crystal, speed: 1.2, axis: 'y' });
+    const shell = new THREE.Mesh(new THREE.OctahedronGeometry(1.15), new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true }));
+    (shell.material as THREE.Material).userData.owned = true;
+    crystal.add(shell);
+    for (const [k, col] of [[0, 0x2a88ff], [1, 0xff5a10], [2, 0x5ad030], [3, 0xffe080]] as const) {
+      const holder = new THREE.Group(); holder.position.y = 1.6; holder.rotation.set(k * 0.8, 0, k * 0.5); model.add(holder);
+      const ringMesh = new THREE.Mesh(new THREE.TorusGeometry(1.5 + k * 0.15, 0.04, 6, 40), glowMat(col));
+      holder.add(ringMesh);
+      const orb = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), glowMat(col));
+      orb.position.x = 1.5 + k * 0.15; ringMesh.add(orb);
+      spinners.push({ obj: ringMesh, speed: 1.5 + k * 0.4, axis: 'z' });
+    }
+    v_core = crystal;
+    aura = { colors: [0x2a88ff, 0xff5a10, 0x5ad030, 0xffe080], rise: 0.5, height: 3.2, width: 1.6 };
   } else if (kind === 'hurricane') {
     // A whirling funnel of wind, wider at the top, with debris caught in it
     for (let k = 0; k < 7; k++) {
@@ -317,7 +371,7 @@ function buildMob(kind: MobKind, owner?: string): MobModel {
     for (const [x, s] of [[-0.1, -1], [0.1, 1]]) parts.push({ mesh: box(0.2, 0.675, 0.2, pants, x, 0.675, 0, model, true), swing: s });
   }
   for (const m of mats) m.userData.glow = m.emissive.getHex();
-  return { model, parts, mats, spinners, wings, aura };
+  return { model, parts, mats, spinners, wings, aura, core: v_core, form2 };
 }
 
 const spriteMats = new Map<string, THREE.SpriteMaterial>();
@@ -383,7 +437,8 @@ export function onSpawn(list: SpawnInfo[]) {
       const av = createAvatar(s.player.look);
       av.setArmor(s.player.armor || []);
       av.setHeld(s.player.held || '');
-      v.avatar = av; v.name = s.player.name;
+      av.setRide(s.player.ride ?? null);
+      v.avatar = av; v.name = s.player.name; v.team = s.player.team ?? null;
       setTag(v, awayPlayers.has(s.eid));
       obj = av.root;
     } else if (s.kind === 'item' && s.item) {
@@ -416,9 +471,11 @@ export function onSnap(ents: number[]) {
   }
 }
 
-export function onEquip(eid: number, held: string, armor: (string | null)[]) {
+export function onEquip(eid: number, held: string, armor: (string | null)[], ride?: 'boat' | 'cart' | null, team?: string | null) {
   const v = views.get(eid);
-  if (v?.avatar) { v.avatar.setHeld(held); v.avatar.setArmor(armor); }
+  if (!v?.avatar) return;
+  v.avatar.setHeld(held); v.avatar.setArmor(armor); v.avatar.setRide(ride ?? null);
+  if ((team ?? null) !== (v.team ?? null)) { v.team = team ?? null; setTag(v, !!v.away); }
 }
 
 export function onAnim(eid: number, a: 'swing' | 'hurt') {
@@ -488,7 +545,9 @@ export function updateRemote(dt: number, eye?: THREE.Vector3) {
       const pulse = angry ? Math.round(0x30 + 0x30 * Math.sin(v.age * 6)) << 16 : 0;
       for (const m of v.mob.mats) m.emissive.setHex(hurt ? 0x880000 : (m.userData.glow || 0) | pulse);
       for (const sp of v.mob.spinners) sp.obj.rotation[sp.axis] += dt * sp.speed * (angry ? 2 : 1);
-      for (const w of v.mob.wings) w.obj.rotation.z = w.side * Math.sin(v.age * (angry ? 11 : 7)) * 0.5;
+      // Wings beat in flight, and fold down while it rests on the ground
+      const perched = !!(v.flags & EF_SNEAK);
+      for (const w of v.mob.wings) w.obj.rotation.z = perched ? w.side * -0.9 : w.side * Math.sin(v.age * (angry ? 11 : 7)) * 0.5;
       if (v.mob.aura && v.dying < 0) bossAura(v, dt, angry);
       if (v.flags & EF_DYING) {
         v.dying = v.dying < 0 ? 0 : v.dying + dt;
@@ -499,7 +558,24 @@ export function updateRemote(dt: number, eye?: THREE.Vector3) {
       // The Titan's grinder spins (fast while it charges); the Wraith bobs as it floats
       if (v.mob.grinder) v.mob.grinder.rotation.z += dt * (v.flags & EF_ANGRY ? 25 : 2);
       if (v.kind === 'frost_wraith') v.mob.model.position.y = Math.sin(v.age * 2) * 0.15;
-      if (v.kind === 'tempest') v.mob.model.position.y = Math.sin(v.age * 3) * 0.3;
+      if (v.kind === 'tempest' || v.kind === 'elemental_core') v.mob.model.position.y = Math.sin(v.age * 3) * 0.3;
+      if (v.kind === 'hurricane') v.mob.model.scale.setScalar(angry ? 2 : 1); // the Tempest's second form: twice the size
+      const f2 = v.mob.form2;
+      if (f2) {
+        // The transformation: rings fade away, the new wings unfold, the angel's ring and the shield appear
+        f2.t = angry ? Math.min(1, f2.t + dt / 2) : Math.max(0, f2.t - dt);
+        f2.ringMat.opacity = 1 - f2.t;
+        for (const r of f2.rings) r.visible = f2.t < 0.99;
+        for (const w of f2.extraWings) w.scale.setScalar(Math.max(0.001, f2.t));
+        f2.halo.visible = f2.t > 0.05; f2.halo.scale.setScalar(f2.t); f2.halo.rotation.z += dt * 2;
+        (f2.shield.material as THREE.MeshBasicMaterial).opacity = f2.t * (0.12 + 0.06 * Math.sin(v.age * 4));
+      }
+      if (v.mob.core) {
+        // Its element (ice, fire, earth, wind) arrives in two flag bits; the crystal glows that colour
+        const elem = (v.flags & EF_SNEAK ? 1 : 0) | (v.flags & EF_DOWNED ? 2 : 0);
+        (v.mob.core.material as THREE.MeshBasicMaterial).color.setHex([0x6ac8ff, 0xff7a20, 0x7ae040, 0xfff0a0][elem]);
+        v.mob.aura!.colors = [[0x2a88ff, 0xffffff], [0xff5a10, 0xffd040], [0x5ad030, 0x8a6a3a], [0xffe080, 0xffffff]][elem];
+      }
       for (const p of v.mob.parts) {
         if (v.kind === 'frost_wraith') p.mesh.rotation.x = Math.PI / 3 + Math.sin(v.age * 3) * p.swing;
         else if (v.kind === 'zombie' && Math.abs(p.swing) < 1) p.mesh.rotation.x = Math.PI / 2 + sw * p.swing;
@@ -611,7 +687,7 @@ export function setAwayPlayers(away: Set<number>) {
 }
 function setTag(v: View, away: boolean) {
   if (v.tag) { v.tag.removeFromParent(); (v.tag.material as THREE.SpriteMaterial).map?.dispose(); v.tag.material.dispose(); }
-  const tag = nametag(away ? `${v.name} (reconnecting...)` : v.name!);
+  const tag = nametag(away ? `${v.name} (reconnecting...)` : v.name!, v.team);
   tag.position.y = 2.15;
   v.avatar!.root.add(tag);
   v.tag = tag; v.away = away;

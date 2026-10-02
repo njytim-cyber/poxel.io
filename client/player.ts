@@ -8,7 +8,7 @@ import { keys, isMobile, touchLookDelta, touchAim, actions } from './input';
 import { getBlock, setBlock, raycast, setFacing, isLoaded, type RayHit } from './world';
 import { BLOCKS, BLOCK_ID, WATER, LAVA, OIL, POWDER_SNOW, isLiquid, isFacingBlock, isPlant, isReplaceable, itemDef, miningInfo, plantCanStand } from '../shared/blocks.ts';
 import { makeBody, moveBody, boxIntersectsSolid, hasGroundBelow, PLAYER_EYE, PLAYER_HALF_WIDTH, PLAYER_HEIGHT, GRAVITY } from '../shared/physics.ts';
-import { MF_GROUND, MF_SNEAK, MF_WATER, MF_LAVA, MF_JET } from '../shared/protocol.ts';
+import { MF_GROUND, MF_SNEAK, MF_WATER, MF_LAVA, MF_JET, MF_GLIDE, type Ride } from '../shared/protocol.ts';
 import { inventory, selectedSlotIndex, getSelectedItem, onInventoryChange, predictUseSelected, setInfiniteBlocks, setCreativeInventory } from './inventory';
 import { OFFHAND } from '../shared/inventory.ts';
 import { isRobotic, nearestAltar } from '../shared/robotic.ts';
@@ -30,6 +30,11 @@ export const MAX_HEALTH = 20; // 10 hearts
 const WALK_SPEED = 5.0;
 const RUN_SPEED = 6.3;
 const SNEAK_SPEED = 1.7;
+const GLIDE_SPEED = 9.5;      // Elemental Wings: forward speed while gliding
+const BOAT_SPEED = 8;
+const CART_SPEED = 10;
+const FLY_SPEED = 14;         // creative flying (blocks per second)
+const FLY_SPRINT_SPEED = 32;
 const JUMP_VELOCITY = 9.2;
 const REACH = 5;
 
@@ -333,12 +338,13 @@ export function onMaxHealth(max: number) {
 export const getMaxHealth = () => maxHealth;
 
 // lift: thrown up into the air (a stomp, a hurricane), which also shakes the view
-export function onHurt(from: [number, number, number] | null, knock: number, lift?: number) {
-  ui.flashHurt();
-  hurtTilt = 1;
+// pull: a tug with no hurt (a big hurricane drawing you in)
+export function onHurt(from: [number, number, number] | null, knock: number, lift?: number, pull?: boolean) {
+  if (!pull) { ui.flashHurt(); hurtTilt = 1; }
   if (from && knock) {
     const dx = body.pos.x - from[0], dz = body.pos.z - from[2], d = Math.hypot(dx, dz) || 1;
-    body.vel.x += (dx / d) * knock; body.vel.z += (dz / d) * knock; body.vel.y = Math.max(body.vel.y, 5);
+    body.vel.x += (dx / d) * knock; body.vel.z += (dz / d) * knock;
+    if (!pull) body.vel.y = Math.max(body.vel.y, 5);
   }
   if (lift) { body.vel.y = Math.max(body.vel.y, lift); flying = false; shakeT = Math.max(shakeT, 0.5); }
 }
@@ -431,14 +437,114 @@ function playerOverlapsBlock(x: number, y: number, z: number) {
 }
 
 // ------------------------------------------------------------------ Jetpack
-let jetFuel = 0, jetting = false;
+let jetFuel = 0, jetting = false, gliding = false;
 export function onFuel(f: number) { jetFuel = f; }
+
+// ------------------------------------------------------------------ Riding: boats and minecarts
+let ride: Ride = null;
+let cartDir = { x: 0, z: -1 }, cartSpeed = 0, getOffAsked = false;
+let boatAt: { x: number; y: number; z: number } | null = null; // the water a boat was used on
+export function onRide(kind: Ride) {
+  ride = kind;
+  playerAvatar?.setRide(kind);
+  cartSpeed = 0; getOffAsked = false;
+  if (!kind) return;
+  flying = false;
+  ui.toast(kind === 'boat' ? 'In a boat: W to row, sneak to get out' : 'In a minecart: W to go, S to stop, sneak to get out');
+  if (kind === 'boat' && boatAt) {
+    // Out onto the water you used it on
+    body.pos.set(boatAt.x + 0.5, boatAt.y + 0.85, boatAt.z + 0.5); body.vel.set(0, 0, 0);
+    boatAt = null;
+  }
+  if (kind === 'cart') {
+    // Onto the rail you used it on (or the nearest), heading the way you look along it
+    const rail = railNear(body.pos.x, body.pos.y, body.pos.z);
+    if (rail) { body.pos.set(rail[0] + 0.5, rail[1], rail[2] + 0.5); }
+    const { yaw } = getYawPitch();
+    const lx = -Math.sin(yaw), lz = -Math.cos(yaw);
+    cartDir = Math.abs(lx) > Math.abs(lz) ? { x: Math.sign(lx), z: 0 } : { x: 0, z: Math.sign(lz) };
+  }
+}
+export const riding = () => ride;
+const isRail = (x: number, y: number, z: number) => getBlock(x, y, z) === BLOCK_ID.rail;
+function railNear(x: number, y: number, z: number): [number, number, number] | null {
+  for (let r = 0; r <= 4; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) for (let dy = -1; dy <= 1; dy++) {
+    const bx = Math.floor(x) + dx, by = Math.floor(y) + dy, bz = Math.floor(z) + dz;
+    if (isRail(bx, by, bz)) return [bx, by, bz];
+  }
+  return null;
+}
+// The first water block along the aim (within reach)
+function waterInSight(): { x: number; y: number; z: number } | null {
+  lookDir(_dir);
+  const e = eyePos();
+  for (let t = 0; t <= 5; t += 0.1) {
+    const x = Math.floor(e.x + _dir.x * t), y = Math.floor(e.y + _dir.y * t), z = Math.floor(e.z + _dir.z * t);
+    const id = getBlock(x, y, z);
+    if (id === WATER) return { x, y, z };
+    if (id !== 0 && !isPlant(id)) return null;
+  }
+  return null;
+}
+
+function rideStep(dt: number, playing: boolean) {
+  const b = body;
+  if (playing && keys.shift && !getOffAsked) { getOffAsked = true; send({ t: 'ride', kind: null }); } // sneak: get out
+  const fwd = playing ? Number(keys.forward) - Number(keys.backward) : 0;
+  b.onGround = true;
+  if (ride === 'boat') {
+    // Afloat on the water's surface; rowing goes the way you look (slowly, if you've run aground)
+    const { yaw } = getYawPitch();
+    let top = Math.floor(b.pos.y + 0.5);
+    const afloat = getBlock(Math.floor(b.pos.x), top - 1, Math.floor(b.pos.z)) === WATER || getBlock(Math.floor(b.pos.x), top, Math.floor(b.pos.z)) === WATER;
+    if (afloat) { while (getBlock(Math.floor(b.pos.x), top, Math.floor(b.pos.z)) === WATER) top++; }
+    const speed = (afloat ? BOAT_SPEED : 1.5) * Math.max(0, fwd);
+    b.vel.x += (-Math.sin(yaw) * speed - b.vel.x) * Math.min(1, dt * 1.5);
+    b.vel.z += (-Math.cos(yaw) * speed - b.vel.z) * Math.min(1, dt * 1.5);
+    b.vel.y = afloat ? (top - 0.15 - b.pos.y) * 6 : Math.max(b.vel.y - GRAVITY * dt, -30);
+    moveBody(world, b, dt);
+    return;
+  }
+  // A minecart follows the rails: on along them, up or down a step, round a corner; it stops where they end
+  cartSpeed += fwd * 12 * dt;
+  if (!fwd) cartSpeed *= 1 - Math.min(1, dt * 0.4);
+  cartSpeed = Math.max(-CART_SPEED * 0.5, Math.min(CART_SPEED, cartSpeed));
+  let left = Math.abs(cartSpeed) * dt;
+  const s = Math.sign(cartSpeed) || 1;
+  while (left > 0) {
+    const step = Math.min(0.2, left);
+    left -= step;
+    const cx = Math.floor(b.pos.x), cz = Math.floor(b.pos.z), cy = Math.floor(b.pos.y + 0.01);
+    const nx = b.pos.x + cartDir.x * s * step, nz = b.pos.z + cartDir.z * s * step;
+    const tx = Math.floor(nx), tz = Math.floor(nz);
+    if (tx === cx && tz === cz) { b.pos.x = nx; b.pos.z = nz; continue; }
+    // Into the next block: a rail there, a step up, or a step down?
+    const dy = isRail(tx, cy, tz) ? 0 : isRail(tx, cy + 1, tz) ? 1 : isRail(tx, cy - 1, tz) ? -1 : null;
+    if (dy !== null) { b.pos.x = nx; b.pos.z = nz; b.pos.y = cy + dy; continue; }
+    // Not ahead: round a corner (from the middle of this block), or stop
+    const sideA = { x: cartDir.z, z: cartDir.x }, sideB = { x: -cartDir.z, z: -cartDir.x };
+    const turn = [sideA, sideB].find(d => isRail(cx + d.x, cy, cz + d.z));
+    b.pos.x = cx + 0.5; b.pos.z = cz + 0.5;
+    if (turn) { cartDir = { x: turn.x * s, z: turn.z * s }; continue; }
+    cartSpeed = 0;
+    break;
+  }
+  // Kept on the line of the rails
+  if (cartDir.x) b.pos.z = Math.floor(b.pos.z) + 0.5; else b.pos.x = Math.floor(b.pos.x) + 0.5;
+  b.vel.set(0, 0, 0);
+}
 
 // Frost (the Frost Wraith, glacite): you move at half speed for a while
 let slowUntil = 0;
 // freeze: frozen solid (can't move or jump) rather than just slowed
 let frozenUntil = 0;
-export function onSlow(seconds: number, freeze?: boolean) {
+// held: caught in the Tempest's wings (just as stuck, but no frost)
+export function onSlow(seconds: number, freeze?: boolean, held?: boolean) {
+  if (held) {
+    ui.toast("You're caught in the Tempest's wings!");
+    frozenUntil = performance.now() + seconds * 1000;
+    return;
+  }
   if (freeze) {
     if (performance.now() > frozenUntil) ui.toast("You're frozen solid!");
     frozenUntil = performance.now() + seconds * 1000;
@@ -518,7 +624,7 @@ function updateCompass(dt: number) {
 function hasOwnUse(type: string | undefined) {
   if (!type) return false;
   const d = itemDef(type);
-  return d.block !== undefined || !!d.food || !!d.plants || d.tool?.kind === 'hoe' || type === 'tungsten_ingot' || type === 'moonstone_orb';
+  return d.block !== undefined || !!d.food || !!d.plants || d.tool?.kind === 'hoe' || !!d.egg || type === 'tungsten_ingot' || type === 'moonstone_orb' || type === 'boat' || type === 'minecart';
 }
 function canFire() {
   const main = getSelectedItem()?.type;
@@ -538,6 +644,8 @@ function useItem() {
     send({ t: 'open', x: hit.x, y: hit.y, z: hit.z });
     return;
   }
+  // The Elemental Altar: the server summons the Elemental Core (or says why not)
+  if (hit && !keys.shift && hit.id === BLOCK_ID.elemental_altar) { secondaryHeld = false; send({ t: 'open', x: hit.x, y: hit.y, z: hit.z }); return; }
   if (hit && !keys.shift && (hit.id === BLOCK_ID.crafting_table || hit.id === BLOCK_ID.furnace || hit.id === BLOCK_ID.chest)) {
     secondaryHeld = false;
     ui.expectScreen();
@@ -545,6 +653,9 @@ function useItem() {
     return;
   }
   if (tryRefuel()) { secondaryHeld = false; return; }
+  // A boat: used on water (the aim passes through it) you get in; a minecart: used on a rail
+  if (held?.type === 'boat' && !ride) { const w = waterInSight(); if (w) { boatAt = w; send({ t: 'ride', kind: 'boat', ...w }); } secondaryHeld = false; return; }
+  if (held?.type === 'minecart' && !ride && hit?.id === BLOCK_ID.rail) { send({ t: 'ride', kind: 'cart', x: hit.x, y: hit.y, z: hit.z }); secondaryHeld = false; return; }
   // A moonstone orb: the server says where it can take you
   if (held?.type === 'moonstone_orb') { send({ t: 'orb' }); secondaryHeld = false; return; }
   // Laser cannon: in hand, or in the offhand when the hand holds nothing with its own right-click use
@@ -569,6 +680,8 @@ function useItem() {
     return;
   }
   if (def.food) { if (canEat()) send({ t: 'eat' }); return; }
+  // A spawn egg: the creature appears on the face you clicked
+  if (def.egg) { if (hit) send({ t: 'egg', x: hit.x + hit.nx, y: hit.y + hit.ny, z: hit.z + hit.nz }); secondaryHeld = false; return; }
   if (def.block === undefined || !hit) return;
 
   // Clicking a plant replaces it instead of stacking on its neighbour (not torches or banners)
@@ -636,7 +749,7 @@ function sendMove(dt: number) {
   const { yaw, pitch } = getYawPitch();
   const b = body;
   // Powder snow counts as water for the server: it breaks falls
-  const flags = (b.onGround ? MF_GROUND : 0) | (keys.shift ? MF_SNEAK : 0) | (b.inWater || b.inSnow ? MF_WATER : 0) | (b.inLava ? MF_LAVA : 0) | (jetting ? MF_JET : 0);
+  const flags = (b.onGround ? MF_GROUND : 0) | (keys.shift ? MF_SNEAK : 0) | (b.inWater || b.inSnow ? MF_WATER : 0) | (b.inLava ? MF_LAVA : 0) | (jetting ? MF_JET : 0) | (gliding ? MF_GLIDE : 0);
   const moved = Math.abs(b.pos.x - lastSent.x) + Math.abs(b.pos.y - lastSent.y) + Math.abs(b.pos.z - lastSent.z) > 0.002 ||
     Math.abs(yaw - lastSent.yaw) + Math.abs(pitch - lastSent.pitch) > 0.002 || flags !== lastSent.flags;
   if (!moved && lastSent.age < 1) return;
@@ -659,7 +772,10 @@ export function updatePlayer(dt: number) {
   const active = ui.state !== 'menu' && !dead;
   // Physics keeps running while menus are open (the world doesn't pause in multiplayer),
   // but input only counts while actually playing. Wait for terrain before simulating.
-  if (active && isLoaded(Math.floor(b.pos.x), Math.floor(b.pos.z))) {
+  // In a boat or a minecart, the ride moves you (see rideStep)
+  const riding = active && !!ride && isLoaded(Math.floor(b.pos.x), Math.floor(b.pos.z));
+  if (riding) { rideStep(dt, playing); pivot.position.set(b.pos.x, b.pos.y + EYE_HEIGHT, b.pos.z); sendMove(dt); }
+  if (!riding && active && isLoaded(Math.floor(b.pos.x), Math.floor(b.pos.z))) {
     const { yaw } = getYawPitch();
     const fwd = playing ? Number(keys.forward) - Number(keys.backward) : 0;
     const strafe = playing ? Number(keys.right) - Number(keys.left) : 0;
@@ -670,6 +786,8 @@ export function updatePlayer(dt: number) {
     if (b.inLava) speed *= 0.35;
     if (b.inSnow) speed *= 0.4;
     if (isSlowed()) speed *= 0.5;
+    // Creative flying: fast (sprint for faster still); set before the move below so it takes effect
+    if (flying) speed = keys.run ? FLY_SPRINT_SPEED : FLY_SPEED;
     if (isFrozen()) speed = 0;
     let mx = 0, mz = 0;
     if (fwd || strafe) {
@@ -678,19 +796,22 @@ export function updatePlayer(dt: number) {
       mx = (-Math.sin(yaw) * f + Math.cos(yaw) * s) * speed;
       mz = (-Math.cos(yaw) * f - Math.sin(yaw) * s) * speed;
     }
-    if (flying) speed = keys.run ? 21 : 10.9;
     // On ice there's little grip: you speed up a bit slower and keep sliding for a long way when you stop
     const onIce = b.onGround && b.slip > 0;
     const accel = Math.min(1, dt * (flying ? 10 : onIce ? (mx || mz ? 5 : 14 * (1 - b.slip) * 4) : b.onGround ? 14 : b.inWater || b.inLava ? 5 : 4));
-    b.vel.x += (mx - b.vel.x) * accel;
-    b.vel.z += (mz - b.vel.z) * accel;
+    // (gliding on Elemental Wings keeps its own forward speed: see below)
+    const willGlide = playing && keys.jump && !downed && !flying && !b.onGround && b.vel.y < 0 && inventory[56]?.type === 'elemental_wings';
+    if (!willGlide) {
+      b.vel.x += (mx - b.vel.x) * accel;
+      b.vel.z += (mz - b.vel.z) * accel;
+    }
 
     const jump = playing && keys.jump && !downed && !isFrozen();
-    jetting = false;
+    jetting = false; gliding = false;
     if (flying && (!creative || (b.onGround && sneak))) flying = false; // land by flying down onto the ground
     if (flying) {
       // Jump rises, sneak descends, otherwise hover
-      const vy = jump ? 8 : sneak ? -8 : 0;
+      const vy = jump ? 12 : sneak ? -12 : 0;
       b.vel.y += (vy - b.vel.y) * Math.min(1, dt * 10);
     } else if (b.inSnow) {
       // Powder snow: sink slowly; holding jump climbs back out
@@ -700,6 +821,13 @@ export function updatePlayer(dt: number) {
       b.vel.y = Math.max(b.vel.y - 12 * dt, -(b.inLava ? 2 : 3));
       if (jump) b.vel.y = Math.min(b.vel.y + 30 * dt, b.inLava ? 2.5 : 4);
       if (jump && b.hitWall) b.vel.y = 6.5; // hop out onto a ledge
+    } else if (jump && !b.onGround && b.vel.y < 0 && inventory[56]?.type === 'elemental_wings') {
+      // Elemental Wings: holding jump while falling, you glide down slowly, carried the way you look
+      gliding = true;
+      b.vel.y = Math.max(b.vel.y - GRAVITY * dt, -2.2);
+      const { yaw } = getYawPitch();
+      b.vel.x += (-Math.sin(yaw) * GLIDE_SPEED - b.vel.x) * Math.min(1, dt * 2);
+      b.vel.z += (-Math.cos(yaw) * GLIDE_SPEED - b.vel.z) * Math.min(1, dt * 2);
     } else if (jump && !b.onGround && jetFuel > 0 && inventory[56]?.type === 'jetpack') {
       // Jetpack: holding jump in the air thrusts you up, burning fuel (a full tank lasts 30 s)
       b.vel.y = Math.min(b.vel.y + 34 * dt, 7);

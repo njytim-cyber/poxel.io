@@ -256,7 +256,7 @@ function memoryStorage(): Storage {
 test('a furnace in the world: open it, smelt, take the ingots; breaking it drops what was inside', () => {
   const g = new Game(memoryStorage(), { creativeCode: creativeCodeHash('1234'), seed: 3 });
   const got: ServerMsg[] = [];
-  const p = g.join({ send: m => { got.push(m); }, close: () => {} }, { t: 'hello', v: 3, name: 'Smith', look: {}, token: 'tok-smith' })!;
+  const p = g.join({ send: m => { got.push(m); }, close: () => {} }, { t: 'hello', v: 4, name: 'Smith', look: {}, token: 'tok-smith' })!;
   const fx = Math.floor(p.body.pos.x) + 2, fy = Math.floor(p.body.pos.y), fz = Math.floor(p.body.pos.z);
   (g as any).setBlock(fx, fy, fz, BLOCK_ID.furnace);
   p.inv.slots[0] = { type: 'iron_ore', count: 2 };

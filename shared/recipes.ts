@@ -1,4 +1,4 @@
-import { COLORS, woolOf } from './blocks.ts';
+import { COLORS, woolOf, ELEMENTAL_TOOLS } from './blocks.ts';
 
 type Cell = string | null;
 export interface Recipe {
@@ -99,6 +99,17 @@ add([[E, E, E], [E, 'earth_ore', E], [E, _, E]], 'earth_leggings');
 add([[E, _, E], [E, 'wind_ore', E]], 'wind_boots');
 // The poison sword: obitite and every element
 add([['water_ore', 'obitite', 'lava_ore'], ['earth_ore', 'obitite', 'wind_ore'], [_, 'stick', _]], 'poison_sword');
+// The Elemental Altar: every element, etherite, diamonds and obitite
+add([['water_ore', 'etherite_block', 'lava_ore'], ['diamond_block', 'obitite_block', 'diamond_block'], ['earth_ore', 'etherite_block', 'wind_ore']], 'elemental_altar');
+// Elemental tools: an obitite tool and an elemental ore (either way round)
+for (const [pre, element] of Object.entries(ELEMENTAL_TOOLS)) for (const kind of ['sword', 'pickaxe', 'axe', 'shovel']) {
+  add([[`obitite_${kind}`, `${element}_ore`]], `${pre}_${kind}`);
+  add([[`${element}_ore`, `obitite_${kind}`]], `${pre}_${kind}`);
+}
+// Getting about: rails and a minecart (iron), a boat (planks)
+add([['iron_ingot', _, 'iron_ingot'], ['iron_ingot', 'stick', 'iron_ingot'], ['iron_ingot', _, 'iron_ingot']], 'rail', 16);
+add([['iron_ingot', _, 'iron_ingot'], ['iron_ingot', 'iron_ingot', 'iron_ingot']], 'minecart');
+add([['planks', _, 'planks'], ['planks', 'planks', 'planks']], 'boat');
 // Moonstone blocks (4 moonstone each, and back)
 add(square('moonstone'), 'moonstone_block');
 add([['moonstone_block']], 'moonstone', 4);

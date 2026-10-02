@@ -59,6 +59,36 @@ function ring(x: number, y: number, z: number, radius: number, color: number, se
   rings.push({ mesh, life: seconds, max: seconds, grow: opts.grow ? 1 : 0, fade: true });
 }
 
+// A beam of light (a glowing column) between two heights, that fades
+interface Pillar { mesh: THREE.Mesh; life: number; max: number; grow: boolean }
+const pillars: Pillar[] = [];
+function pillar(x: number, y0: number, z: number, y1: number, radius: number, color: number, seconds: number, tilt = { x: 0, z: 0 }, grow = false) {
+  const h = Math.abs(y1 - y0);
+  const g = new THREE.CylinderGeometry(radius, radius, h, 10, 1, true);
+  const m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false });
+  const mesh = new THREE.Mesh(g, m);
+  mesh.position.set(x, (y0 + y1) / 2, z);
+  mesh.rotation.set(tilt.x, 0, tilt.z);
+  if (grow) mesh.scale.y = 0.01;
+  scene.add(mesh);
+  pillars.push({ mesh, life: seconds, max: seconds, grow });
+}
+
+// A red warning symbol on the ground: a circle, a cross and a pulsing fill (where something is about to land)
+function warnSymbol(x: number, y: number, z: number, r: number, seconds: number) {
+  ring(x, y, z, r, 0xff2020, seconds, { thick: 0.18 });
+  ring(x, y, z, r * 0.92, 0xff4040, seconds, { fill: true });
+  for (const rot of [Math.PI / 4, -Math.PI / 4]) {
+    const g = new THREE.PlaneGeometry(r * 1.6, r * 0.18);
+    const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0xff1010, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }));
+    mesh.rotation.set(-Math.PI / 2, 0, rot);
+    mesh.position.set(x, y + 0.08, z);
+    scene.add(mesh);
+    rings.push({ mesh, life: seconds, max: seconds, grow: 0, fade: true });
+  }
+  pillar(x, y, z, y + 30, r * 0.15, 0xff2020, seconds); // (visible from afar)
+}
+
 // ------------------------------------------------------------------ Server effects
 
 let shake = 0;
@@ -109,6 +139,43 @@ export function onFx(m: Extract<ServerMsg, { t: 'fx' }>, eye: THREE.Vector3) {
     case 'spores':
       for (let k = 0; k < 160; k++) { const a = Math.random() * Math.PI * 2, d = Math.random() * r; emit(x + Math.cos(a) * d, y + Math.random() * 2, z + Math.sin(a) * d, (Math.random() - 0.5), 0.6 + Math.random(), (Math.random() - 0.5), k % 2 ? 0x8ae040 : 0xc8ff80, 2.5, -0.2); }
       break;
+    case 'transform':
+      // The Tempest's second form: a blinding burst, rings of light, a column into the sky
+      burst(x, y, z, 260, 14, [0xffffff, 0xffd040, 0xfff4a0, 0xc8e8ff], 1.6, 0);
+      for (const k of [0, 1, 2]) ring(x, y - 1 - k, z, r * (1 + k * 0.6), 0xffd040, 1.2 + k * 0.3, { grow: true, thick: 0.1 });
+      pillar(x, y, z, y + 80, 1.2, 0xfff4a0, 1.5);
+      if (near(60)) shake = Math.max(shake, 0.8);
+      break;
+    case 'skybeam':
+      // Its core splits into five beams shot up into the sky
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * Math.PI * 2;
+        pillar(x + Math.cos(a) * 0.6, y, z + Math.sin(a) * 0.6, y + 90, 0.35, 0xffd040, 1.4, { x: Math.sin(a) * 0.15, z: -Math.cos(a) * 0.15 }, true);
+      }
+      burst(x, y, z, 120, 10, [0xffffff, 0xffd040], 1, -2);
+      if (near(40)) shake = Math.max(shake, 0.4);
+      break;
+    case 'warn':
+      warnSymbol(x, y, z, r, 2);
+      break;
+    case 'starfall':
+      // A beam of light slams down from the sky
+      pillar(x, y, z, y + 90, r * 0.55, 0xfff4a0, 0.6);
+      pillar(x, y, z, y + 90, r * 0.25, 0xffffff, 0.6);
+      ring(x, y, z, r * 1.6, 0xffd040, 0.6, { grow: true, thick: 0.3 });
+      burst(x, y + 0.5, z, 90, 9, [0xffffff, 0xffd040, 0xff8040], 0.8, 6);
+      if (near(r + 10)) shake = Math.max(shake, 0.9);
+      break;
+    case 'deflect':
+      burst(x, y, z, 40, 7, [0xc8e8ff, 0xffffff, 0xffd040], 0.5, 0);
+      ring(x, y - 0.5, z, r, 0xc8e8ff, 0.4, { grow: true });
+      break;
+    case 'wingcharge':
+      // The four-wing charge's wind-up: a golden ring closes in on where you stand
+      ring(x, y, z, r, 0xffd040, 1.8, { thick: 0.2 });
+      ring(x, y, z, r * 2.5, 0xffffff, 1.8, { thick: 0.05 });
+      if (near(10)) shake = Math.max(shake, 0.3);
+      break;
     case 'charge':
       // The Thorn Guardian rears up: a warning ring where the stomp will land
       ring(x, y, z, r, 0xffd040, 0.9, { thick: 0.08 });
@@ -132,6 +199,14 @@ export function updateParticles(dt: number) {
   }
   (geo.attributes.position as THREE.BufferAttribute).needsUpdate = true;
   (geo.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+  for (let k = pillars.length - 1; k >= 0; k--) {
+    const p = pillars[k];
+    p.life -= dt;
+    const t = 1 - p.life / p.max;
+    if (p.grow) p.mesh.scale.y = Math.min(1, t * 4);
+    (p.mesh.material as THREE.MeshBasicMaterial).opacity = 0.85 * Math.min(1, (p.life / p.max) * 2);
+    if (p.life <= 0) { scene.remove(p.mesh); p.mesh.geometry.dispose(); (p.mesh.material as THREE.Material).dispose(); pillars.splice(k, 1); }
+  }
   for (let k = rings.length - 1; k >= 0; k--) {
     const r = rings[k];
     r.life -= dt;

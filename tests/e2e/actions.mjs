@@ -161,6 +161,18 @@ try {
   await sleep(300);
   const y1 = await sev(() => window.poxel.body.pos.y);
   check('creative: double-tap jump flies', y1 - y0 > 3, `rose ${(y1 - y0).toFixed(1)} blocks`);
+  // Flying forwards, sprinting: fast (about 32 blocks a second), and the server doesn't pull us back
+  await sev(() => window.poxel.setYawPitch(0, 0));
+  const f0 = await sev(() => ({ ...window.poxel.body.pos }));
+  await sp.keyboard.down('KeyR'); await sp.keyboard.down('KeyW');
+  await sleep(1000);
+  await sp.keyboard.up('KeyW'); await sp.keyboard.up('KeyR');
+  const f1 = await sev(() => ({ ...window.poxel.body.pos }));
+  await sleep(800);
+  const f2 = await sev(() => ({ ...window.poxel.body.pos }));
+  const flown = Math.hypot(f1.x - f0.x, f1.z - f0.z);
+  check('creative: sprint-flying is fast', flown > 18, `${flown.toFixed(1)} blocks in 1 s`);
+  check('creative: the server accepts it (no pull back)', Math.hypot(f2.x - f0.x, f2.z - f0.z) >= flown - 1, `${Math.hypot(f2.x - f0.x, f2.z - f0.z).toFixed(1)} blocks after settling`);
   await sp.close();
 } catch (e) {
   check('suite ran without crashing', false, e.stack || String(e));

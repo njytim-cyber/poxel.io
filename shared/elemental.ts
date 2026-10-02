@@ -288,73 +288,90 @@ function placeJungleTrees(put: Put, cx: number, cz: number, seed: number) {
 
 // ------------------------------------------------------------------ Shrines (where each biome's boss wakes)
 
-const SHRINE_GRID = 256;
-const SHRINE_R = 9;          // a temple's arena radius
-const TEMPLE_REACH = 13;     // (the Cloud Kingdom's stair reaches a little further out)
-const SKY_TEMPLE_Y = 57;     // the Cloud Kingdom's temple floats at this height
+const SHRINE_R = 16;         // a temple's arena radius
+const TOWER_R = 12;          // how far out its four towers stand (on the diagonals)
+const TOWER_H = 16;          // and how tall they are (a crystal on top)
+export const TEMPLE_REACH = 20; // (the Cloud Kingdom's stair reaches furthest out)
+const SKY_TEMPLE_Y = 48;     // the Cloud Kingdom's temple floats at this height (its towers' crystals must fit under the sky's limit)
 export const SHRINE_BOSS = { frost: 'frost_wraith', volcano: 'magma_colossus', jungle: 'thorn_guardian', clouds: 'tempest' } as const;
 export const SHRINE_CORE = { frost: 'frost_shrine', volcano: 'fire_shrine', jungle: 'earth_shrine', clouds: 'wind_shrine' } as const;
 
+// Each biome region's temple stands at its very middle (the region's site)
 export interface Shrine { x: number; y: number; z: number; key: string; biome: ElemBiome; ground: number } // y: just above the arena floor; ground: the land (or cloud) below
-function shrineInCell(ax: number, az: number, seed: number): Shrine | null {
-  const x = ax * SHRINE_GRID + 40 + Math.floor(hash3(ax, 181, az, seed) * (SHRINE_GRID - 80));
-  const z = az * SHRINE_GRID + 40 + Math.floor(hash3(ax, 182, az, seed) * (SHRINE_GRID - 80));
-  if (x < ELEM_MIN_X + WALL + 20 || x >= ELEM_MAX_X - WALL - 20) return null;
-  const biome = elementalBiome(x, z, seed);
-  const ground = Math.max(elementalHeight(x, z, seed), biome === 'volcano' ? LAVA_LEVEL : ICE_LEVEL);
-  return { x, y: biome === 'clouds' ? SKY_TEMPLE_Y : ground + 1, z, key: `f${ax},${az}`, biome, ground };
+function shrineAtSite(i: number, j: number, seed: number): Shrine | null {
+  const site = siteIn(i, j, seed);
+  const x = Math.floor(site.x), z = Math.floor(site.z);
+  if (x < ELEM_MIN_X + WALL + 40 || x >= ELEM_MAX_X - WALL - 40) return null;
+  const ground = Math.max(elementalHeight(x, z, seed), site.biome === 'volcano' ? LAVA_LEVEL : ICE_LEVEL);
+  return { x, y: site.biome === 'clouds' ? SKY_TEMPLE_Y : ground + 1, z, key: `f${i},${j}`, biome: site.biome, ground };
 }
 export function nearestShrine(x: number, z: number, seed: number): Shrine | null {
-  const cx = Math.floor(x / SHRINE_GRID), cz = Math.floor(z / SHRINE_GRID);
+  const ci = Math.floor(x / BIOME_CELL), cj = Math.floor(z / BIOME_CELL);
   let best: Shrine | null = null, bd = Infinity;
-  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
-    const s = shrineInCell(cx + dx, cz + dz, seed);
+  for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) {
+    const s = shrineAtSite(ci + di, cj + dj, seed);
     if (!s) continue;
     const dd = Math.hypot(s.x - x, s.z - z);
     if (dd < bd) { bd = dd; best = s; }
   }
   return best;
 }
+// The crystals on top of a temple's four towers (the boss heals from them while they stand)
+export function shrineCrystals(s: Shrine): [number, number, number][] {
+  const d = Math.round(TOWER_R / Math.SQRT2);
+  return [[1, 1], [-1, 1], [1, -1], [-1, -1]].map(([a, b]) => [s.x + a * d, s.y + TOWER_H, s.z + b * d] as [number, number, number]);
+}
 
 function placeShrines(put: Put, cx: number, cz: number, seed: number) {
-  const B = BLOCK_ID;
   const x0 = cx * CHUNK, z0 = cz * CHUNK;
-  const s = nearestShrine(x0 + 8, z0 + 8, seed);
-  if (!s || s.x + TEMPLE_REACH < x0 || s.x - TEMPLE_REACH > x0 + 15 || s.z + TEMPLE_REACH < z0 || s.z - TEMPLE_REACH > z0 + 15) return;
-  // Each boss's temple: a round arena (cleared high above: bosses are big, two of them fly), a low wall with four
-  // gateways, pillars topped with braziers, two treasure chests at the back, and the shrine's core in the middle.
-  // The Cloud Kingdom's floats high above the clouds on a platform, with a spiral stair up from the cloud sea.
+  const i0 = Math.floor((x0 - TEMPLE_REACH) / BIOME_CELL), i1 = Math.floor((x0 + 15 + TEMPLE_REACH) / BIOME_CELL);
+  const j0 = Math.floor((z0 - TEMPLE_REACH) / BIOME_CELL), j1 = Math.floor((z0 + 15 + TEMPLE_REACH) / BIOME_CELL);
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+    const s = shrineAtSite(i, j, seed);
+    if (!s || s.x + TEMPLE_REACH < x0 || s.x - TEMPLE_REACH > x0 + 15 || s.z + TEMPLE_REACH < z0 || s.z - TEMPLE_REACH > z0 + 15) continue;
+    buildTemple(put, s);
+  }
+}
+
+// Each boss's temple: a great round arena (cleared high above: bosses are big, two of them fly), a low wall with four
+// wide gateways, four tall, wide towers each crowned with an elemental crystal (the boss heals from them), two treasure
+// chests at the back, and the shrine's core in the middle. The Cloud Kingdom's floats high above the clouds on a
+// platform, with a spiral stair up from the cloud sea.
+function buildTemple(put: Put, s: Shrine) {
+  const B = BLOCK_ID;
   const look = {
-    frost: { floor: B.blue_ice, under: B.packed_ice, wall: B.snow_bricks, pillar: B.packed_ice, cap: B.frost_crystal_ore },
-    volcano: { floor: B.obsidian, under: B.basalt, wall: B.basalt, pillar: B.obsidian, cap: B.magma_block },
-    jungle: { floor: B.mossy_stone_bricks, under: B.stone, wall: B.mossy_cobblestone, pillar: B.jungle_wood, cap: B.lantern },
-    clouds: { floor: B.skystone_bricks, under: B.skystone, wall: B.skystone_bricks, pillar: B.skystone, cap: B.lantern },
+    frost: { floor: B.blue_ice, under: B.packed_ice, wall: B.snow_bricks, tower: B.packed_ice, band: B.snow_bricks },
+    volcano: { floor: B.obsidian, under: B.basalt, wall: B.basalt, tower: B.obsidian, band: B.magma_block },
+    jungle: { floor: B.mossy_stone_bricks, under: B.stone, wall: B.mossy_cobblestone, tower: B.mossy_stone_bricks, band: B.jungle_wood },
+    clouds: { floor: B.skystone_bricks, under: B.skystone, wall: B.skystone_bricks, tower: B.skystone, band: B.skystone_bricks },
   }[s.biome];
   const R = SHRINE_R, sky = s.biome === 'clouds';
   for (let i = -R - 1; i <= R + 1; i++) for (let k = -R - 1; k <= R + 1; k++) {
     const r = Math.hypot(i, k);
     if (r > R + 0.5) continue;
     // The floor, with solid ground (or the floating platform's underside) beneath it
-    const depth = sky ? 3 + Math.round((R - r) * 0.9) : 12;
+    const depth = sky ? 3 + Math.round((R - r) * 0.7) : 12;
     for (let j = -depth; j <= -2; j++) put(s.x + i, s.y + j, s.z + k, look.under);
     put(s.x + i, s.y - 1, s.z + k, look.floor);
-    for (let j = 0; j <= (sky ? 16 : 20); j++) put(s.x + i, s.y + j, s.z + k, 0);
+    for (let j = 0; j <= TOWER_H + 6; j++) put(s.x + i, s.y + j, s.z + k, 0);
     // The ring wall, open at the four gateways
-    if (r > R - 0.5 && Math.abs(i) > 1 && Math.abs(k) > 1) for (let j = 0; j <= 1; j++) put(s.x + i, s.y + j, s.z + k, look.wall);
+    if (r > R - 0.5 && Math.abs(i) > 2 && Math.abs(k) > 2) for (let j = 0; j <= 2; j++) put(s.x + i, s.y + j, s.z + k, look.wall);
   }
-  for (let a = 0; a < 6; a++) {
-    const i = Math.round(Math.cos(a * Math.PI / 3 + 0.5) * 7), k = Math.round(Math.sin(a * Math.PI / 3 + 0.5) * 7);
-    for (let j = 0; j <= 5; j++) put(s.x + i, s.y + j, s.z + k, look.pillar);
-    put(s.x + i, s.y + 6, s.z + k, look.cap);
+  // Four towers, 3 wide and 16 tall, banded every 4 blocks, a crystal on each
+  for (const [cx, cy, cz] of shrineCrystals(s)) {
+    for (let a = -1; a <= 1; a++) for (let c = -1; c <= 1; c++) for (let y = s.y; y < cy; y++) {
+      put(cx + a, y, cz + c, (y - s.y) % 4 === 3 ? look.band : look.tower);
+    }
+    put(cx, cy, cz, B.boss_crystal);
   }
-  put(s.x - 2, s.y, s.z + 7, B.chest); put(s.x + 2, s.y, s.z + 7, B.chest);
+  put(s.x - 2, s.y, s.z + R - 3, B.chest); put(s.x + 2, s.y, s.z + R - 3, B.chest);
   put(s.x, s.y - 1, s.z, B[SHRINE_CORE[s.biome]]);
   if (sky) {
     // The spiral stair: from the cloud sea up round the platform, arriving at its east gateway
     const steps = s.y - 1 - s.ground;
     for (let k = 0; k <= steps; k++) {
-      const a = -(steps - k) * 0.11, y = s.ground + k;
-      for (const r of [10, 11]) { // (the inner step meets the platform's edge at radius 9)
+      const a = -(steps - k) * 0.075, y = s.ground + k;
+      for (const r of [R + 1, R + 2]) { // (the inner step meets the platform's edge)
         const x = s.x + Math.round(Math.cos(a) * r), z = s.z + Math.round(Math.sin(a) * r);
         put(x, y, z, B.skystone_bricks);
         for (let j = 1; j <= 3; j++) put(x, y + j, z, 0);

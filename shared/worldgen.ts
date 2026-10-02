@@ -423,7 +423,8 @@ const OCCLUDES = new Uint8Array(256);
 const TRANSPARENT = new Uint8Array(256);
 const GLOW = new Uint8Array(256);
 const BANNER = new Uint8Array(256);
-for (const b of BLOCKS) { OCCLUDES[b.id] = isOccluding(b.id) ? 1 : 0; TRANSPARENT[b.id] = b.transparent ? 1 : 0; GLOW[b.id] = b.glow ? 1 : 0; BANNER[b.id] = b.banner ? 1 : 0; }
+const FLAT = new Uint8Array(256);
+for (const b of BLOCKS) { OCCLUDES[b.id] = isOccluding(b.id) ? 1 : 0; TRANSPARENT[b.id] = b.transparent ? 1 : 0; GLOW[b.id] = b.glow ? 1 : 0; BANNER[b.id] = b.banner ? 1 : 0; FLAT[b.id] = b.flat ? 1 : 0; }
 
 class Builder {
   pos: number[] = [];
@@ -462,6 +463,16 @@ export function meshSection(input: SectionInput): SectionOutput {
     if (!id || !BLOCKS[id].plant) continue;
     const d0 = BLOCKS[id].tiles[0] | ((GLOW[id] ? 4 : skyLight(lx, y0 + ly, lz)) << 8) | (6 << 11) | (3 << 14);
     const X = lx * 16, Y = yBase + ly * 16, Z = lz * 16;
+    // Rails: one flat quad just above the ground, its texture turned the way it was placed
+    if (FLAT[id]) {
+      const turned = (facingMap.get((ly * 16 + lz) * 16 + lx) ?? 0) % 2 === 1;
+      const uv = turned ? [1 << 5, 0, 1, 1 | (1 << 5)] : [0, 1, 1 | (1 << 5), 1 << 5];
+      const base = solid.pos.length / 3;
+      solid.vert(X, Y + 1, Z, d0, uv[0]); solid.vert(X + 16, Y + 1, Z, d0, uv[1]);
+      solid.vert(X + 16, Y + 1, Z + 16, d0, uv[2]); solid.vert(X, Y + 1, Z + 16, d0, uv[3]);
+      solid.index.push(base, base + 1, base + 2, base, base + 2, base + 3, base, base + 2, base + 1, base, base + 3, base + 2);
+      continue;
+    }
     // Banners: one flat cloth across the middle of the block, turned to face whoever placed it
     const quads = BANNER[id]
       ? ((facingMap.get((ly * 16 + lz) * 16 + lx) ?? 0) % 2 === 0 ? [[0, 8, 16, 8]] : [[8, 16, 8, 0]])

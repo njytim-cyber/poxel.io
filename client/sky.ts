@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { worldUniforms, RENDER_DIST, getSeed } from './world';
 import { isRobotic } from '../shared/robotic.ts';
 import { isElemental, elementalBiome } from '../shared/elemental.ts';
+import { rainAmount } from './weather';
 
 // Day/night cycle. time: 0..1, 0.25 = noon, 0.75 = midnight.
 const DAY_LENGTH = 600; // seconds for a full cycle
@@ -40,6 +41,7 @@ export function setTimeOfDay(t: number) { time = ((t % 1) + 1) % 1; }
 export function isNight() { return daylight < 0.35; }
 
 const CAVE_DARK = new THREE.Color(0x050507);
+const RAIN_GREY = new THREE.Color(0x6a7280);
 
 // depthBelowSurface: how far the camera is under the terrain surface (caves fade the sky to black)
 export function updateSky(dt: number, cameraPos: THREE.Vector3, underwater: 'none' | 'water' | 'lava' | 'oil', advance: boolean, depthBelowSurface = 0) {
@@ -57,6 +59,11 @@ export function updateSky(dt: number, cameraPos: THREE.Vector3, underwater: 'non
   const robotic = isRobotic(cameraPos.x), elem = isElemental(cameraPos.x) ? ELEM_SKY[elementalBiome(cameraPos.x, cameraPos.z, getSeed())] : null;
   if (robotic) { daylight = 0.62; worldUniforms.uDaylight.value = daylight; sky.copy(ROBO_SKY); }
   if (elem) { daylight = elem.light; worldUniforms.uDaylight.value = daylight; sky.copy(elem.sky); }
+  // Rain and storms: a grey sky and dimmer daylight
+  if (rainAmount > 0.01 && !robotic && !elem) {
+    sky.lerp(RAIN_GREY.clone().multiplyScalar(0.3 + 0.7 * t), rainAmount * 0.75);
+    daylight *= 1 - 0.3 * rainAmount; worldUniforms.uDaylight.value = daylight;
+  }
   sky.lerp(CAVE_DARK, THREE.MathUtils.clamp((depthBelowSurface - 4) / 12, 0, 1));
   sun.visible = moon.visible = depthBelowSurface < 8 && !robotic && !elem;
 

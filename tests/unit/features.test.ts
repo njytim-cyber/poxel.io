@@ -2,9 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Game, creativeCodeHash, type Storage, type WorldSave, type PlayerSave } from '../../server/core/game.ts';
-import { BLOCK_ID, ELEM_PORTAL, COLORS } from '../../shared/blocks.ts';
+import { BLOCK_ID, ELEM_PORTAL, COLORS, ITEMS } from '../../shared/blocks.ts';
 import { checkCraftingRecipe, recipes } from '../../shared/recipes.ts';
-import { isElemental, generateElementalChunk, nearestShrine, findElementalPortal, elementalBiome, SHRINE_BOSS, SHRINE_CORE } from '../../shared/elemental.ts';
+import { isElemental, generateElementalChunk, nearestShrine, findElementalPortal, elementalBiome, shrineCrystals, SHRINE_BOSS, SHRINE_CORE } from '../../shared/elemental.ts';
 import { generateChunkData, idx } from '../../shared/worldgen.ts';
 import type { ServerMsg } from '../../shared/protocol.ts';
 
@@ -22,7 +22,7 @@ function fakeConn() {
   const got: ServerMsg[] = [];
   return { got, conn: { send: (m: ServerMsg) => { got.push(m); }, close: () => {} } };
 }
-const hello = (name: string) => ({ t: 'hello', v: 3, name, look: {}, token: 'tok-' + name });
+const hello = (name: string) => ({ t: 'hello', v: 4, name, look: {}, token: 'tok-' + name });
 const tick = (g: Game, n: number) => { for (let i = 0; i < n; i++) g.tick(0.05); };
 const chats = (got: ServerMsg[]) => got.filter(m => m.t === 'chat').map(m => (m as any).text as string);
 const toasts = (got: ServerMsg[]) => got.filter(m => m.t === 'toast').map(m => (m as any).text as string);
@@ -638,14 +638,21 @@ test('every boss has a temple with two loot chests; the Cloud Kingdom\'s floats 
     const g = new Game(storage, { creativeCode: TEST_CODE, seed: 11, maxPlayers: 8 });
     const w = (g as any).world;
     for (const dx of [-2, 2]) {
-      assert.equal(w.get(s.x + dx, s.y, s.z + 7), BLOCK_ID.chest, `${biome}: a chest`);
-      assert.match((g as any).lootKind(s.x + dx, s.y, s.z + 7), /^temple_/, `${biome}: temple loot`);
+      assert.equal(w.get(s.x + dx, s.y, s.z + 13), BLOCK_ID.chest, `${biome}: a chest`);
+      assert.match((g as any).lootKind(s.x + dx, s.y, s.z + 13), /^temple_/, `${biome}: temple loot`);
+    }
+    // Four tall towers, each with a crystal on top
+    const crystals = shrineCrystals(s);
+    assert.equal(crystals.length, 4);
+    for (const [cx, cy, cz] of crystals) {
+      assert.equal(w.get(cx, cy, cz), BLOCK_ID.boss_crystal, `${biome}: a crystal`);
+      assert.notEqual(w.get(cx + 1, cy - 8, cz + 1), 0, `${biome}: on a wide tower`);
     }
     if (biome === 'clouds') {
       assert.ok(s.y > s.ground + 20, 'high above the clouds');
-      // No gap between the platform's edge (radius 9) and the top of the stair
-      assert.notEqual(w.get(s.x + 9, s.y - 1, s.z), 0, 'the platform edge');
-      assert.equal(w.get(s.x + 10, s.y - 1, s.z), BLOCK_ID.skystone_bricks, 'the stair meets the platform');
+      // No gap between the platform's edge (radius 16) and the top of the stair
+      assert.notEqual(w.get(s.x + 16, s.y - 1, s.z), 0, 'the platform edge');
+      assert.equal(w.get(s.x + 17, s.y - 1, s.z), BLOCK_ID.skystone_bricks, 'the stair meets the platform');
     }
     if (biome === 'jungle') {
       let above = 0;
@@ -684,4 +691,338 @@ test('bosses come back 5 minutes after being defeated', () => {
   assert.ok(!boss(), 'still gone after 4.5 minutes');
   for (let i = 0; i < 20 * 45; i++) g.tick(0.05);
   assert.ok(boss(), 'back after 5');
+});
+
+test('the Tempest: tough (960 health), and now and then it perches on the ground for a few seconds', () => {
+  const { g, got, p, boss, y } = arena('tempest');
+  assert.equal(boss.health, 960);
+  boss.moves.perch = 0; boss.moves.laser = 99;
+  tick(g, 2);
+  assert.ok(chats(got).some(t => t.includes('lands to rest')));
+  for (let i = 0; i < 60; i++) { g.tick(0.05); p.health = 20; p.downed = false; }
+  assert.ok(Math.abs(boss.body.pos.y - y) < 1, `on the ground (${(boss.body.pos.y - y).toFixed(1)} above it)`);
+  const beams = got.filter(m => m.t === 'beam').length;
+  tick(g, 20);
+  assert.equal(got.filter(m => m.t === 'beam').length, beams, 'no lasers while it rests');
+  tick(g, 60);
+  assert.ok(chats(got).some(t => t.includes('takes to the sky')));
+  tick(g, 60);
+  assert.ok(boss.body.pos.y - y > 3, 'flying again');
+});
+
+test('spawn eggs: one for every creature; used on a block, the creature appears there (used up, except in creative)', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, maxPlayers: 8, ops: ['*'] });
+  const p = g.join(fakeConn().conn, hello('Hatcher'))!;
+  const x = 5600, y = 30, z = 5600;
+  flat(g, x, y, z, 6);
+  stand(p, x, y, z - 3);
+  for (const kind of ['pig', 'zombie', 'robot_titan', 'tempest', 'frost_wraith']) assert.ok(ITEMS[`${kind}_spawn_egg`], kind);
+  hold(p, 'cow_spawn_egg', 2);
+  g.handle(p, { t: 'egg', x, y, z } as any);
+  const cows = () => [...(g as any).mobs.values()].filter((m: any) => m.kind === 'cow');
+  assert.equal(cows().length, 1, 'a cow appears');
+  assert.equal(p.inv.slots[p.inv.selected].count, 1, 'one egg used');
+  g.handle(p, { t: 'egg', x, y: y - 1, z } as any);
+  assert.equal(cows().length, 1, 'not inside a solid block');
+  g.handle(p, { t: 'chat', text: '/gamemode creative 1234' } as any);
+  g.handle(p, { t: 'egg', x: x + 1, y, z } as any);
+  assert.equal(cows().length, 2);
+  assert.equal(p.inv.slots[p.inv.selected].count, 1, 'creative: eggs never run out');
+});
+
+test('the Elemental Core: an Elemental Altar summons it (in the Elemental World, after all four bosses); it turns through the elements; it drops wings', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 11, maxPlayers: 8, difficulty: 'easy' });
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Champion'))!;
+  const w = (g as any).world;
+  const x = -100000 + 3000, y = 60, z = 3000;
+  flat(g, x, y, z, 10);
+  for (let dx = -10; dx <= 10; dx++) for (let dz = -10; dz <= 10; dz++) for (let dy = 8; dy < 20; dy++) w.set(x + dx, y + dy, z + dz, 0);
+  w.set(x, y, z, BLOCK_ID.elemental_altar);
+  stand(p, x + 3, y, z);
+  g.handle(p, { t: 'open', x, y, z } as any);
+  assert.ok(chats(got).some(t => t.includes('Defeat the four elemental bosses first')), 'not yet');
+  for (const a of ['wraith', 'colossus', 'thorn', 'roc']) p.achievements.add(a);
+  g.handle(p, { t: 'open', x, y, z } as any);
+  const core = [...(g as any).mobs.values()].find((m: any) => m.kind === 'elemental_core');
+  assert.ok(core, 'the Core awakens');
+  assert.equal(core.health, 2000);
+  core.elemT = 0;
+  for (let i = 0; i < 20 * 6; i++) { g.tick(0.05); p.health = 20; p.downed = false; }
+  assert.ok(chats(got).some(t => t.includes('The Elemental Core turns to fire')), 'it turns to the next element');
+  core.health = 0; core.dying = 0;
+  tick(g, 30);
+  assert.ok([...(g as any).items.values()].some((it: any) => it.type === 'elemental_wings'), 'it drops Elemental Wings');
+  assert.ok(got.some(m => m.t === 'achievements' && (m as any).unlocked === 'core'));
+  g.handle(p, { t: 'open', x, y, z } as any);
+  assert.ok(chats(got).some(t => t.includes('still recovering')), 'the altar rests 5 minutes');
+});
+
+test('elemental tools: blazing smelts what it mines, quaking mines 3x3, gale mines twice as fast and throws foes up, tidal heals', async () => {
+  const { checkCraftingRecipe: craft } = await import('../../shared/recipes.ts');
+  const { miningInfo } = await import('../../shared/blocks.ts');
+  assert.deepEqual(craft(['obitite_pickaxe', 'lava_ore', null, null], 2), { type: 'blazing_pickaxe', count: 1 });
+  assert.deepEqual(craft(['wind_ore', 'obitite_sword', null, null], 2), { type: 'gale_sword', count: 1 });
+  assert.ok(Math.abs(miningInfo(BLOCK_ID.stone, 'gale_pickaxe').time * 2 - miningInfo(BLOCK_ID.stone, 'obitite_pickaxe').time) < 1e-9, 'gale: twice as fast');
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, maxPlayers: 8 });
+  const p = g.join(fakeConn().conn, hello('Smith2'))!;
+  const w = (g as any).world;
+  const x = 6000, y = 30, z = 6000;
+  flat(g, x, y, z, 6);
+  stand(p, x, y, z + 3);
+  // Blazing: iron ore comes out as an ingot
+  w.set(x, y, z, BLOCK_ID.iron_ore);
+  hold(p, 'blazing_pickaxe');
+  dig(g, p, x, y, z);
+  assert.ok([...(g as any).items.values()].some((it: any) => it.type === 'iron_ingot'), 'smelted');
+  // Quaking: a wall of stone in front loses a 3x3 hole
+  for (let a = -1; a <= 1; a++) for (let c = 0; c <= 2; c++) w.set(x + a, y + c, z - 1, BLOCK_ID.stone);
+  p.yaw = 0; p.pitch = 0; hold(p, 'quaking_pickaxe');
+  dig(g, p, x, y + 1, z - 1);
+  let left = 0;
+  for (let a = -1; a <= 1; a++) for (let c = 0; c <= 2; c++) if (w.get(x + a, y + c, z - 1)) left++;
+  assert.equal(left, 0, 'all 9 mined');
+  // Gale: thrown into the air; Tidal: heals you
+  hold(p, 'gale_sword');
+  const pig = (g as any).spawnMob('pig', x + 0.5, y, z + 1.8);
+  g.handle(p, { t: 'attack', eid: pig.eid } as any);
+  assert.ok(pig.body.vel.y >= 12, 'up it goes');
+  hold(p, 'tidal_sword'); p.health = 10; (p as any).attackCd = 0;
+  const cow = (g as any).spawnMob('cow', x + 0.5, y, z + 1.8);
+  g.handle(p, { t: 'attack', eid: cow.eid } as any);
+  assert.equal(p.health, 11, 'healed');
+});
+
+test('teams: a colour each; teammates share land and cannot hurt each other; shown to everyone', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, maxPlayers: 8 });
+  const { got, conn } = fakeConn();
+  const a = g.join(conn, hello('Red1'))!;
+  const b = g.join(fakeConn().conn, hello('Red2'))!;
+  const c = g.join(fakeConn().conn, hello('Blue1'))!;
+  g.handle(a, { t: 'chat', text: '/team red' } as any);
+  g.handle(c, { t: 'chat', text: '/team red' } as any);
+  assert.ok(!(g as any).sameTeam('Red1', 'Blue1'), 'a team with members is invite-only');
+  g.handle(a, { t: 'chat', text: '/team invite Red2' } as any);
+  g.handle(b, { t: 'chat', text: '/team red' } as any);
+  g.handle(c, { t: 'chat', text: '/team blue' } as any);
+  const list = [...got].reverse().find(m => m.t === 'players') as any;
+  assert.equal(list.list.find((e: any) => e.name === 'Red2').team, 'red');
+  b.invuln = 0; c.invuln = 0;
+  g.damagePlayer(b, 4, a.body.pos, 'player', 'Red1');
+  assert.equal(b.health, 20, 'no friendly fire');
+  g.damagePlayer(c, 4, a.body.pos, 'player', 'Red1');
+  assert.ok(c.health < 20, 'other teams can be hurt');
+  assert.ok((g as any).trusts('Red1', 'Red2') && !(g as any).trusts('Red1', 'Blue1'), 'teammates share land');
+  g.handle(b, { t: 'chat', text: '/team leave' } as any);
+  assert.ok(!(g as any).trusts('Red1', 'Red2'));
+  g.saveAll(true);
+  assert.equal((storage.loadWorld() as any).teams.red1, 'red');
+});
+
+test('weather: rain and storms come and go; lightning hurts and burns; rain puts out fire', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, maxPlayers: 8 });
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Wet'))!;
+  assert.ok(got.some(m => m.t === 'weather'), 'told the weather on joining');
+  (g as any).weatherT = 0;
+  tick(g, 1);
+  assert.ok(got.filter(m => m.t === 'weather').length >= 2, 'the weather changes');
+  const x = 7000, y = 30, z = 7000;
+  flat(g, x, y, z, 4); stand(p, x, y, z); p.invuln = 0;
+  (g as any).strike(x + 0.5, y, z + 0.5);
+  assert.ok(got.some(m => m.t === 'lightning'));
+  assert.ok(p.health < 20 && p.fireT > 0, 'struck: hurt and burning');
+  (g as any).weather = 'rain'; p.fireT = 4;
+  tick(g, 2);
+  assert.equal(p.fireT, 0, 'the rain puts it out');
+});
+
+test('boats and minecarts: get in on water / a rail (the item is used), get out (it comes back); wings glide without fall damage', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, maxPlayers: 8 });
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Sailor'))!;
+  const w = (g as any).world;
+  const x = 8000, y = 30, z = 8000;
+  flat(g, x, y, z, 4); stand(p, x, y, z + 2);
+  w.set(x, y - 1, z, BLOCK_ID.water);
+  hold(p, 'boat');
+  g.handle(p, { t: 'ride', kind: 'boat', x, y: y - 1, z } as any);
+  assert.equal(p.ride, 'boat');
+  assert.ok(!p.inv.slots.some(s => s?.type === 'boat'), 'the boat is in use');
+  assert.ok(got.some(m => m.t === 'ride' && (m as any).kind === 'boat'));
+  g.handle(p, { t: 'ride', kind: null } as any);
+  assert.equal(p.ride, null);
+  assert.ok(p.inv.slots.some(s => s?.type === 'boat'), 'back in the inventory');
+  w.set(x + 1, y, z, BLOCK_ID.rail);
+  hold(p, 'minecart');
+  g.handle(p, { t: 'ride', kind: 'cart', x: x + 1, y, z } as any);
+  assert.equal(p.ride, 'cart');
+  g.handle(p, { t: 'ride', kind: 'boat', x, y: y - 1, z } as any);
+  assert.equal(p.ride, 'cart', 'one ride at a time');
+  // Elemental Wings: gliding down from high up hurts nothing
+  g.handle(p, { t: 'ride', kind: null } as any);
+  p.inv.slots[56] = { type: 'elemental_wings', count: 1 };
+  p.fallStart = p.body.pos.y; p.invuln = 0;
+  for (let k = 1; k <= 20; k++) { p.moveBudget = 3; p.climbBudget = 3; g.handle(p, { t: 'move', x: p.body.pos.x, y: p.body.pos.y + (k < 10 ? 0.4 : -0.4), z: p.body.pos.z, yaw: 0, pitch: 0, flags: 32 } as any); }
+  g.handle(p, { t: 'move', x: p.body.pos.x, y: y, z: p.body.pos.z, yaw: 0, pitch: 0, flags: 1 } as any);
+  assert.equal(p.health, 20, 'no fall damage after gliding');
+});
+
+
+test('review fixes: no false "better pickaxe" message; quaking only around a block that suits it and is no faster to mine', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, maxPlayers: 8 });
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Miner3'))!;
+  const w = (g as any).world;
+  const x = 9000, y = 30, z = 9000;
+  flat(g, x, y, z, 5); stand(p, x, y, z + 3);
+  w.set(x, y, z, BLOCK_ID.stone);
+  hold(p, 'iron_pickaxe');
+  dig(g, p, x, y, z);
+  assert.ok(!toasts(got).some(t => t.includes('better pickaxe')), 'stone with an iron pickaxe: no complaint');
+  // A torch (instant) with obsidian round it: the quake leaves the obsidian
+  for (let a = -1; a <= 1; a++) for (let c = 0; c <= 2; c++) w.set(x + a, y + c, z - 1, BLOCK_ID.obsidian);
+  w.set(x, y + 1, z - 1, BLOCK_ID.torch);
+  p.yaw = 0; p.pitch = 0; hold(p, 'quaking_pickaxe');
+  dig(g, p, x, y + 1, z - 1);
+  assert.equal(w.get(x + 1, y + 1, z - 1), BLOCK_ID.obsidian, 'no free obsidian');
+});
+
+test('review fixes: no boats from the crafting preview; teammates\' fireballs don\'t burn; one Elemental Core at a time; no lightning indoors', () => {
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, maxPlayers: 8 });
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Tester5'))!;
+  const q = g.join(fakeConn().conn, hello('Mate5'))!;
+  const w = (g as any).world;
+  const x = 9500, y = 30, z = 9500;
+  flat(g, x, y, z, 6); stand(p, x, y, z + 2);
+  w.set(x, y - 1, z, BLOCK_ID.water);
+  p.inv.slots[54] = { type: 'boat', count: 1 }; // (the crafting result preview)
+  g.handle(p, { t: 'ride', kind: 'boat', x, y: y - 1, z } as any);
+  assert.equal(p.ride, null, 'the preview is not a boat you own');
+  p.inv.slots[54] = null;
+  // Teammates
+  g.handle(p, { t: 'chat', text: '/team green' } as any);
+  g.handle(p, { t: 'chat', text: '/team invite Mate5' } as any);
+  g.handle(q, { t: 'chat', text: '/team green' } as any);
+  stand(q, x + 3, y, z + 2); q.invuln = 0;
+  (g as any).spawnShot('fireball', { x: x + 3.5, y: y + 1, z: z + 4 }, { x: 0, y: 0, z: -18 }, p.eid, true, 6, { fire: 3, splash: 1 });
+  tick(g, 10);
+  assert.ok(q.health === 20 && q.fireT === 0, 'a teammate\'s fireball does nothing');
+  // The Core: one at a time
+  const ex = -100000 + 4000;
+  flat(g, ex, 60, z, 8); stand(p, ex + 3, 60, z);
+  for (const a of ['wraith', 'colossus', 'thorn', 'roc']) p.achievements.add(a);
+  w.set(ex, 60, z, BLOCK_ID.elemental_altar); w.set(ex + 5, 60, z, BLOCK_ID.elemental_altar);
+  g.handle(p, { t: 'open', x: ex, y: 60, z } as any);
+  g.handle(p, { t: 'open', x: ex + 5, y: 60, z } as any);
+  assert.equal([...(g as any).mobs.values()].filter((m: any) => m.kind === 'elemental_core').length, 1, 'only one Core');
+  // Lightning: not through a roof
+  stand(q, x, y, z); q.invuln = 0;
+  for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) w.set(x + dx, y + 2, z + dz, BLOCK_ID.stone);
+  (g as any).strike(x + 0.5, y + 3, z + 0.5);
+  assert.equal(q.health, 20, 'safe indoors');
+  void got;
+});
+
+test('temple crystals heal their boss (a beam each), until they are broken', () => {
+  const s = shrineOf('volcano', 11);
+  const { storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 11, maxPlayers: 8, difficulty: 'easy' });
+  const { got, conn } = fakeConn();
+  const p = g.join(conn, hello('Breaker2'))!;
+  stand(p, s.x + 3, s.y, s.z + 1); p.gamemode = 'creative';
+  tick(g, 30);
+  const boss = [...(g as any).mobs.values()].find((m: any) => m.kind === 'magma_colossus');
+  assert.ok(boss && boss.crystals?.length === 4);
+  boss.health = 100;
+  tick(g, 25);
+  assert.ok(boss.health > 100, `healed (${boss.health})`);
+  assert.ok(got.some(m => m.t === 'beam'), 'healing beams');
+  for (const [x, y, z] of boss.crystals) (g as any).world.set(x, y, z, 0);
+  const h = boss.health;
+  tick(g, 25);
+  assert.equal(boss.health, h, 'no crystals, no healing');
+});
+
+test('the Tempest\'s second form: draws in the crystals, grows a shield that turns back fireballs, and has deadly new moves', () => {
+  const { g, got, p, boss, x, y, z } = arena('tempest');
+  // Its temple's crystals: two still standing
+  const w = (g as any).world;
+  boss.crystals = [[x + 8, y + 10, z + 8], [x - 8, y + 10, z - 8], [x + 8, y + 10, z - 8]];
+  w.set(x + 8, y + 10, z + 8, BLOCK_ID.boss_crystal); w.set(x - 8, y + 10, z - 8, BLOCK_ID.boss_crystal);
+  boss.moves.rapture = 99; boss.moves.starfall = 99; boss.moves.swoop = 99; boss.moves.bolt = 99; boss.moves.laser = 99;
+  boss.health = 400;
+  tick(g, 2);
+  assert.ok(boss.phase2, 'its second form');
+  assert.ok(fxs(got, 'transform').length === 1 && chats(got).some(t => t.includes('draws in 2 crystals')));
+  assert.equal(w.get(x + 8, y + 10, z + 8), 0, 'the crystals are gone');
+  assert.ok(boss.health >= 400 + 120 - 4, `healed by them (${boss.health})`);
+  tick(g, 20 * 3.2); // (the transformation)
+  // The shield: a fireball bounces back
+  const hp = boss.health;
+  (g as any).spawnShot('fireball', { x: boss.body.pos.x + 4, y: boss.body.pos.y + 1, z: boss.body.pos.z }, { x: -18, y: 0, z: 0 }, p.eid, true, 6, { fire: 3 });
+  tick(g, 6);
+  assert.equal(boss.health, hp, 'the fireball did not hurt it');
+  assert.ok(fxs(got, 'deflect').length >= 1, 'deflected');
+  // Lightning bolts: 8 damage
+  p.health = 20; p.invuln = 0; p.inv.slots.fill(null);
+  boss.moves.bolt = 0;
+  for (let i = 0; i < 10 && !got.some(m => m.t === 'lightning'); i++) g.tick(0.05);
+  assert.ok(got.some(m => m.t === 'lightning'), 'a bolt');
+  // The sky lasers: warnings, then 18 damage where they fall
+  boss.moves.bolt = 99;
+  stand(p, x + 5, y, z); p.health = 20; p.invuln = 0; p.downed = false;
+  boss.moves.starfall = 0;
+  tick(g, 2);
+  assert.ok(fxs(got, 'skybeam').length === 1, 'shot into the sky');
+  for (let i = 0; i < 20 * 6 && !fxs(got, 'starfall').length; i++) { g.tick(0.05); stand(p, x + 5, y, z); }
+  assert.ok(fxs(got, 'warn').length >= 1, 'red warnings first');
+  assert.ok(fxs(got, 'starfall').length >= 1, 'then they fall');
+  // The four-wing charge: dodge it and it misses; stand still and it is over
+  for (const [k] of Object.entries(boss.moves)) boss.moves[k] = 99;
+  p.health = 20; p.invuln = 0; p.downed = false; p.dead = false;
+  boss.moves.rapture = 0;
+  tick(g, 2);
+  assert.ok(fxs(got, 'wingcharge').length === 1 && chats(got).some(t => t.includes('MOVE!')), 'a clear warning');
+  for (let i = 0; i < 20 * 5 && !p.downed && !p.dead; i++) { g.tick(0.05); if (boss.grabbed === undefined) stand(p, x + 5, y, z); }
+  assert.ok(p.downed || p.dead, 'caught, and finished off');
+  assert.ok(chats(got).some(t => t.includes('caught in the Tempest')));
+});
+
+test('bug fixes: a boat in use is still saved; tidal heals only on a hit that lands; gale barely lifts bosses', () => {
+  const { s, storage } = memoryStorage();
+  const g = new Game(storage, { creativeCode: TEST_CODE, seed: 3, maxPlayers: 8 });
+  const { conn } = fakeConn();
+  const p = g.join(conn, hello('Rower'))!;
+  const w = (g as any).world;
+  const x = 8000, y = 30, z = 8000;
+  flat(g, x, y, z, 4); stand(p, x, y, z + 2);
+  w.set(x, y - 1, z, BLOCK_ID.water);
+  hold(p, 'boat');
+  g.handle(p, { t: 'ride', kind: 'boat', x, y: y - 1, z } as any);
+  assert.equal(p.ride, 'boat');
+  g.saveAll(true); // (closing the game while still in the boat)
+  assert.ok(s.players.Rower.inv.slots.some((t: any) => t?.type === 'boat'), 'the boat is in the save');
+  g.handle(p, { t: 'ride', kind: null } as any);
+  // Tidal: hitting your own tamed robot (no damage) heals nothing
+  stand(p, x, y, z);
+  hold(p, 'tidal_sword'); p.health = 10; (p as any).attackCd = 0;
+  const pet = (g as any).spawnMob('robot', x + 0.5, y, z + 1.8);
+  pet.owner = p.name;
+  g.handle(p, { t: 'attack', eid: pet.eid } as any);
+  assert.equal(p.health, 10, 'no healing from a hit that does nothing');
+  // Gale: a boss is only nudged up
+  hold(p, 'gale_sword'); (p as any).attackCd = 0;
+  const boss = (g as any).spawnMob('thorn_guardian', x + 0.5, y, z + 1.8);
+  g.handle(p, { t: 'attack', eid: boss.eid } as any);
+  assert.ok(boss.health < 280 && boss.body.vel.y <= 3, `nudged (${boss.body.vel.y})`);
 });

@@ -18,6 +18,7 @@ try {
   await ev(() => window.poxel.ui.forcePlaying());
 
   // ---- 1. Elemental armour, worn as plates with trims (seen from the front), and the ores' pictures
+  await send({ t: 'dev', give: 'pig_spawn_egg', count: 1 }); // (first, so it's on the hotbar)
   await send({ t: 'dev', equip: ['water_helmet', 'lava_chestplate', 'earth_leggings', 'wind_boots'] });
   for (const t of ['water_ore', 'lava_ore', 'earth_ore', 'wind_ore', 'moonstone', 'glacite', 'poison_sword']) await send({ t: 'dev', give: t, count: 3 });
   await sleep(800);
@@ -34,6 +35,28 @@ try {
   await sleep(400);
   await ev(() => window.poxel.ui.forcePlaying());
 
+  // ---- 1b. Spawn eggs in the creative menu, and hatching one
+  await send({ t: 'chat', text: '/gamemode creative' });
+  await sleep(500);
+  await page.keyboard.press('KeyE');
+  await sleep(500);
+  await page.focus('#recipe-search'); await page.keyboard.type('egg');
+  await sleep(400);
+  const eggs = await ev(() => document.querySelectorAll('#recipe-grid .recipe-btn').length);
+  check('the creative menu has spawn eggs', eggs >= 15, `${eggs} found`);
+  await page.screenshot({ path: `${OUT}/bosses-eggs.png` });
+  await ev(() => { const s = document.getElementById('recipe-search'); s.value = ''; s.blur(); });
+  await page.keyboard.press('Escape');
+  await sleep(300);
+  await ev(() => window.poxel.ui.forcePlaying());
+  await ev(() => { const i = window.poxel.inv.findIndex((s, i) => i < 9 && s && s.type === 'pig_spawn_egg'); if (i >= 0) window.poxel.select(i); });
+  await ev(() => window.poxel.setYawPitch(0, -0.9));
+  await page.mouse.click(640, 360, { button: 'right' });
+  await sleep(800);
+  check('a spawn egg hatches its creature', await ev(() => window.poxel.entities().some(e => e.kind === 'pig')));
+  await send({ t: 'chat', text: '/gamemode survival' });
+  await sleep(300);
+
   // ---- 2. The lava chestplate's fireball (the . key)
   await ev(() => window.poxel.setYawPitch(0.3, 0.05));
   await page.keyboard.press('Period');
@@ -49,7 +72,7 @@ try {
   await ev(p => window.poxel.tp(p.x, p.y, p.z), { x: ex + 0.5, y: 120, z: ez + 0.5 });
   await sleep(4000);
   info(`in the Elemental World at ${JSON.stringify(await pos())}`);
-  for (const [kind, waitFor] of [['magma_colossus', 7000], ['thorn_guardian', 6000], ['frost_wraith', 6000], ['tempest', 7000]]) {
+  for (const [kind, waitFor] of [['magma_colossus', 7000], ['thorn_guardian', 6000], ['frost_wraith', 6000], ['tempest', 14000]]) {
     await send({ t: 'dev', heal: true });
     await ev(() => window.poxel.setYawPitch(0, -0.05));
     await send({ t: 'dev', spawn: kind, enraged: true, dist: 9 });

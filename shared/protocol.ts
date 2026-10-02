@@ -4,12 +4,12 @@
 import type { InvAction, Stack } from './inventory.ts';
 import type { FurnaceState } from './furnace.ts';
 
-export const PROTOCOL_VERSION = 3; // 3: the Elemental World (biomes, bosses, elemental armour)
+export const PROTOCOL_VERSION = 4; // 4: the Elemental Core, elemental tools, teams, weather, boats and minecarts
 export const TICK_RATE = 20;
 export const MAX_PLAYERS = 16;
 
 export type MobKind = 'pig' | 'cow' | 'chicken' | 'zombie' | 'husk' | 'frostbitten' | 'spider' | 'skeleton' | 'slime' | 'slimelet' | 'robot' | 'robot_titan'
-  | 'frost_wraith' | 'magma_colossus' | 'thorn_guardian' | 'tempest' | 'hurricane';
+  | 'frost_wraith' | 'magma_colossus' | 'thorn_guardian' | 'tempest' | 'hurricane' | 'elemental_core';
 // What a tamed robot is doing: following you, guarding a spot, or fetching dropped items for you
 export type SquadOrder = 'follow' | 'guard' | 'collect';
 export const SQUAD_ORDERS: SquadOrder[] = ['follow', 'guard', 'collect'];
@@ -26,7 +26,7 @@ export interface SpawnInfo {
   eid: number;
   kind: EntityKind;
   x: number; y: number; z: number;
-  player?: PlayerInfo & { held: string; armor: (string | null)[] };
+  player?: PlayerInfo & { held: string; armor: (string | null)[]; ride?: Ride; team?: string | null };
   item?: { type: string; count: number };
   owner?: string; // a tamed mob's owner
 }
@@ -54,8 +54,10 @@ export type ClientMsg =
   | { t: 'tpreply'; from: string; accept: boolean }        // answering a friend's teleport request
   | { t: 'squad'; order?: SquadOrder; eid?: number }      // robot squad: no order = just send the list; no eid = all of them
   | { t: 'fireball'; dx: number; dy: number; dz: number } // the lava chestplate's fireball (the . key)
+  | { t: 'egg'; x: number; y: number; z: number }         // a spawn egg used: the creature appears in this (empty) block
+  | { t: 'ride'; kind: Ride; x?: number; y?: number; z?: number } // get into a boat (on water) or minecart (on a rail) there; null: get out
   | { t: 'dev'; give?: string; count?: number; spawn?: string; time?: number; tp?: { x: number; y: number; z: number }; blocks?: number[]; // test builds only (Game option devTools)
-      equip?: (string | null)[]; heal?: boolean; enraged?: boolean; dist?: number; clearMobs?: boolean }
+      equip?: (string | null)[]; heal?: boolean; enraged?: boolean; dist?: number; clearMobs?: boolean; weather?: Weather; achieve?: string[] }
   | { t: 'hello'; v: number; name: string; look: Look; token?: string;
       prevName?: string;                                  // renaming: the name this player had on this server
       carry?: { inv: unknown; health: number; food?: number } } // character brought from a single-player save
@@ -78,6 +80,11 @@ export type ClientMsg =
 
 // Move flags
 export const MF_GROUND = 1, MF_SNEAK = 2, MF_WATER = 4, MF_LAVA = 8, MF_JET = 16; // jet: a jetpack is thrusting
+export const MF_GLIDE = 32; // gliding on Elemental Wings (no fall damage while it lasts)
+// Weather: clear, rain (snow where it's cold), or a thunderstorm
+export type Weather = 'clear' | 'rain' | 'thunder';
+// Riding: in a boat or a minecart (or neither)
+export type Ride = 'boat' | 'cart' | null;
 
 // ------------------------------------------------------------------ Server -> client
 
@@ -101,14 +108,17 @@ export type ServerMsg =
   | { t: 'screen'; mode: 'inventory' | 'table' | 'furnace' | 'chest' | null; furnace?: FurnaceState; chest?: Stack[] }
   | { t: 'furnace'; state: FurnaceState }
   | { t: 'health'; hp: number }
-  | { t: 'hurt'; from: [number, number, number] | null; knock: number; lift?: number } // lift: thrown up into the air (stomps, hurricanes)
+  | { t: 'hurt'; from: [number, number, number] | null; knock: number; lift?: number; pull?: boolean } // lift: thrown up into the air (stomps, hurricanes); pull: just a tug (no flash)
   | { t: 'death'; msg: string }
   | { t: 'pos'; x: number; y: number; z: number } // server-side correction / respawn / teleport
-  | { t: 'equip'; eid: number; held: string; armor: (string | null)[] }
+  | { t: 'equip'; eid: number; held: string; armor: (string | null)[]; ride?: Ride; team?: string | null }
+  | { t: 'weather'; kind: Weather }
+  | { t: 'lightning'; x: number; y: number; z: number }  // a bolt strikes here
+  | { t: 'ride'; kind: Ride }                            // you're now in a boat / minecart / on foot
   | { t: 'anim'; eid: number; a: 'swing' | 'hurt' }
   | { t: 'chat'; from: string | null; text: string }
   | { t: 'time'; time: number }
-  | { t: 'players'; list: { eid: number; name: string; ping: number; away?: boolean }[] } // away: dropped, place held (reconnecting)
+  | { t: 'players'; list: { eid: number; name: string; ping: number; away?: boolean; team?: string }[] } // away: dropped, place held (reconnecting); team: its colour
   | { t: 'toast'; text: string }
   | { t: 'boss'; name: string; hp: number; max: number } // a boss nearby (hp < 0: none, hide the bar)
   | { t: 'fuel'; f: number }                             // jetpack fuel, 0..1
@@ -119,11 +129,12 @@ export type ServerMsg =
   | { t: 'orbmenu'; players: string[]; homes: { i: number; name: string }[]; death: boolean } // where a moonstone orb can take you
   | { t: 'tpask'; from: string }                         // a friend asks to teleport to you
   | { t: 'squad'; list: { eid: number; hp: number; max: number; order: SquadOrder }[] } // your tamed robots
-  | { t: 'slow'; seconds: number; freeze?: boolean }     // chilled: you move slowly for a while (frozen: you can't move at all)
+  | { t: 'slow'; seconds: number; freeze?: boolean; held?: boolean }     // chilled: you move slowly for a while (frozen: you can't move at all)
   | { t: 'air'; air: number }                            // breath left underwater, 0..1 (1: full, bar hidden)
   | { t: 'maxhp'; max: number }                          // maximum health (earth leggings double it)
   | { t: 'status'; poison: number; fire: number }        // seconds left poisoned / on fire (shown on screen)
-  | { t: 'fx'; kind: 'explode' | 'shatter' | 'stomp' | 'slam' | 'nova' | 'mark' | 'enrage' | 'gust' | 'spores' | 'charge'; x: number; y: number; z: number; r: number } // a visual effect
+  | { t: 'fx'; kind: 'explode' | 'shatter' | 'stomp' | 'slam' | 'nova' | 'mark' | 'enrage' | 'gust' | 'spores' | 'charge'
+      | 'transform' | 'skybeam' | 'warn' | 'starfall' | 'deflect' | 'wingcharge'; x: number; y: number; z: number; r: number } // a visual effect
   | { t: 'pong'; ts: number };
 
 // Entity snapshot flags

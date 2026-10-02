@@ -32,6 +32,7 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'thorn', name: 'Weed Killer', desc: 'Defeat the Thorn Guardian', secret: true },
   { id: 'roc', name: 'Grounded', desc: 'Defeat the Tempest', secret: true },
   { id: 'venom', name: 'Venomous', desc: 'Make the poison sword', secret: true },
+  { id: 'core', name: 'Master of the Elements', desc: 'Defeat the Elemental Core', secret: true },
 ];
 
 export const ACHIEVEMENT_IDS = new Set(ACHIEVEMENTS.map(a => a.id));

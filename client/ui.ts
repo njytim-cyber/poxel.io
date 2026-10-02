@@ -443,13 +443,41 @@ export function critFlash() {
   el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
 }
 
+// Each boss's bar has its own colours and emblem (see #boss-bar[data-boss] in style.css)
+const BOSS_THEMES: Record<string, { key: string; icon: string }> = {
+  'Robot Titan': { key: 'titan', icon: '\u2699' }, 'Frost Wraith': { key: 'frost', icon: '\u2744' },
+  'Magma Colossus': { key: 'magma', icon: '\u2739' }, 'Thorn Guardian': { key: 'thorn', icon: '\u2766' },
+  'Tempest': { key: 'tempest', icon: '\u2726' }, 'Elemental Core': { key: 'core', icon: '\u25c8' },
+};
+let bossShown = '', bossLastHp = -1, bossHitTimer = 0;
 export function setBossBar(name: string, hp: number, max: number) {
   const bar = $('boss-bar');
   if (!bar) return;
-  if (hp < 0) { bar.style.display = 'none'; return; }
-  bar.style.display = 'block';
-  const n = $('boss-name'); if (n) n.textContent = name;
-  const f = $('boss-fill'); if (f) f.style.width = `${Math.max(0, Math.min(100, (hp / max) * 100))}%`;
+  if (hp < 0) { bar.style.display = 'none'; bossShown = ''; bossLastHp = -1; return; }
+  const pct = Math.max(0, Math.min(100, (hp / max) * 100));
+  const fill = $('boss-fill'), chip = $('boss-chip');
+  if (bossShown !== name) {
+    // A new boss: the bar sweeps in, in this one's colours
+    bossShown = name;
+    const theme = BOSS_THEMES[name] ?? { key: 'titan', icon: '\u2620' };
+    bar.dataset.boss = theme.key;
+    for (const el of bar.querySelectorAll('.boss-icon')) el.textContent = theme.icon;
+    const n = $('boss-name'); if (n) n.textContent = name;
+    bar.style.display = 'block';
+    bar.classList.remove('intro'); void bar.offsetWidth; bar.classList.add('intro');
+    if (chip) chip.style.width = `${pct}%`;
+  } else if (bossLastHp >= 0 && hp !== bossLastHp) {
+    // Hit: the bar jolts and a pale trail drains after it. Healed: a green glow
+    const cls = hp < bossLastHp ? 'hit' : 'heal';
+    bar.classList.remove('hit', 'heal'); void bar.offsetWidth; bar.classList.add(cls);
+    clearTimeout(bossHitTimer);
+    bossHitTimer = window.setTimeout(() => { bar.classList.remove('hit', 'heal'); if (chip) chip.style.width = `${pct}%`; }, 450);
+    if (cls === 'heal' && chip) chip.style.width = `${pct}%`;
+  }
+  bossLastHp = hp;
+  if (fill) fill.style.width = `${pct}%`;
+  bar.classList.toggle('enraged', hp <= max / 2 && name !== 'Robot Titan');
+  const hpEl = $('boss-hp'); if (hpEl) hpEl.textContent = `${hp} / ${max}`;
 }
 
 // Creative mode hides the health and hunger bars (you can't be hurt or get hungry)

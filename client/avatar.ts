@@ -119,6 +119,7 @@ export interface Avatar {
   skinMat: THREE.MeshLambertMaterial;
   setLook(look: Look): void;
   setArmor(armor: (string | null)[]): void;
+  setRide(ride: 'boat' | 'cart' | null): void; // sitting in a boat or a minecart
   setHeld(type: string): void;
   // hspeed: horizontal speed, swing: 0..1 progress of the arm swing (1 = idle)
   animate(dt: number, hspeed: number, pitch: number, sneak: boolean, swing: number): void;
@@ -184,6 +185,41 @@ export function createAvatar(look: Look = DEFAULT_LOOK): Avatar {
   const boots = [plate(0.28, 0.27, 0.29, leftLeg, -0.63), plate(0.28, 0.27, 0.29, rightLeg, -0.63)];
   const gloves = [plate(0.23, 0.28, 0.23, leftArm, -0.62), plate(0.23, 0.28, 0.23, rightArm, -0.62)];
 
+  // Elemental Wings, worn: two fans of white feathers on the back, trimmed with gold
+  const wingMat = new THREE.MeshLambertMaterial({ color: 0xf4f8ff }), wingTrim = new THREE.MeshLambertMaterial({ color: 0xffc830, emissive: 0x403000 });
+  wingMat.userData.owned = wingTrim.userData.owned = true;
+  const wings = new THREE.Group();
+  wings.position.set(0, 0.2, 0.16);
+  for (const side of [-1, 1]) {
+    const wing = new THREE.Group();
+    wing.position.x = side * 0.12;
+    for (let k = 0; k < 4; k++) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.75 - k * 0.12, 0.08, 0.04), k === 0 ? wingTrim : wingMat);
+      f.position.set(side * (0.38 - k * 0.04), -k * 0.13, 0);
+      f.rotation.z = side * (0.35 - k * 0.15);
+      wing.add(f);
+    }
+    wings.add(wing);
+  }
+  wings.visible = false;
+  torso.add(wings);
+
+  // Riding: a wooden boat or an iron minecart under you (you sit in it)
+  const rideMat = (c: number) => { const m = new THREE.MeshLambertMaterial({ color: c }); m.userData.owned = true; return m; };
+  const wood = rideMat(0x8a6232), darkWood = rideMat(0x5c3f1c), iron = rideMat(0x8a8a90), dark = rideMat(0x2a2a2e);
+  const boat = new THREE.Group(), cart = new THREE.Group();
+  const add = (g: THREE.Group, w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); g.add(b); };
+  add(boat, 1.2, 0.12, 2.0, darkWood, 0, 0.0, 0);                                // hull bottom
+  for (const s of [-1, 1]) add(boat, 0.1, 0.4, 2.0, wood, s * 0.6, 0.2, 0);    // sides
+  for (const s of [-1, 1]) add(boat, 1.3, 0.4, 0.1, wood, 0, 0.2, s * 1.0);    // bow and stern
+  add(boat, 1.1, 0.08, 0.3, darkWood, 0, 0.32, 0.3);                             // the seat
+  add(cart, 1.0, 0.1, 1.2, iron, 0, 0.25, 0);
+  for (const s of [-1, 1]) { add(cart, 0.08, 0.55, 1.2, iron, s * 0.5, 0.5, 0); add(cart, 1.0, 0.55, 0.08, iron, 0, 0.5, s * 0.6); }
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(cart, 0.1, 0.28, 0.28, dark, sx * 0.55, 0.14, sz * 0.4); // wheels
+  boat.visible = cart.visible = false;
+  root.add(boat, cart);
+  let ride: 'boat' | 'cart' | null = null;
+
   // Super-shop cosmetics
   const black = new THREE.MeshLambertMaterial({ color: 0x111111 });
   black.userData.owned = true;
@@ -216,6 +252,7 @@ export function createAvatar(look: Look = DEFAULT_LOOK): Avatar {
     wear([belt, ...thighs], armorMat(armor[2]));
     wear(boots, armorMat(armor[3]));
     wear(gloves, armorMat(armor[4]));
+    wings.visible = armor[1] === 'elemental_wings';
   };
   void lArmMesh; void rArmMesh; void lLegMesh; void rLegMesh; void lShoe; void rShoe;
 
@@ -227,6 +264,11 @@ export function createAvatar(look: Look = DEFAULT_LOOK): Avatar {
       tophat.visible = l.super === 'tophat'; backpack.visible = l.super === 'backpack'; ninja.visible = l.super === 'ninja';
     },
     setArmor(a) { armor = a.slice(0, 5); applyArmor(); },
+    setRide(r) {
+      ride = r;
+      boat.visible = r === 'boat'; cart.visible = r === 'cart';
+      model.position.y = r === 'cart' ? 0.1 : r === 'boat' ? -0.05 : 0; // sitting in it
+    },
     setHeld(type) {
       if (type === heldType) return;
       heldType = type;
@@ -242,6 +284,7 @@ export function createAvatar(look: Look = DEFAULT_LOOK): Avatar {
       headPivot.rotation.x = pitch * 0.8;
       const sw = Math.sin(walkPhase * 2) * Math.min(0.8, hspeed * 0.15);
       leftLeg.rotation.x = sw; rightLeg.rotation.x = -sw;
+      if (ride) { leftLeg.rotation.x = rightLeg.rotation.x = -1.4; } // sitting
       leftArm.rotation.x = -sw;
       rightArm.rotation.x = sw - Math.sin(Math.min(1, swing) * Math.PI) * 1.4 - (held ? 0.3 : 0);
       torso.position.y = sneak ? 1.08 : 1.125;

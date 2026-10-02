@@ -11,12 +11,12 @@ import { ROOT, BASE, sleep, startServer } from './lib.mjs';
 
 const TEST_PORT = 8099;
 const SUITES = {
-  bot: [], sp: [], cuj: [], respawn: [], mp: [], join: [], mpcuj: [], actions: [], carry: [], content: [], robotic: [], features: [], bosses: [], crash: [],
+  bot: [], sp: [], cuj: [], respawn: [], mp: [], join: [], mpcuj: [], actions: [], carry: [], content: [], robotic: [], features: [], bosses: [], world: [], crash: [],
   phone: ['mobile.mjs', 'phone'], tablet: ['mobile.mjs', 'tablet'],
   perf: [],
   soak: ['soak.mjs', `ws://localhost:${TEST_PORT}`, process.env.SOAK_BOTS || '15', process.env.SOAK_SECONDS || '60'],
 };
-const DEFAULT = ['bot', 'sp', 'cuj', 'respawn', 'mp', 'join', 'mpcuj', 'actions', 'carry', 'content', 'robotic', 'features', 'bosses', 'crash', 'phone', 'tablet', 'perf'];
+const DEFAULT = ['bot', 'sp', 'cuj', 'respawn', 'mp', 'join', 'mpcuj', 'actions', 'carry', 'content', 'robotic', 'features', 'bosses', 'world', 'crash', 'phone', 'tablet', 'perf'];
 // Suites to run: the ones named, or the standard set; "-name" leaves one out of the standard set (e.g. -perf)
 const args = process.argv.slice(2);
 const skip = args.filter(a => a.startsWith('-')).map(a => a.slice(1));

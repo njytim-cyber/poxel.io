@@ -27,12 +27,27 @@ Poxel.io is a browser voxel sandbox game (its own game — never describe it as 
   - The Magma Colossus gathers 5 magma balls and throws them one by one (10 hearts each without armour), slams the ground, and in phase two makes fireballs rain from the sky.
   - The Thorn Guardian stomps (everything within 8 blocks is hurt and thrown about 8 blocks) and, in phase two, bursts into poison spores.
   - The Tempest (renamed from the Storm Roc: a gold core in gold rings, with white wings) fires lasers from its core and summons hurricanes that fling you up.
-  - Each boss now has a temple with two loot chests. The Cloud Kingdom's floats at y 57 with a spiral stair.
+  - Each boss now has a temple with two loot chests. The Cloud Kingdom's floats at y 48 with a spiral stair. (2026-10-02: temples now sit at the middle of each biome, radius 16, four 16-tall towers with boss crystals that heal the boss; the Tempest (960 hp) has a second form; the Elemental Core has 2000 hp.)
   - All bosses (the Robot Titan too) come back **5 minutes** after being defeated.
   - Visuals: a particle system (`client/particles.ts`) with effects sent as `fx` messages, screen shake, projectiles with glows and trails, and new boss models.
   - Armour is now drawn as plates over the body, with elemental trims. Ores have their own icons.
   - Browser suite `bosses` screenshots all of it.
-- **Protocol version 3.** Tabs still on the old client are told to refresh. The server must be restarted together with the website deploy.
+- **More (2026-10-02):**
+  - **The Elemental Core**, a final boss, is summoned at a craftable Elemental Altar once all four elemental bosses are beaten. It cycles through their moves and drops Elemental Wings (gliding). Details in `docs/elemental-world.md`.
+  - **Elemental tools:** Blazing, Tidal, Quaking and Gale versions of the obitite sword, pickaxe, axe and shovel.
+  - **Teams:** `/team <colour>` starts a team (a colour nobody has yet); joining one with members needs `/team invite <name>` from a member. Also `/team leave` and `/team list`. Name tags and the player list show the colour, teammates share claims, and there is no friendly fire (fireballs included). Saved in `world.json`.
+  - **Weather** (`client/weather.ts`):
+    - The server switches between clear, rain and thunder. Snow falls in cold biomes, never in the desert, and drops never fall under roofs.
+    - Lightning strikes near players in storms (5 damage plus fire), and rain puts out burning players.
+    - The Elemental World has its own weather per biome: snow, ash, drizzle.
+  - **Boats** (a U of planks): use one on water, row with W, sneak to get out.
+  - **Minecarts and rails** (iron): use a minecart on a rail. It follows the rails up and down steps and round corners, and stops where they end.
+  - **Other changes:**
+    - Creative flying was really running at walking speed; it's now 14 blocks/s (32 sprinting).
+    - The Tempest has 480 health and perches every so often.
+    - Every creature has a spawn egg (creative menu).
+  - Browser suite `world` plays through riding, weather, gliding and the Core.
+- **Protocol version 4.** Tabs still on the old client are told to refresh. The server must be restarted together with the website deploy.
 - **Flaky browser checks seen under load** (each passes when rerun):
   - the critical hit in `actions` (jump timing);
   - "leave handled" in `mp` (a fixed 1.5 s wait);

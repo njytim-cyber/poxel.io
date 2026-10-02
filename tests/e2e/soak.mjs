@@ -41,7 +41,7 @@ async function bot(i) {
     });
     ws.on('close', (code, reason) => { closes++; const k = `${code} ${reason}`; closeReasons[k] = (closeReasons[k] || 0) + 1; });
     const send = m => { if (ws.readyState === 1) { ws.send(typeof m === 'string' || Buffer.isBuffer(m) ? m : JSON.stringify(m)); sent++; } };
-    send({ t: 'hello', v: 3, name: `Soak${RUN}${i}`.slice(0, 16), look: {} });
+    send({ t: 'hello', v: 4, name: `Soak${RUN}${i}`.slice(0, 16), look: {} });
     await sleep(800);
     const lifetime = i % 4 === 0 ? rnd(2000, 6000) : 1e9; // a quarter of the bots churn (join/leave repeatedly)
     const born = Date.now();

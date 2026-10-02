@@ -560,6 +560,26 @@ function buildNewTiles(set: (i: number, t: Tile) => void, SNOW: string[], stoneB
   set(TILE.fire_shrine, shrineCore('#5a3a2a', '#3a1a10', '#1a0a04', ['#a02000', '#ff7a1a', '#ffe060']));
   set(TILE.earth_shrine, shrineCore('#7a8a5a', '#4a5a2a', '#2a3a14', ['#2a6a1a', '#6ad040', '#e0ffb0']));
   set(TILE.wind_shrine, shrineCore('#f0f6fc', '#b8c8e0', '#6a7a98', ['#6a8ab8', '#c8e0ff', '#ffffff']));
+  // The Elemental Altar: dark stone set with the four elements' gems
+  const altarSide = storageBlock('#5a5468', '#3a3448', '#1a1624');
+  for (const [x, y, c] of [[4, 5, '#2a78e0'], [11, 5, '#ff6a10'], [4, 10, '#5a9a2a'], [11, 10, '#e8f0ff']] as [number, number, string][]) for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) altarSide[at(x + dx - 1, y + dy - 1)] = c;
+  set(TILE.altar_side, altarSide);
+  const altarTop = storageBlock('#6a6478', '#3a3448', '#1a1624');
+  drawPixels(altarTop, ['...ww...', '..wbbw..', '.wbrrbw.', 'wbrggrbw', 'wbrggrbw', '.wbrrbw.', '..wbbw..', '...ww...'], 4, 4, { w: '#e8f0ff', b: '#2a78e0', r: '#ff6a10', g: '#6ad040' });
+  set(TILE.altar_top, altarTop);
+  // A rail: two iron rails on wooden ties (transparent between them)
+  const rail = newTile();
+  for (let y = 1; y < 16; y += 4) for (let x = 1; x < 15; x++) rail[at(x, y)] = rail[at(x, y + 1)] = pick(['#7a5a32', '#6a4a28']);
+  for (let y = 0; y < 16; y++) for (const x of [3, 12]) { rail[at(x, y)] = '#c8c8cc'; rail[at(x + 1, y)] = '#8a8a90'; }
+  set(TILE.rail, rail);
+  // A temple tower's crystal: a glowing faceted gem (its boss heals from it)
+  const crystal = newTile();
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const d = Math.abs(x - 7.5) + Math.abs(y - 7.5);
+    crystal[at(x, y)] = d < 3 ? '#ffffff' : d < 5.5 ? pick(['#e8f8ff', '#c8f0ff']) : d < 8 ? pick(['#9ad8ff', '#b8a8ff']) : pick(['#6a7ab8', '#8a6ad0']);
+  }
+  for (let i = 2; i < 14; i++) { crystal[at(i, i)] = '#ffffff'; crystal[at(15 - i, i)] = '#f0f8ff'; } // facet lines
+  set(TILE.boss_crystal, crystal);
 }
 
 // Dye colours: [light, main, dark]
@@ -690,6 +710,11 @@ const TIER_PALETTE: Record<string, { l: string; m: string; d: string }> = {
   earth: { l: '#a8d070', m: '#5a8a2a', d: '#2a3a10' },
   wind: { l: '#ffffff', m: '#c8e4f4', d: '#6a8aa8' },
   poison: { l: '#c8ff80', m: '#6ad020', d: '#1a4a08' },
+  // Elemental tools
+  blazing: { l: '#ffe080', m: '#ff6a10', d: '#6a1a00' },
+  tidal: { l: '#c0e8ff', m: '#2a88e8', d: '#0a2a6a' },
+  quaking: { l: '#c8e890', m: '#6a8a2a', d: '#2a3a10' },
+  gale: { l: '#ffffff', m: '#d8ecfa', d: '#c89a20' },
 };
 
 const HEADS: Record<string, { top: number; rows: string[] }> = {
@@ -777,6 +802,18 @@ SHAPES.crescent = ['', '......dddd......', '....ddllld......', '...dllmd.....w..
   '.dlmmd....w.....', '..dlmmd.........', '..dmmmmd........', '...dmmmmdd......', '....ddmmmmddd...', '......dddd......'];
 SHAPES.cluster = ['', '.......d........', '......dld...d...', '.....dlwmd.dld..', '..d..dlwmd.dlmd.', '.dld.dlmmd.dlmd.', '.dlmddlmmd.dmmd.', '.dlmdlmmmd.dmd..',
   '.dmmddlmmd.dmd..', '..dmmdmmmdddd...', '...dmmdmmddmd...', '....dmmmmmmd....', '.....dddddd.....'];
+SHAPES.egg = ['', '.......dd.......', '......dmmd......', '.....dmmwmd.....', '....dmlmmmmd....', '....dlmmmwmd....', '...dlmmwwmmmd...', '...dmmmmmmwmd...',
+  '...dmwmmmmmmd...', '...dmwwmmwmmd...', '....dmmmmwmd....', '.....dmmmmd.....', '......dddd......'];
+// Each spawn egg's colours: [shell, spots]
+const EGG_COLORS: Record<string, [string, string]> = {
+  pig: ['#f0a0a8', '#c05868'], cow: ['#5a3a22', '#e8e0d8'], chicken: ['#f4f4f4', '#d02020'], zombie: ['#2a8a9a', '#5a9a4a'],
+  husk: ['#8a6a3a', '#c8b078'], frostbitten: ['#4a6a8a', '#a8d8f0'], spider: ['#2a2420', '#d01010'], skeleton: ['#c8c8c0', '#5a5a5a'],
+  slime: ['#70c850', '#2a6a1a'], slimelet: ['#90d870', '#3a8a2a'], robot: ['#8a9098', '#ff2020'], robot_titan: ['#3a3f46', '#ff7a1a'],
+  frost_wraith: ['#b8d8f0', '#2a78d8'], magma_colossus: ['#34343a', '#ff6a10'], thorn_guardian: ['#4e3e22', '#6ad040'], tempest: ['#f4f8ff', '#ffc830'],
+};
+SHAPES.boat = ['', '', '', '', '', '', 'd..............d', 'dd............dd', 'dlddddddddddddld', 'dlmmmmmmmmmmmmld', '.dlmmmmmmmmmmld.', '..dllllllllllld.', '...dddddddddddd.'];
+SHAPES.minecart = ['', '', '', '', 'dddddddddddddddd', 'dlllllllllllllld', 'dmmmmmmmmmmmmmmd', 'dmmmmmmmmmmmmmmd', 'dmmmmmmmmmmmmmmd', '.dmmmmmmmmmmmmd.', '..dddddddddddd..', '..ww.......ww...', '.wwww.....wwww..', '..ww.......ww...'];
+SHAPES.wings = ['', 'll............ll', 'lml..........lml', 'lmml........lmml', '.lmml..ww..lmml.', '.lmmml.ww.lmmml.', '..lmmmlwwlmmml..', '..lmmmdwwdmmml..', '...lmmd..dmml...', '...lmd....dml...', '....ld....dl....', '....d......d....'];
 SHAPES.heart = ['', '', '', '...ddd...ddd....', '..dllmd.dlmmd...', '.dllmmmdmmmmmd..', '.dlmmmmmmmmmmd..', '.dmmmmmmmmmmmd..', '..dmmmmmmmmmd...', '...dmmmmmmmd....', '....dmmmmmd.....', '.....dmmmd......', '......dmd.......', '.......d........'];
 SHAPES.arrow = ['', '............ddd.', '...........dlld.', '............dld.', '...........h.d..', '..........h.....', '.........h......', '........h.......', '.......h........', '......h.........', '..ww.h..........', '..wwh...........', '...ww...........'];
 Object.assign(ITEM_ART, {
@@ -804,6 +841,9 @@ Object.assign(ITEM_ART, {
   earth_ore: ['leafgem', { l: '#c8f090', m: '#3a9a3a', d: '#14400e', w: '#e8ffd0', h: '#6a4a20' }],
   wind_ore: ['windgem', { l: '#ffd040', m: '#b8dcf4', d: '#5a7a98', w: '#ffffff' }],
   fireball: ['ball', { l: '#fff080', m: '#ff7a1a', d: '#a02000' }],
+  boat: ['boat', { l: '#c9a26b', m: '#a07844', d: '#5e4424' }],
+  minecart: ['minecart', { l: '#e0e0e4', m: '#8a8a90', d: '#3a3a40', w: '#2a2a2e' }],
+  elemental_wings: ['wings', { l: '#ffffff', m: '#d8e8f8', d: '#7a8aa8', w: '#ffc830' }],
   sweet_berries: ['berries', { l: '#ff7080', m: '#d02040', d: '#6a0a1a', h: '#3a6a2a' }],
   snowberries: ['berries', { l: '#ffffff', m: '#c8d8ff', d: '#5a70b0', h: '#4a6a5a' }],
   melon_slice: ['slice', { d: '#2a5a14', w: '#8ac44a', m: '#e84848', k: '#1a1a1a' }],
@@ -849,6 +889,13 @@ function itemPixels(type: string): Tile | null {
   }
   const art = ITEM_ART[type];
   if (art) { put(SHAPES[art[0]], art[1]); return t; }
+  // Spawn eggs: an egg in the creature's colours, with spots
+  if (type.endsWith('_spawn_egg')) {
+    const [base, spot] = EGG_COLORS[type.slice(0, -'_spawn_egg'.length)] ?? ['#c8c8c8', '#5a5a5a'];
+    const c = new THREE.Color(base);
+    put(SHAPES.egg, { m: base, w: spot, l: `#${c.clone().lerp(new THREE.Color('#ffffff'), 0.35).getHexString()}`, d: `#${c.clone().multiplyScalar(0.45).getHexString()}` });
+    return t;
+  }
   return null;
 }
 

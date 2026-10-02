@@ -10,6 +10,7 @@ import { store } from './store';
 import { profileName, canCarry, stopCarry, carryDebug } from './character';
 import { initRemote, updateRemote, entityCounts, entityList } from './remote';
 import { initParticles, updateParticles } from './particles';
+import { initWeather, updateWeather } from './weather';
 import { initSky, updateSky, getDaylight, getTimeOfDay } from './sky';
 import { preloadIcons } from './textures';
 import { onServerMessage, startLocal, startRemote, send, disconnect, requestLocalSave, setLocalPaused, isMultiplayer, type LocalSave } from './net';
@@ -53,6 +54,7 @@ initSky(scene, ambientLight, directionalLight);
 setupInput();
 initRemote(scene);
 initParticles(scene);
+initWeather(scene);
 initPlayer(perspectiveCamera, scene);
 initInventory();
 // Item icons are drawn a few at a time while idle (they're needed only once an inventory shows)
@@ -647,6 +649,7 @@ function frame() {
     const t2 = performance.now();
     updateRemote(dt, controls.object.position);
     updateParticles(dt);
+    updateWeather(dt, controls.object.position);
     const t3 = performance.now();
 
     const liquid = headInLava ? 'lava' : headInOil ? 'oil' : headInWater && !wearsWaterHelmet() ? 'water' : 'none'; // (the water helmet: clear sight underwater)

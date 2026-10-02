@@ -240,14 +240,61 @@ body:not([data-ready]) #main-menu .menu-btn { opacity: 0.6; pointer-events: none
 }
 #crit-flash.show { animation: crit-pop 0.6s ease-out; }
 @keyframes crit-pop { 0% { opacity: 1; transform: translate(-50%, 0) scale(1.3); } 100% { opacity: 0; transform: translate(-50%, -20px) scale(1); } }
-/* Boss health bar (top centre) */
+/* Boss health bar (top centre): themed per boss (data-boss), a draining trail, a half-health mark, PHASE II when enraged */
 #boss-bar {
-  position: absolute; top: 52px; left: 50%; transform: translateX(-50%);
-  width: min(420px, 70vw); text-align: center; color: #fff; text-shadow: 2px 2px 0 #000;
+  --b1: #ff5a3a; --b2: #b01818; --b3: #500808; --glow: #ff3020; --edge: #8a8a96; --text: #fff;
+  position: absolute; top: 46px; left: 50%; transform: translateX(-50%);
+  width: min(460px, 76vw); text-align: center; color: var(--text); text-shadow: 2px 2px 0 #000;
   font-size: 15px; pointer-events: none;
 }
-#boss-track { height: 10px; margin-top: 3px; background: rgba(0, 0, 0, 0.6); border: 2px solid #000; }
-#boss-fill { height: 100%; width: 100%; background: linear-gradient(#ff5a3a, #b01818); transition: width 0.2s; }
+#boss-bar[data-boss="titan"]   { --b1: #ff6a4a; --b2: #8a1010; --b3: #400404; --glow: #ff3020; --edge: #9aa0ac; }
+#boss-bar[data-boss="frost"]   { --b1: #bff0ff; --b2: #2a7ad8; --b3: #0a2a60; --glow: #7ad8ff; --edge: #d8f4ff; --text: #e8faff; }
+#boss-bar[data-boss="magma"]   { --b1: #ffd040; --b2: #c02a00; --b3: #4a0a00; --glow: #ff6a10; --edge: #3a2a24; --text: #ffe0b0; }
+#boss-bar[data-boss="thorn"]   { --b1: #b8ff60; --b2: #2a7a1a; --b3: #0a300a; --glow: #7ae040; --edge: #6a4a2a; --text: #e0ffc8; }
+#boss-bar[data-boss="tempest"] { --b1: #fff6c0; --b2: #e0a010; --b3: #6a4000; --glow: #ffe070; --edge: #fff4d0; --text: #fff8d8; }
+#boss-bar[data-boss="core"]    { --b1: #ffffff; --b2: #a040ff; --b3: #300a60; --glow: #c080ff; --edge: #e0d0ff; --text: #f4e8ff; }
+#boss-head { display: flex; align-items: center; justify-content: center; gap: 10px; letter-spacing: 2px; font-size: 17px; text-transform: uppercase; }
+#boss-name { text-shadow: 2px 2px 0 #000, 0 0 10px var(--glow); }
+.boss-icon { display: inline-block; color: var(--b1); font-size: 18px; text-shadow: 0 0 8px var(--glow), 1px 1px 0 #000; animation: boss-icon-spin 6s linear infinite; }
+@keyframes boss-icon-spin { to { transform: rotate(360deg); } }
+#boss-track {
+  position: relative; height: 14px; margin-top: 4px; overflow: hidden;
+  background: rgba(0, 0, 0, 0.75);
+  border: 2px solid var(--edge);
+  box-shadow: 0 0 12px var(--glow), inset 0 2px 4px rgba(0, 0, 0, 0.8);
+  clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%);
+}
+#boss-chip, #boss-fill { position: absolute; left: 0; top: 0; height: 100%; width: 100%; }
+#boss-chip { background: rgba(255, 255, 255, 0.75); transition: width 0.6s ease-in; }
+#boss-fill {
+  background: linear-gradient(180deg, var(--b1) 0%, var(--b2) 65%, var(--b3) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6); transition: width 0.15s ease-out;
+}
+/* segment notches: every tenth of the bar */
+#boss-track::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0 calc(10% - 2px), rgba(0, 0, 0, 0.35) calc(10% - 2px) 10%); }
+#boss-bar[data-boss="core"] #boss-fill { background: linear-gradient(90deg, #7ad8ff, #ff6a20, #8ae040, #ffe070, #7ad8ff); background-size: 200% 100%; animation: boss-core-flow 3s linear infinite; }
+@keyframes boss-core-flow { to { background-position: 200% 0; } }
+#boss-shine { position: absolute; inset: 0; background: linear-gradient(100deg, transparent 40%, rgba(255, 255, 255, 0.4) 50%, transparent 60%); background-size: 250% 100%; animation: boss-shine 2.8s linear infinite; }
+@keyframes boss-shine { from { background-position: 150% 0; } to { background-position: -100% 0; } }
+#boss-mark { position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 4px #fff; opacity: 0.7; }
+#boss-bar[data-boss="titan"] #boss-mark { display: none; }
+#boss-foot { display: flex; justify-content: space-between; margin-top: 2px; font-size: 11px; opacity: 0.9; min-height: 14px; }
+#boss-phase { visibility: hidden; color: #ff4040; letter-spacing: 2px; text-shadow: 1px 1px 0 #000, 0 0 6px #ff2020; animation: boss-phase-pulse 0.9s ease-in-out infinite alternate; }
+#boss-hp { margin-left: auto; }
+#boss-bar.enraged #boss-phase { visibility: visible; }
+#boss-bar.enraged #boss-track { animation: boss-rage 0.9s ease-in-out infinite alternate; }
+#boss-bar.enraged #boss-mark { display: none; }
+@keyframes boss-rage { from { box-shadow: 0 0 10px var(--glow), inset 0 2px 4px rgba(0, 0, 0, 0.8); } to { box-shadow: 0 0 22px #ff2020, 0 0 6px var(--glow), inset 0 2px 4px rgba(0, 0, 0, 0.8); border-color: #ff4040; } }
+@keyframes boss-phase-pulse { from { opacity: 0.6; } to { opacity: 1; } }
+#boss-bar.hit #boss-track { animation: boss-hit 0.3s ease-out; }
+#boss-bar.hit #boss-fill { filter: brightness(1.8); }
+@keyframes boss-hit { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 50% { transform: translateX(3px); } 75% { transform: translateX(-1px); } }
+#boss-bar.heal #boss-track { border-color: #60ff80; }
+#boss-bar.heal #boss-fill { filter: brightness(1.3) saturate(1.3); }
+#boss-bar.intro { animation: boss-intro 0.7s cubic-bezier(0.2, 1.4, 0.4, 1); }
+#boss-bar.intro #boss-fill { animation: boss-fill-in 1s ease-out; }
+@keyframes boss-intro { from { opacity: 0; transform: translateX(-50%) scale(0.6, 0.2); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+@keyframes boss-fill-in { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 .setting-row {
   display: flex;
   align-items: center;
@@ -1344,6 +1391,7 @@ body.touch-ui #controls-panel { display: none; } /* keyboard controls mean nothi
 #air-bar .bubble.popped { visibility: hidden; }
 /* Poisoned / on fire */
 #status-overlay { position: absolute; inset: 0; pointer-events: none; }
+#lightning-flash { position: absolute; inset: 0; pointer-events: none; background: #f4f8ff; opacity: 0; }
 body[data-poisoned] #status-overlay { box-shadow: inset 0 0 80px 25px rgba(90, 210, 40, 0.5); }
 body[data-burning] #status-overlay { box-shadow: inset 0 0 90px 30px rgba(255, 110, 20, 0.6); }
 /* Frozen solid: a thick icy frame */

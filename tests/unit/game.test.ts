@@ -21,7 +21,7 @@ function fakeConn() {
   return { got, conn: { send: (m: ServerMsg) => { got.push(m); }, close: () => {} } };
 }
 
-const hello = (name: string) => ({ t: 'hello', v: 3, name, look: {}, token: 'tok-' + name });
+const hello = (name: string) => ({ t: 'hello', v: 4, name, look: {}, token: 'tok-' + name });
 const edits = (flat: number[]) => { const o: string[] = []; for (let i = 0; i < flat.length; i += 4) o.push(flat.slice(i, i + 4).join(',')); return o; };
 const tick = (g: Game, n: number) => { for (let i = 0; i < n; i++) g.tick(0.05); };
 
