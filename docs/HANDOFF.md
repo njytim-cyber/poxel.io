@@ -3,16 +3,22 @@
 ## Read first (2026-10-03)
 
 - **Direction change:** the game is moving to the new domain **riventale.world** and will become an **app-based game**. **Principal development now happens on another machine**; this PC (the owner's Windows PC) is no longer the main dev box.
-- **Cloudflare account for the new domain: tim@latticelogic.app.** riventale.world was bought through Cloudflare Registrar in that account (2026-10-03). On 2026-10-03 the registry did not yet list nameservers for it, so it was not resolving yet; give it time.
+- **Cloudflare account for the new domain: tim@latticelogic.app.** riventale.world was bought through Cloudflare Registrar in that account (2026-10-03) and is live. If it won't load on the owner's home Wi-Fi, that's an old "doesn't exist" answer cached by their router/provider from lookups made before the domain went live (it expires by itself). When checking a new domain, ask Cloudflare's DNS directly (`nslookup <name> 1.1.1.1`), never through the home network.
   - **Poxel.io is retired** (owner, 2026-10-03). The project, repo (https://github.com/njytim-cyber/riventale), package and paths are all Riventale now. The old Worker `poxel` (https://poxel.njytim.workers.dev, account njytim@gmail.com) still exists but nothing deploys to it any more; its config was removed. Deleting it is the owner's call.
   - **Account rule (owner's instruction):** tim@latticelogic.app holds **only** riventale.world. Every other side or non-commercial project goes in njytim@gmail.com. Never mix them. Before any `wrangler deploy`, `npm run deploy:cf`, `npm run host:cf` or DNS change, run `npx wrangler whoami` and check the account matches the project. **riventale.world is the only domain the owner owns**: the old site has none (it's on workers.dev).
 - **Name confirmed:** the game is called **Riventale** (confirmed by the owner 2026-10-03).
-- **Code state:** `master` is pushed and deployed to https://riventale.world (single player only).
+- **Code state:** `master` is pushed and deployed to https://riventale.world (single player only). Wrangler on the owner's PC is signed in to tim@latticelogic.app.
+- **GitHub Actions:** the repo has **no workflows**, and shipping (git push + `npm run deploy:cf` from the PC) uses no Actions minutes. The only runs in the Actions tab are GitHub Pages' own "pages build and deployment" for the old `gh-pages` branch (https://njytim-cyber.github.io/riventale/, an outdated poxel build). The repo is public, so those cost nothing. Turning Pages off is the owner's call.
 - The owner's untracked `index.docx` must never be committed.
 
 ### riventale.world (static site live since 2026-10-03; multiplayer later)
 
 The game is now called **Riventale** in the UI: page title, a pixel-art crest and wordmark on the main menu, a favicon, home-screen icons and a web manifest (all in `public/`, drawn by `npm run art` = `scripts/art.mjs`). Saved-data keys (`poxel_*`), the `x-poxel-*` Worker headers and the `window.poxel` test hooks were left alone on purpose (saves carry over; nobody sees them). The path the game is served under (Vite base for `npm run dev`/`build`, and the game server) is now `/riventale/`.
+
+Menus polished on 2026-10-03 (all live):
+- **Wardrobe** (the shop, `#shop-screen`; code in client/main.ts under "Shop Scene Setup"): night-sky stage; the character has greyscale pixel textures tinted by each colour (`shopTexture`), a neck, split legs, arms angled from the shoulders and an idle animation (`animateShopAvatar`); a voxel plinth with a gold band; a rim light; a 360° turn handle (`#shop-turn`) plus drag/swipe. Category tabs, palettes plus a **Custom** hue/saturation/brightness picker under each, hair styles, **Sets** with rarity cards and unlock progress, Random, Cancel (back to the saved look) and Save look. One "selected" style everywhere: a gold ring (outline). Owner asked for this level of polish after a design review; keep the same style for new screens.
+- **Load game**: each slot is a card coloured by its world's difficulty (icon, day/night, hearts, achievements, "Saved N min ago" from `getSaveTime` in client/saves.ts). Empty slots start a new world there, after the difficulty choice.
+- Pixel titles (WARDROBE, LOAD GAME, CHOOSE YOUR PATH) and icons (die, sets, lock, difficulty) are drawn in `scripts/art.mjs` (5x7 font in `GLYPHS`; 16x16 `sprite()` maps). Run `npm run art` after changing it; the outputs in `public/` are committed.
 
 Also on the site: a themed **Choose your path** difficulty screen (three element-coloured cards with pixel icons) and a **Forging your world** loading screen for single-player worlds (`client/worldLoading.ts`: crest with orbiting element orbs, steps, a bar that follows the chunks loaded round the player, a tip).
 
