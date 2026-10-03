@@ -10,15 +10,17 @@
 - **Code state:** `master` at `3a537c8` is pushed and deployed (gh-pages and the workers.dev Worker). The commit carrying this handoff adds the work below (pushed; **not** deployed anywhere yet).
 - The owner's untracked `index.docx` must never be committed.
 
-### Publishing to riventale.world (not done yet)
+### Publishing to riventale.world (static site first; multiplayer later)
 
-1. Sign wrangler in to the new account: `npx wrangler logout`, then `npx wrangler login` (as tim@latticelogic.app). `npx wrangler whoami` should show that account.
-2. In `cloudflare/wrangler.jsonc`, add a custom domain (the zone must be in the same account):
-   `"routes": [{ "pattern": "riventale.world", "custom_domain": true }]`
-   Optionally also add `www.riventale.world`, and set `"workers_dev": false` once the domain works. Consider renaming the Worker (`"name": "riventale"`).
-3. Run `npm run deploy:cf`. It builds with base `/`, which a custom domain needs; that's already the case.
-4. Multiplayer: `npm run host:cf` (scripts/host-cf.mjs) sets the Worker secrets for the account wrangler is signed in to. Run it on whichever machine hosts the game server, after step 1. For a stable setup, use a named Cloudflare Tunnel on riventale.world (see Decisions).
-5. Rename the game in the UI: the `<title>` and menu text in `index.html` say "Poxel.io". The owner chose **Riventale**.
+The game is now called **Riventale** in the UI: page title, a pixel-art crest and wordmark on the main menu, a favicon, home-screen icons and a web manifest (all in `public/`, drawn by `npm run art` = `scripts/art.mjs`). Saved-data keys (`poxel_*`) and the `/poxel.io/` gh-pages path were left alone on purpose, so players keep their saves.
+
+The riventale.world site has its **own** Worker config, `cloudflare/riventale.jsonc` (Worker `riventale`), separate from the old `cloudflare/wrangler.jsonc` (Worker `poxel`, njytim@gmail.com).
+
+1. `npx wrangler whoami` must show **tim@latticelogic.app**. If not: `npx wrangler logout`, then `npx wrangler login` as that account.
+2. `npm run deploy:riventale` builds with base `/` and deploys the Worker to its workers.dev address in that account.
+3. Once riventale.world is active in the account (it had no nameservers on 2026-10-03), uncomment the `routes` line in `cloudflare/riventale.jsonc` and deploy again. Then consider `"workers_dev": false`.
+4. Multiplayer is deliberately not set up for riventale yet (the owner will decide later). Without the `ORIGIN_URL`/`ORIGIN_SECRET` secrets, Play Online shows the server as offline. `npm run host:cf` still targets the old poxel site.
+5. To deploy the old poxel site again, sign wrangler back in to njytim@gmail.com first.
 
 ### Work in this commit (since 3a537c8)
 
@@ -240,7 +242,7 @@ client/
 ## Owner preferences
 
 - The owner only sees the final message of each assistant turn. Put questions, instructions and status there, and stop at milestones instead of working silently for a long time.
-- Keep Poxel.io's own identity: never call it a Minecraft clone in titles, UI, docs or commits.
+- Keep Riventale's own identity: never describe it as a clone or copy of another game in titles, UI, docs or commits.
 - Do setup through command-line tools by default; ask the owner only for what needs them (a browser approval, a payment method). No workarounds around security protections.
 - Test for bugs (typecheck, unit, browser suites) before every push or deploy.
 - Minimise spending until there's a working product.

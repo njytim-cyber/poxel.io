@@ -19,7 +19,9 @@
     "build:cf": "vite build --base=/ --outDir dist-cf",
     "deploy:cf": "npm run build:cf && wrangler deploy --config cloudflare/wrangler.jsonc",
     "host:cf": "node scripts/host-cf.mjs",
-    "coverage": "node scripts/coverage.mjs"
+    "coverage": "node scripts/coverage.mjs",
+    "deploy:riventale": "npm run build:cf && wrangler deploy --config cloudflare/riventale.jsonc",
+    "art": "node scripts/art.mjs"
   },
   "keywords": [],
   "author": "",

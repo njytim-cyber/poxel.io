@@ -41,7 +41,7 @@ export const actions = {
   touchHold: (_held: boolean) => {}, // long-press on the view: mine (or eat when holding food)
 };
 
-// Touch gestures on the view (like Minecraft's touch controls): drag to look,
+// Touch gestures on the view: drag to look,
 // tap to use/place, press and hold (without moving) to mine
 const HOLD_MS = 300;
 const TAP_SLOP_PX = 12;
@@ -158,7 +158,7 @@ function setupMobileInput() {
       // Pushing the stick all the way forward also starts running (until the stick is released)
       if ((data.force ?? 0) > 1.2 && v.y > 0.5 && !keys.run && !keys.shift) { keys.run = true; syncToggles(); }
     });
-    // Letting go of the stick stops running, like Minecraft's sprint
+    // Letting go of the stick stops running
     manager.on('end', () => { keys.forward = keys.backward = keys.left = keys.right = keys.run = false; syncToggles(); });
   }
 

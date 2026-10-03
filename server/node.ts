@@ -1,4 +1,4 @@
-// Poxel multiplayer server (Node.js). Run: node server/node.ts
+// Riventale multiplayer server (Node.js). Run: node server/node.ts
 //   PORT=8080  DATA_DIR=./data  MAX_PLAYERS=16  SEED=<number>
 import { createServer, type IncomingMessage } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
@@ -120,7 +120,7 @@ const http = createServer((req, res) => {
     return;
   }
   res.writeHead(200, { 'content-type': 'text/plain' });
-  res.end('Poxel.io game server is running. Connect from the game\'s Multiplayer menu.\n');
+  res.end('Riventale game server is running. Connect from the game\'s Multiplayer menu.\n');
 });
 
 const wss = new WebSocketServer({ server: http, maxPayload: MAX_MESSAGE, perMessageDeflate: false });
@@ -310,9 +310,9 @@ process.on('unhandledRejection', e => log(`Unhandled rejection: ${e}`));
 // The WebSocket server re-emits the HTTP server's errors, and its listener runs first: handle both,
 // or the error becomes an "uncaught exception" and the process keeps running without a port.
 const onStartError = (e: Error) => {
-  log(`Could not start: ${e.message}${(e as any).code === 'EADDRINUSE' ? ` (is another Poxel server already running on port ${PORT}?)` : ''}`);
+  log(`Could not start: ${e.message}${(e as any).code === 'EADDRINUSE' ? ` (is another Riventale server already running on port ${PORT}?)` : ''}`);
   process.exit(1);
 };
 http.on('error', onStartError);
 wss.on('error', onStartError);
-http.listen(PORT, () => log(`Poxel server listening on :${PORT} (data: ${DATA_DIR}, max ${MAX_PLAYERS} players)`));
+http.listen(PORT, () => log(`Riventale server listening on :${PORT} (data: ${DATA_DIR}, max ${MAX_PLAYERS} players)`));

@@ -1398,3 +1398,13 @@ body[data-burning] #status-overlay { box-shadow: inset 0 0 90px 30px rgba(255, 1
 body[data-frozen] #status-overlay { box-shadow: inset 0 0 120px 60px rgba(200, 240, 255, 0.85); background: rgba(180, 230, 255, 0.15); }
 /* Slowed by frost: a cold blue edge round the screen */
 body:not([data-frozen]):not([data-poisoned]):not([data-burning])[data-slowed] #status-overlay { box-shadow: inset 0 0 90px 30px rgba(140, 220, 255, 0.55); }
+
+/* Title: the Riventale crest and wordmark (pixel art from scripts/art.mjs) */
+.menu-content h1.title-logo { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: 0 0 12px; text-shadow: none; }
+.title-logo img { image-rendering: pixelated; display: block; }
+.title-crest { width: 96px; height: 96px; filter: drop-shadow(0 0 18px rgba(255, 210, 63, 0.45)); animation: crest-float 4s ease-in-out infinite; }
+.title-word { width: min(400px, 86vw); height: auto; }
+@keyframes crest-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .title-crest { animation: none; } }
+@media (max-height: 700px) { .title-crest { width: 64px; height: 64px; } .title-word { width: min(300px, 80vw); } }
+@media (max-height: 450px) { .title-crest { display: none; } .title-word { width: min(220px, 60vw); } }

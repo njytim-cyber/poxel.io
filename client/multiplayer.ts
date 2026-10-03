@@ -182,7 +182,7 @@ document.getElementById('btn-invite')?.addEventListener('click', () => {
   inviteModal.style.display = 'flex';
 });
 document.getElementById('btn-invite-share')?.addEventListener('click', () => {
-  navigator.share?.({ title: 'Play with me', text: `Join ${mpJoinName} in Poxel`, url: inviteLink() }).catch(() => { /* cancelled */ });
+  navigator.share?.({ title: 'Play with me', text: `Join ${mpJoinName} in Riventale`, url: inviteLink() }).catch(() => { /* cancelled */ });
 });
 document.getElementById('btn-invite-copy')?.addEventListener('click', async e => {
   const btn = e.currentTarget as HTMLButtonElement;
