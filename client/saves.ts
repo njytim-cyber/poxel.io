@@ -94,6 +94,11 @@ export function getSaveMeta(slot: number): string | null {
   return cache.get(slot)?.meta ?? null;
 }
 
+// When the slot was last written (ms since 1970), or 0 if unknown
+export function getSaveTime(slot: number): number {
+  return cache.get(slot)?.at ?? 0;
+}
+
 export function readSave(slot: number): LocalSave | null {
   return cache.get(slot)?.save ?? null;
 }

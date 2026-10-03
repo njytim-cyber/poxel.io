@@ -73,6 +73,9 @@ const GLYPHS = {
   Y: ['10001', '10001', '01010', '00100', '00100', '00100', '00100'],
   U: ['10001', '10001', '10001', '10001', '10001', '10001', '01110'],
   P: ['11110', '10001', '10001', '11110', '10000', '10000', '10000'],
+  G: ['01111', '10000', '10000', '10111', '10001', '10001', '01111'],
+  D: ['11110', '10001', '10001', '10001', '10001', '10001', '11110'],
+  M: ['10001', '11011', '10101', '10101', '10001', '10001', '10001'],
   ' ': ['000', '000', '000', '000', '000', '000', '000'],
 };
 function wordmark(text) {
@@ -98,6 +101,7 @@ function wordmark(text) {
 }
 save('wordmark.svg', wordmark('RIVENTALE'));
 save('title-path.svg', wordmark('CHOOSE YOUR PATH'));
+save('title-load.svg', wordmark('LOAD GAME'));
 
 // 16 x 16 icons for the difficulty cards: a sapling (easy), a sword (medium), a flame (hard)
 function sprite(rows, colours) {

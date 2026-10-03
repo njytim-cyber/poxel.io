@@ -5,7 +5,7 @@ import { initPlayer, updatePlayer, controls, updateLocalLook, body, handScene, h
   isDead, health, MAX_HEALTH, setYawPitch, setPlayerFeet, getYawPitch, aimTarget, wearsWaterHelmet, getMaxHealth } from './player';
 import { applyHairGeometry, addBigEyes, savedLook } from './avatar';
 import { initInventory, inventory, setSelectedSlot } from './inventory';
-import { getSaveMeta, readSave, writeSave, deleteSave, initSaves, savesSettled, storageUsage } from './saves';
+import { getSaveMeta, getSaveTime, readSave, writeSave, deleteSave, initSaves, savesSettled, storageUsage } from './saves';
 import { store } from './store';
 import { profileName, canCarry, stopCarry, carryDebug } from './character';
 import { initRemote, updateRemote, entityCounts, entityList } from './remote';
@@ -344,12 +344,50 @@ document.getElementById('btn-shop-random')?.addEventListener('click', () => {
 });
 document.getElementById('btn-cancel-shop')?.addEventListener('click', () => { loadShopLook(); showMenuScreen('main'); });
 
-const saveButtons = document.querySelectorAll('.save-slot');
+const saveButtons = document.querySelectorAll<HTMLElement>('.save-slot');
+const DIFFICULTY_LOOK: Record<string, { name: string; icon: string; colour: string }> = {
+  easy: { name: 'Easy', icon: '/icon-easy.svg', colour: '#3fc25a' },
+  medium: { name: 'Medium', icon: '/icon-medium.svg', colour: '#ffd23f' },
+  hard: { name: 'Hard', icon: '/icon-hard.svg', colour: '#ff6a2a' },
+};
+const ASSET_BASE = (import.meta as any).env?.BASE_URL || '/';
+function timeAgo(ms: number, fallback: string): string {
+  if (!ms) return fallback ? `Saved ${fallback}` : 'Saved';
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 60) return 'Saved just now';
+  if (s < 3600) return `Saved ${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `Saved ${Math.floor(s / 3600)} h ago`;
+  const d = Math.floor(s / 86400);
+  return d < 30 ? `Saved ${d} day${d === 1 ? '' : 's'} ago` : `Saved ${new Date(ms).toLocaleDateString()}`;
+}
+const escapeHtml = (t: string) => t.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 function refreshSaveLabels() {
+  const note = document.getElementById('load-note');
+  if (note) note.textContent = '';
   saveButtons.forEach(btn => {
     const slot = parseInt((btn as HTMLElement).dataset.slot!);
     const meta = getSaveMeta(slot);
-    btn.innerHTML = meta ? `Save ${slot + 1}<br><span style="font-size:12px;color:#ccc">${meta}</span>` : `Empty Slot ${slot + 1}`;
+    const save = meta !== null ? readSave(slot) : null;
+    btn.classList.toggle('empty', !save);
+    if (save) {
+      const diff = DIFFICULTY_LOOK[save.world?.difficulty || 'medium'] || DIFFICULTY_LOOK.medium;
+      const me = save.players[profileName().toLowerCase()] || save.players[profileName()] || Object.values(save.players)[0];
+      const achievements = me?.achievements?.length || 0;
+      const t = save.world?.time ?? 0.3;
+      const night = t > 0.75 || t < 0.25;
+      const hearts = me ? Math.ceil(me.health / 2) : 10;
+      btn.style.setProperty('--c', diff.colour);
+      btn.innerHTML = `<img class="slot-icon" src="${ASSET_BASE}${diff.icon.slice(1)}" alt="" />` +
+        `<span class="slot-text"><span class="slot-name">World ${slot + 1}</span>` +
+        `<span class="slot-tags"><span class="slot-diff">${diff.name}</span><span>${night ? '☾ Night' : '☀ Day'}</span><span>♥ ${hearts}</span>` +
+        (achievements ? `<span>★ ${achievements}</span>` : '') + `</span>` +
+        `<span class="slot-when">${escapeHtml(timeAgo(getSaveTime(slot), meta || ''))}</span></span>` +
+        `<span class="slot-play" aria-hidden="true">▶</span>`;
+    } else {
+      btn.style.removeProperty('--c');
+      btn.innerHTML = `<span class="slot-icon slot-plus">+</span><span class="slot-text"><span class="slot-name">Empty slot ${slot + 1}</span>` +
+        `<span class="slot-when">Start a new world here</span></span>`;
+    }
     // Delete button beside each used slot; first click arms it, second click deletes
     let del = btn.nextElementSibling as HTMLButtonElement | null;
     if (!del || !del.classList.contains('delete-save')) {
@@ -358,15 +396,15 @@ function refreshSaveLabels() {
       btn.parentElement!.insertBefore(row, btn);
       row.appendChild(btn);
       del = document.createElement('button');
-      del.className = 'menu-btn delete-save';
-      del.title = 'Delete this save';
+      del.className = 'delete-save';
+      del.title = 'Delete this world';
       row.appendChild(del);
       const d = del;
       d.addEventListener('click', e => {
         e.stopPropagation();
         if (!d.classList.contains('armed')) {
           d.classList.add('armed');
-          d.textContent = 'Sure?';
+          d.textContent = 'Delete?';
           setTimeout(() => { d.classList.remove('armed'); d.textContent = '🗑'; }, 3000);
           return;
         }
@@ -376,7 +414,7 @@ function refreshSaveLabels() {
     }
     del.textContent = '🗑';
     del.classList.remove('armed');
-    del.style.visibility = meta ? 'visible' : 'hidden';
+    del.style.visibility = save ? 'visible' : 'hidden';
   });
   storageUsage().then(u => { const el = document.getElementById('storage-usage'); if (el) el.textContent = u ? `Browser storage: ${u}` : ''; });
 }
@@ -524,8 +562,8 @@ document.getElementById('btn-new-game')?.addEventListener('click', () => {
     // All slots used: never overwrite a save silently
     refreshSaveLabels();
     showMenuScreen('load');
-    const title = document.querySelector('#save-slots-container h2');
-    if (title) title.textContent = 'All save slots are full. Delete one (🗑) or pick a save to continue.';
+    const note = document.getElementById('load-note');
+    if (note) note.textContent = 'All five slots are full. Delete a world (🗑) or pick one to continue.';
     return;
   }
   // New worlds start with a difficulty choice
@@ -545,7 +583,10 @@ document.getElementById('btn-back-difficulty')?.addEventListener('click', () => 
 saveButtons.forEach(btn => {
   btn.addEventListener('click', e => {
     const slot = parseInt((e.currentTarget as HTMLElement).dataset.slot!);
-    startSingle(slot, readSave(slot));
+    const save = readSave(slot);
+    // An empty slot starts a new world there, with the difficulty choice first
+    if (!save) { pendingNewSlot = slot; showMenuScreen('difficulty'); return; }
+    startSingle(slot, save);
   });
 });
 

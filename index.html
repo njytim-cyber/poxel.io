@@ -303,16 +303,17 @@
       </div>
 
       <div class="menu-content" id="save-slots-container" style="display: none;">
-        <h2>Select Save</h2>
+        <h2 class="path-title"><img src="/title-load.svg" alt="Load game" /></h2>
+        <p id="load-note" class="load-note"></p>
         <div id="save-slots">
-            <button class="save-slot load-btn menu-btn" data-slot="0">Empty Slot 1</button>
-            <button class="save-slot load-btn menu-btn" data-slot="1">Empty Slot 2</button>
-            <button class="save-slot load-btn menu-btn" data-slot="2">Empty Slot 3</button>
-            <button class="save-slot load-btn menu-btn" data-slot="3">Empty Slot 4</button>
-            <button class="save-slot load-btn menu-btn" data-slot="4">Empty Slot 5</button>
+            <button class="save-slot" data-slot="0"></button>
+            <button class="save-slot" data-slot="1"></button>
+            <button class="save-slot" data-slot="2"></button>
+            <button class="save-slot" data-slot="3"></button>
+            <button class="save-slot" data-slot="4"></button>
         </div>
-        <p id="storage-usage" style="font-size: 12px; color: #aaa; margin: 10px 0 0;"></p>
-        <button id="btn-back-load" class="menu-btn" style="margin-top: 20px;">Back</button>
+        <p id="storage-usage" class="load-storage"></p>
+        <button id="btn-back-load" class="path-back">&larr; Back</button>
       </div>
 
       <div class="shop" id="shop-screen" style="display: none;">
