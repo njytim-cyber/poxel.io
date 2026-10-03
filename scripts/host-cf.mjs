@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = process.env.PORT || '8080';
-const SITE = process.env.SITE || 'https://poxel.njytim.workers.dev';
+const SITE = process.env.SITE || 'https://riventale.world';
 const CLOUDFLARED = process.env.CLOUDFLARED || join(homedir(), '.cloudflared-bin', 'cloudflared.exe');
 const WRANGLER = join(ROOT, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 const log = msg => console.log(`[host] ${msg}`);

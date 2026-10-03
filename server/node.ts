@@ -90,7 +90,7 @@ const game = new Game(storage, { seed: process.env.SEED ? Number(process.env.SEE
 
 // Serves the built game (dist/) so one link gives friends both the page and the server
 const DIST = join(process.cwd(), 'dist');
-const BASE = '/poxel.io/';
+const BASE = '/riventale/';
 const TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
   '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff2': 'font/woff2',
@@ -99,7 +99,7 @@ function serveStatic(url: string, res: import('node:http').ServerResponse): bool
   if (!existsSync(DIST)) return false;
   let path: string;
   try { path = decodeURIComponent(url.split('?')[0]); } catch { res.writeHead(400); res.end(); return true; }
-  if (path === '/' || path === '/poxel.io') { res.writeHead(302, { location: BASE }); res.end(); return true; }
+  if (path === '/' || path === '/riventale') { res.writeHead(302, { location: BASE }); res.end(); return true; }
   if (!path.startsWith(BASE)) return false;
   path = path.slice(BASE.length) || 'index.html';
   const file = normalize(join(DIST, path));

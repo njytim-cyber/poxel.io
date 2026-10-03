@@ -17,6 +17,7 @@ import { onServerMessage, startLocal, startRemote, send, disconnect, requestLoca
 import { handleServerMessage, onReady, resetSession, markPingSent, pingMs, onlinePlayers } from './session';
 import * as ui from './ui';
 import { initMultiplayer, onMultiplayerMessage, onJoinedWorld, playerToken } from './multiplayer';
+import { showWorldLoading, worldLoadingReady } from './worldLoading';
 import { boxIntersectsSolid } from '../shared/physics.ts';
 import { BLOCK_ID } from '../shared/blocks.ts';
 
@@ -445,6 +446,7 @@ onReady(() => {
   }
   ui.startPlaying();
   if (mode === 'multi') onJoinedWorld();
+  if (mode === 'single') worldLoadingReady();
 });
 
 // View distance (pause menu), remembered per browser. Lower it on slow devices.
@@ -480,6 +482,7 @@ initMultiplayer({
 function startSingle(slot: number, save: LocalSave | null, fixedSeed?: number, difficulty?: string) {
   currentSaveSlot = slot;
   mode = 'single';
+  showWorldLoading(!save?.world);
   resetSession();
   const seed = save?.world ? undefined : fixedSeed ?? (Math.random() * 2 ** 31) | 0;
   startLocal(save || { world: null, players: {} }, seed, profileName(), savedLook(), s => {

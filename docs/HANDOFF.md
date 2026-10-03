@@ -1,26 +1,27 @@
-# Poxel.io (becoming Riventale) — Session Handoff (2026-10-03)
+# Riventale — Session Handoff (2026-10-03)
 
 ## Read first (2026-10-03)
 
 - **Direction change:** the game is moving to the new domain **riventale.world** and will become an **app-based game**. **Principal development now happens on another machine**; this PC (the owner's Windows PC) is no longer the main dev box.
 - **Cloudflare account for the new domain: tim@latticelogic.app.** riventale.world was bought through Cloudflare Registrar in that account (2026-10-03). On 2026-10-03 the registry did not yet list nameservers for it, so it was not resolving yet; give it time.
-  - The **old** site, https://poxel.njytim.workers.dev, is a Worker named `poxel` in a **different** account (njytim@gmail.com). Its secrets `ORIGIN_URL`/`ORIGIN_SECRET` are set there by `npm run host:cf`.
+  - **Poxel.io is retired** (owner, 2026-10-03). The project, repo (https://github.com/njytim-cyber/riventale), package and paths are all Riventale now. The old Worker `poxel` (https://poxel.njytim.workers.dev, account njytim@gmail.com) still exists but nothing deploys to it any more; its config was removed. Deleting it is the owner's call.
   - **Account rule (owner's instruction):** tim@latticelogic.app holds **only** riventale.world. Every other side or non-commercial project goes in njytim@gmail.com. Never mix them. Before any `wrangler deploy`, `npm run deploy:cf`, `npm run host:cf` or DNS change, run `npx wrangler whoami` and check the account matches the project. **riventale.world is the only domain the owner owns**: the old site has none (it's on workers.dev).
 - **Name confirmed:** the game is called **Riventale** (confirmed by the owner 2026-10-03).
-- **Code state:** `master` at `3a537c8` is pushed and deployed (gh-pages and the workers.dev Worker). The commit carrying this handoff adds the work below (pushed; **not** deployed anywhere yet).
+- **Code state:** `master` is pushed and deployed to https://riventale.world (single player only).
 - The owner's untracked `index.docx` must never be committed.
 
 ### riventale.world (static site live since 2026-10-03; multiplayer later)
 
-The game is now called **Riventale** in the UI: page title, a pixel-art crest and wordmark on the main menu, a favicon, home-screen icons and a web manifest (all in `public/`, drawn by `npm run art` = `scripts/art.mjs`). Saved-data keys (`poxel_*`) and the `/poxel.io/` gh-pages path were left alone on purpose, so players keep their saves.
+The game is now called **Riventale** in the UI: page title, a pixel-art crest and wordmark on the main menu, a favicon, home-screen icons and a web manifest (all in `public/`, drawn by `npm run art` = `scripts/art.mjs`). Saved-data keys (`poxel_*`), the `x-poxel-*` Worker headers and the `window.poxel` test hooks were left alone on purpose (saves carry over; nobody sees them). The path the game is served under (Vite base for `npm run dev`/`build`, and the game server) is now `/riventale/`.
 
-The riventale.world site has its **own** Worker config, `cloudflare/riventale.jsonc` (Worker `riventale`), separate from the old `cloudflare/wrangler.jsonc` (Worker `poxel`, njytim@gmail.com).
+Also on the site: a themed **Choose your path** difficulty screen (three element-coloured cards with pixel icons) and a **Forging your world** loading screen for single-player worlds (`client/worldLoading.ts`: crest with orbiting element orbs, steps, a bar that follows the chunks loaded round the player, a tip).
+
+The Worker config is `cloudflare/wrangler.jsonc` (Worker `riventale`, account tim@latticelogic.app). `npm run build:cf` builds with `--mode riventale` (`.env.riventale`: `VITE_MULTIPLAYER=off`), which hides Play Online and "Name & server" until multiplayer is set up. Dev and test builds keep them.
 
 1. `npx wrangler whoami` must show **tim@latticelogic.app**. If not: `npx wrangler logout`, then `npx wrangler login` as that account.
-2. `npm run deploy:riventale` builds with base `/` and deploys the Worker to its workers.dev address in that account.
-3. Live: https://riventale.world and https://www.riventale.world (custom domains in `cloudflare/riventale.jsonc`), plus https://riventale.tim-00e.workers.dev. Consider `"workers_dev": false` later.
-4. Multiplayer is deliberately not set up for riventale yet (the owner will decide later). Without the `ORIGIN_URL`/`ORIGIN_SECRET` secrets, Play Online shows the server as offline. `npm run host:cf` still targets the old poxel site.
-5. To deploy the old poxel site again, sign wrangler back in to njytim@gmail.com first.
+2. `npm run deploy:cf` builds and deploys.
+3. Live: https://riventale.world and https://www.riventale.world (custom domains in `cloudflare/wrangler.jsonc`), plus https://riventale.tim-00e.workers.dev. Consider `"workers_dev": false` later.
+4. Multiplayer is deliberately not set up for riventale yet (the owner will decide later). The menu hides it (see above). `npm run host:cf` now targets https://riventale.world; to turn multiplayer on, remove `.env.riventale`'s switch, then run host:cf.
 
 ### Work in this commit (since 3a537c8)
 
@@ -65,7 +66,7 @@ The owner picked **Riventale** (riventale.world). For the record, names checked 
 
 ## Earlier handoff (2026-10-01)
 
-Poxel.io is a browser voxel sandbox game (its own game — never describe it as a clone of anything) with single player and multiplayer. Everything is on `master`, pushed to https://github.com/njytim-cyber/poxel.io. **Live:** https://poxel.njytim.workers.dev (Cloudflare).
+Riventale is a browser voxel sandbox game (its own game — never describe it as a clone of anything) with single player and multiplayer. Everything is on `master`, pushed to https://github.com/njytim-cyber/riventale. **Live:** https://riventale.world (Cloudflare, single player).
 
 ## Status (2026-10-01)
 
@@ -136,23 +137,23 @@ Poxel.io is a browser voxel sandbox game (its own game — never describe it as 
 
 ```bash
 npm install
-npm run dev        # Vite dev client at http://localhost:5173/poxel.io/ (has window.poxel test hooks)
-npm run host       # build + start the game server on :8080 (also serves the built game at /poxel.io/)
+npm run dev        # Vite dev client at http://localhost:5173/riventale/ (has window.poxel test hooks)
+npm run host       # build + start the game server on :8080 (also serves the built game at /riventale/)
 npm run tunnel     # Cloudflare quick tunnel -> prints https://<random>.trycloudflare.com to share
 npm run deploy     # build + publish static client to GitHub Pages (single player + manual server address)
-npm run deploy:cf  # build + deploy the website/Worker to Cloudflare (https://poxel.njytim.workers.dev)
+npm run deploy:cf  # build + deploy the website/Worker to Cloudflare (https://riventale.world)
 npm run host:cf    # multiplayer for the live site: game server on this PC + quick tunnel, Worker re-pointed
 npm test           # unit + all browser suites;  npm run test:unit  /  npm run test:e2e [suite...] [-suite]
 npm run coverage   # coverage: server+shared lines (HTML in coverage/server) + client functions never run
 ```
 
-- **Hosting a session:** in the owner's PowerShell run `npm.cmd run host:cf` (not `npm`: script execution policy blocks `npm.ps1`/`npx.ps1`). Wait for "Multiplayer is live", then share https://poxel.njytim.workers.dev. Ctrl+C saves and stops. Server-side code changes only take effect after restarting it.
+- **Hosting a session:** in the owner's PowerShell run `npm.cmd run host:cf` (not `npm`: script execution policy blocks `npm.ps1`/`npx.ps1`). Wait for "Multiplayer is live", then share https://riventale.world. Ctrl+C saves and stops. Server-side code changes only take effect after restarting it.
 
 - `cloudflared` is the official standalone binary in `%USERPROFILE%\.cloudflared-bin\cloudflared.exe`. It is not on PATH, and `npm run tunnel` uses the full path.
 - **Quick tunnels expire without warning** ("Tunnel not found" in the cloudflared log). Restart `npm run tunnel` to get a new link. A stable URL needs a free Cloudflare account and a named tunnel.
 - Server env vars: `PORT` (8080), `DATA_DIR` (`./data`, gitignored), `MAX_PLAYERS` (16), `MAX_PER_IP` (4), `SEED`.
 - The world and players are saved in `data/world.json` and `data/players/<name>.json`, each with a `.bak`. Corrupt files are moved to `*.corrupt-<ts>`.
-- **Hosting decision:** the website is on Cloudflare (`npm run deploy:cf` → https://poxel.njytim.workers.dev; `cloudflare/worker.js` also forwards multiplayer to `ORIGIN_URL` with the shared `ORIGIN_SECRET`). For now the game server runs on the owner's PC: `npm run host:cf` starts it with a fresh `ORIGIN_SECRET`, opens a Cloudflare quick tunnel, and points the Worker at it (`wrangler secret bulk`), so players always use the workers.dev link. No domain or paid server until multiplayer is proven; after that, a domain plus an always-on server (e.g. DigitalOcean Singapore) behind a named Cloudflare Tunnel. Fly.io was dropped: its Windows tool is unsigned, and Smart App Control (which stays on) blocks it.
+- **Hosting decision:** the website is on Cloudflare (`npm run deploy:cf` → https://riventale.world; `cloudflare/worker.js` also forwards multiplayer to `ORIGIN_URL` with the shared `ORIGIN_SECRET`). For now the game server runs on the owner's PC: `npm run host:cf` starts it with a fresh `ORIGIN_SECRET`, opens a Cloudflare quick tunnel, and points the Worker at it (`wrangler secret bulk`), so players always use the workers.dev link. No domain or paid server until multiplayer is proven; after that, a domain plus an always-on server (e.g. DigitalOcean Singapore) behind a named Cloudflare Tunnel. Fly.io was dropped: its Windows tool is unsigned, and Smart App Control (which stays on) blocks it.
 - `npm run deploy:cf` deploys to Cloudflare. In the owner's own PowerShell, use `npx.cmd` (script execution policy blocks `npx.ps1`).
 - GitHub Actions: manual-only workflows, if any. The owner watches Actions minutes, so add nothing that runs on push.
 - Node ≥ 23.6 is required: the server runs TypeScript directly via type stripping. Server and shared code must use `.ts` import extensions and erasable syntax only (no enums or parameter properties). This is checked by `tsconfig.server.json`.

@@ -56,9 +56,9 @@ test('http: health, the game page, and bad or sneaky addresses', async () => {
     assert.equal(JSON.parse(health.body).ok, true);
     const root = await get(s.port, '/');
     assert.equal(root.status, 302, 'the root sends you to the game');
-    assert.equal(root.headers.location, '/poxel.io/');
-    assert.equal((await get(s.port, '/poxel.io/%E0%A4%A')).status, 400, 'a broken address is refused, not a crash');
-    const sneaky = await get(s.port, '/poxel.io/../package.json');
+    assert.equal(root.headers.location, '/riventale/');
+    assert.equal((await get(s.port, '/riventale/%E0%A4%A')).status, 400, 'a broken address is refused, not a crash');
+    const sneaky = await get(s.port, '/riventale/../package.json');
     assert.ok(!sneaky.body.includes('"devDependencies"'), 'no files from outside the game folder');
     const other = await get(s.port, '/nothing-here');
     assert.match(other.body, /game server is running/);

@@ -165,6 +165,20 @@
     </div>
 
     <!-- Joining a server: shown until the ground around you has loaded -->
+    <!-- Creating or opening a single-player world (client/worldLoading.ts) -->
+    <div id="world-loading" style="display: none;" aria-live="polite">
+      <div class="wl-stars"></div>
+      <div class="wl-box">
+        <div class="wl-orbit">
+          <img class="wl-crest" src="/crest.svg" alt="" />
+          <i class="wl-orb storm"></i><i class="wl-orb fire"></i><i class="wl-orb frost"></i><i class="wl-orb forest"></i>
+        </div>
+        <h2 id="wl-title">Forging your world</h2>
+        <p id="wl-step">Raising the mountains...</p>
+        <div class="wl-bar"><div id="wl-fill"></div></div>
+        <p id="wl-tip"></p>
+      </div>
+    </div>
     <div id="loading-screen" style="display: none;">
       <div class="loading-box">
         <div class="loading-spinner"></div>
@@ -241,11 +255,39 @@
       </div>
 
       <div class="menu-content" id="difficulty-screen" style="display: none;">
-        <h2>Choose difficulty</h2>
-        <button class="menu-btn difficulty-btn" data-difficulty="easy"><span>Easy</span><small>No hunger. Mobs hit softly.</small></button>
-        <button class="menu-btn primary difficulty-btn" data-difficulty="medium"><span>Medium</span><small>Hunger bar: eat to heal and sprint.</small></button>
-        <button class="menu-btn difficulty-btn" data-difficulty="hard"><span>Hard</span><small>Starving can kill. More, tougher mobs.</small></button>
-        <button id="btn-back-difficulty" class="menu-btn">Back</button>
+        <h2 class="path-title"><img src="/title-path.svg" alt="Choose your path" /></h2>
+        <p class="path-sub">How hard should the world fight back?</p>
+        <div class="path-cards">
+          <button class="path-card difficulty-btn" data-difficulty="easy" style="--c: #3fc25a; --c-dark: #1f7d3a;">
+            <img class="path-icon" src="/icon-easy.svg" alt="" />
+            <span class="path-text">
+              <span class="path-name">Easy</span>
+              <span class="path-tag">The Wanderer</span>
+              <span class="path-pips" aria-label="Danger 1 of 3"><i class="on"></i><i></i><i></i></span>
+              <small>No hunger. Mobs hit softly.</small>
+            </span>
+          </button>
+          <button class="path-card difficulty-btn" data-difficulty="medium" style="--c: #ffd23f; --c-dark: #d99a12;">
+            <span class="path-badge">Recommended</span>
+            <img class="path-icon" src="/icon-medium.svg" alt="" />
+            <span class="path-text">
+              <span class="path-name">Medium</span>
+              <span class="path-tag">The Adventurer</span>
+              <span class="path-pips" aria-label="Danger 2 of 3"><i class="on"></i><i class="on"></i><i></i></span>
+              <small>Hunger bar: eat to heal and sprint.</small>
+            </span>
+          </button>
+          <button class="path-card difficulty-btn" data-difficulty="hard" style="--c: #ff6a2a; --c-dark: #c23a10;">
+            <img class="path-icon" src="/icon-hard.svg" alt="" />
+            <span class="path-text">
+              <span class="path-name">Hard</span>
+              <span class="path-tag">The Champion</span>
+              <span class="path-pips" aria-label="Danger 3 of 3"><i class="on"></i><i class="on"></i><i class="on"></i></span>
+              <small>Starving can kill. More, tougher mobs.</small>
+            </span>
+          </button>
+        </div>
+        <button id="btn-back-difficulty" class="path-back">&larr; Back</button>
       </div>
 
       <div class="menu-content" id="mp-screen" style="display: none;">

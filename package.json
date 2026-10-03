@@ -1,5 +1,5 @@
 {
-  "name": "poxel.io",
+  "name": "riventale",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -16,11 +16,10 @@
     "test:perf": "node tests/e2e/run.mjs perf",
     "test:unit": "node --test \"tests/unit/*.test.ts\"",
     "test": "npm run test:unit && npm run test:e2e",
-    "build:cf": "vite build --base=/ --outDir dist-cf",
+    "build:cf": "vite build --base=/ --outDir dist-cf --mode riventale",
     "deploy:cf": "npm run build:cf && wrangler deploy --config cloudflare/wrangler.jsonc",
     "host:cf": "node scripts/host-cf.mjs",
     "coverage": "node scripts/coverage.mjs",
-    "deploy:riventale": "npm run build:cf && wrangler deploy --config cloudflare/riventale.jsonc",
     "art": "node scripts/art.mjs"
   },
   "keywords": [],

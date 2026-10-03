@@ -10,7 +10,7 @@ async function join(name) {
   const page = await (await browser.createBrowserContext()).newPage();
   watch(page, name);
   const t0 = Date.now();
-  await page.goto(`${base.replace(/\/$/, '')}/poxel.io/`, { waitUntil: 'load' });
+  await page.goto(`${base.replace(/\/$/, '')}/riventale/`, { waitUntil: 'load' });
   info(`${name} page load ${Date.now() - t0}ms`);
   await sleep(1500);
   await page.click('#btn-multiplayer');

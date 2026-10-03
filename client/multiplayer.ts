@@ -71,7 +71,10 @@ const playServer: string = servedByGameServer ? defaultServer : toSocketUrl(para
 if (mpName) mpName.value = profileName();
 if (mpUrl) mpUrl.value = playServer;
 
+// Builds made with --mode riventale (npm run build:cf / deploy:cf) leave multiplayer out of the menu for now
+const multiplayerOn = (import.meta as any).env?.VITE_MULTIPLAYER !== 'off';
 const mpButton = document.getElementById('btn-multiplayer') as HTMLButtonElement | null;
+if (mpButton && !multiplayerOn) mpButton.style.display = 'none';
 mpButton?.addEventListener('click', () => hooks.showMenu('mp'));
 document.getElementById('btn-back-mp')?.addEventListener('click', () => hooks.showMenu('main'));
 document.getElementById('btn-connect')?.addEventListener('click', () => {
@@ -83,7 +86,7 @@ document.getElementById('btn-connect')?.addEventListener('click', () => {
 
 // One tap: straight into the world with your name and last character (both changeable under Multiplayer)
 const playOnline = document.getElementById('btn-play-online') as HTMLButtonElement | null;
-if (playOnline && playServer) {
+if (playOnline && playServer && multiplayerOn) {
   playOnline.style.display = '';
   const label = document.getElementById('play-online-label');
   if (label && inviteFrom) label.textContent = `Join ${inviteFrom}`;

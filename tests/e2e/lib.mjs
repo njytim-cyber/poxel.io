@@ -11,7 +11,7 @@ export const OUT = process.env.POXEL_OUT || join(ROOT, 'tests', 'e2e', 'out');
 mkdirSync(OUT, { recursive: true });
 
 // The Vite dev client (window.poxel hooks only exist in dev builds)
-export const BASE = process.env.POXEL_URL || 'http://localhost:5173/poxel.io/';
+export const BASE = process.env.POXEL_URL || 'http://localhost:5173/riventale/';
 // The multiplayer server the suites join (run.mjs starts an isolated one and sets this)
 export const WS = process.env.POXEL_WS || 'ws://localhost:8080';
 export const BUDGETS = JSON.parse(readFileSync(join(ROOT, 'tests', 'e2e', 'budgets.json'), 'utf8'));

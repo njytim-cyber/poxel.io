@@ -1,17 +1,18 @@
-// Cloudflare Worker: website + multiplayer entrance. Deploy with: npm run deploy:cf
+// Cloudflare Worker for riventale.world (live). Account: tim@latticelogic.app ONLY (check with npx wrangler whoami).
+// Deploy with: npm run deploy:cf
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
-  "name": "poxel",
+  "name": "riventale",
   "main": "worker.js",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
+  "routes": [{ "pattern": "riventale.world", "custom_domain": true }, { "pattern": "www.riventale.world", "custom_domain": true }],
   "assets": {
     "directory": "../dist-cf",
     "binding": "ASSETS",
-    // Multiplayer connects to the site's own address ("/"), so the Worker sees every request first
     "run_worker_first": true
   },
-  // Secrets (not in this file): ORIGIN_URL (the game server's address) and ORIGIN_SECRET.
-  // npm run host:cf sets both each time it starts the game server on this PC.
+  // Multiplayer is not set up here yet: without the ORIGIN_URL/ORIGIN_SECRET secrets the Worker answers
+  // multiplayer connections with 503 and the game shows it as offline.
   "observability": { "enabled": true }
 }

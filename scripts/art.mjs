@@ -66,11 +66,23 @@ const GLYPHS = {
   T: ['11111', '00100', '00100', '00100', '00100', '00100', '00100'],
   A: ['01110', '10001', '10001', '11111', '10001', '10001', '10001'],
   L: ['10000', '10000', '10000', '10000', '10000', '10000', '11111'],
+  C: ['01111', '10000', '10000', '10000', '10000', '10000', '01111'],
+  H: ['10001', '10001', '10001', '11111', '10001', '10001', '10001'],
+  O: ['01110', '10001', '10001', '10001', '10001', '10001', '01110'],
+  S: ['01111', '10000', '10000', '01110', '00001', '00001', '11110'],
+  Y: ['10001', '10001', '01010', '00100', '00100', '00100', '00100'],
+  U: ['10001', '10001', '10001', '10001', '10001', '10001', '01110'],
+  P: ['11110', '10001', '10001', '11110', '10000', '10000', '10000'],
+  ' ': ['000', '000', '000', '000', '000', '000', '000'],
 };
 function wordmark(text) {
   const on = new Set();
-  [...text].forEach((ch, i) => GLYPHS[ch].forEach((row, y) => [...row].forEach((b, x) => { if (b === '1') on.add(`${i * 6 + x + 1},${y + 1}`); })));
-  const w = text.length * 6 + 2, h = 10;
+  let left = 1;
+  for (const ch of text) {
+    GLYPHS[ch].forEach((row, y) => [...row].forEach((b, x) => { if (b === '1') on.add(`${left + x},${y + 1}`); }));
+    left += GLYPHS[ch][0].length + 1;
+  }
+  const w = left + 1, h = 10;
   const edge = new Set(), shadow = new Set();
   for (const k of on) {
     const [x, y] = k.split(',').map(Number);
@@ -85,6 +97,66 @@ function wordmark(text) {
     `<g>${[...on].map(k => { const [x, y] = k.split(',').map(Number); return px(x, y, 'url(#gold)'); }).join('')}</g>`);
 }
 save('wordmark.svg', wordmark('RIVENTALE'));
+save('title-path.svg', wordmark('CHOOSE YOUR PATH'));
+
+// 16 x 16 icons for the difficulty cards: a sapling (easy), a sword (medium), a flame (hard)
+function sprite(rows, colours) {
+  return svg(16, 16, rows.flatMap((row, y) => [...row].map((ch, x) => colours[ch] ? px(x, y, colours[ch]) : '')).join(''));
+}
+save('icon-easy.svg', sprite([
+  '................',
+  '......ll........',
+  '.....lggl...ll..',
+  '.....lgggl.lggl.',
+  '......lgggGgggl.',
+  '.......lggGggl..',
+  '........lGGll...',
+  '.........b......',
+  '.........b......',
+  '........bb......',
+  '........b.......',
+  '.....ddddddd....',
+  '....dDDDDDDDd...',
+  '.....ddddddd....',
+  '................',
+  '................',
+], { l: '#a8f0a0', g: '#3fc25a', G: '#1f7d3a', b: '#8a5a2b', d: '#6b4423', D: '#4a2e17' }));
+save('icon-medium.svg', sprite([
+  '................',
+  '.............ww.',
+  '............wss.',
+  '...........wsS..',
+  '..........wsS...',
+  '.........wsS....',
+  '........wsS.....',
+  '...h...wsS......',
+  '...hh.wsS.......',
+  '....hhsS........',
+  '.....hh.........',
+  '....bhhh........',
+  '...bb..hh.......',
+  '..bb............',
+  '.bb.............',
+  '................',
+], { w: '#ffffff', s: '#cfd8e6', S: '#7d8aa3', h: '#ffd23f', b: '#8a5a2b' }));
+save('icon-hard.svg', sprite([
+  '................',
+  '.......r........',
+  '......rr....r...',
+  '.....rror..rr...',
+  '....rrooor.rr...',
+  '....rooyoorrr...',
+  '...rrooyyoorr...',
+  '...roooyyyoor...',
+  '..rrooyyyyoorr..',
+  '..rooyyywyyoor..',
+  '..rooyywwwyoor..',
+  '..rroyywwwyorr..',
+  '...rooyyyyyor...',
+  '....rrooooorr...',
+  '......rrrrr.....',
+  '................',
+], { r: '#c23a10', o: '#ff6a2a', y: '#ffd23f', w: '#fff6c8' }));
 
 // PNG icons. Pixel art is scaled with nearest-neighbour so the edges stay sharp.
 const png = async (src, size, name) => {
