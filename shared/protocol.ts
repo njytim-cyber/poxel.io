@@ -57,7 +57,7 @@ export type ClientMsg =
   | { t: 'egg'; x: number; y: number; z: number }         // a spawn egg used: the creature appears in this (empty) block
   | { t: 'ride'; kind: Ride; x?: number; y?: number; z?: number } // get into a boat (on water) or minecart (on a rail) there; null: get out
   | { t: 'dev'; give?: string; count?: number; spawn?: string; time?: number; tp?: { x: number; y: number; z: number }; blocks?: number[]; // test builds only (Game option devTools)
-      equip?: (string | null)[]; heal?: boolean; enraged?: boolean; dist?: number; clearMobs?: boolean; weather?: Weather; achieve?: string[] }
+      equip?: (string | null)[]; heal?: boolean; enraged?: boolean; dist?: number; clearMobs?: boolean; weather?: Weather; achieve?: string[]; enrageNear?: boolean }
   | { t: 'hello'; v: number; name: string; look: Look; token?: string;
       prevName?: string;                                  // renaming: the name this player had on this server
       carry?: { inv: unknown; health: number; food?: number } } // character brought from a single-player save
@@ -134,7 +134,7 @@ export type ServerMsg =
   | { t: 'maxhp'; max: number }                          // maximum health (earth leggings double it)
   | { t: 'status'; poison: number; fire: number }        // seconds left poisoned / on fire (shown on screen)
   | { t: 'fx'; kind: 'explode' | 'shatter' | 'stomp' | 'slam' | 'nova' | 'mark' | 'enrage' | 'gust' | 'spores' | 'charge'
-      | 'transform' | 'skybeam' | 'warn' | 'starfall' | 'deflect' | 'wingcharge'; x: number; y: number; z: number; r: number } // a visual effect
+      | 'transform' | 'gather' | 'skybeam' | 'warn' | 'starfall' | 'deflect' | 'wingcharge'; x: number; y: number; z: number; r: number } // a visual effect
   | { t: 'pong'; ts: number };
 
 // Entity snapshot flags

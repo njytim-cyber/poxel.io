@@ -1,4 +1,65 @@
-# Poxel.io — Session Handoff (2026-10-01)
+# Poxel.io (becoming Riventale) — Session Handoff (2026-10-03)
+
+## Read first (2026-10-03)
+
+- **Direction change:** the game is moving to the new domain **riventale.world** and will become an **app-based game**. **Principal development now happens on another machine**; this PC (the owner's Windows PC) is no longer the main dev box.
+- **Cloudflare account for the new domain: tim@latticelogic.app.** riventale.world was bought through Cloudflare Registrar in that account (2026-10-03). On 2026-10-03 the registry did not yet list nameservers for it, so it was not resolving yet; give it time.
+  - The **old** site, https://poxel.njytim.workers.dev, is a Worker named `poxel` in a **different** account (njytim@gmail.com). Its secrets `ORIGIN_URL`/`ORIGIN_SECRET` are set there by `npm run host:cf`.
+- **Code state:** `master` at `3a537c8` is pushed and deployed (gh-pages and the workers.dev Worker). The commit carrying this handoff adds the work below (pushed; **not** deployed anywhere yet).
+- The owner's untracked `index.docx` must never be committed.
+
+### Publishing to riventale.world (not done yet)
+
+1. Sign wrangler in to the new account: `npx wrangler logout`, then `npx wrangler login` (as tim@latticelogic.app). `npx wrangler whoami` should show that account.
+2. In `cloudflare/wrangler.jsonc`, add a custom domain (the zone must be in the same account):
+   `"routes": [{ "pattern": "riventale.world", "custom_domain": true }]`
+   Optionally also add `www.riventale.world`, and set `"workers_dev": false` once the domain works. Consider renaming the Worker (`"name": "riventale"`).
+3. Run `npm run deploy:cf`. It builds with base `/`, which a custom domain needs; that's already the case.
+4. Multiplayer: `npm run host:cf` (scripts/host-cf.mjs) sets the Worker secrets for the account wrangler is signed in to. Run it on whichever machine hosts the game server, after step 1. For a stable setup, use a named Cloudflare Tunnel on riventale.world (see Decisions).
+5. Rename the game in the UI: the `<title>` and menu text in `index.html` say "Poxel.io". The owner chose **Riventale**.
+
+### Work in this commit (since 3a537c8)
+
+- **The Tempest's transformation is a 10-second cinematic** (`TRANSFORM_SECONDS` in server/core/game.ts and client/remote.ts must match). It can't be hurt meanwhile.
+  1. It flies to the middle of its temple (`m.home`, set when a temple boss rises).
+  2. It fires a held laser at each standing crystal in turn, absorbing it (+60 hp each).
+  3. Its rings spin up and shatter, and its wings fade away.
+  4. Light pours in (fx `gather` at 6.8 s).
+  5. At 8.2 s, the burst (fx `transform`): four wings fade back in and snap open, and the halo drops on.
+  Client side: `tempestForm()` in client/remote.ts.
+- **Tempest health is 480** (it was 960; the owner said it was too strong).
+- **Dev-only** `{t:'dev', enrageNear:true}`: puts a boss that's already up into phase two. It's used to film or test the transformation at a real temple. The script used was in a session scratchpad: start single player with seed 777 and find a clouds shrine with `nearestShrine`.
+- **Earlier today (in 3a537c8):** themed boss bars, the Tempest's second form, review fixes, and more. See the sections below.
+- **Tests:** 121 unit tests pass. Browser suites pass, except:
+  - `perf` fails when the machine is busy. Chunk generation was benchmarked in Node at the same speed as before.
+  - `join`/`mpcuj` are flaky under load and pass when run alone.
+
+### Requested but NOT started: dragons, Black Knight, totems (owner's spec, with their answers)
+
+1. **Dragon Altar** (craftable in the crafting table, normal world, not secret). Placing it uses it up and teleports you to a **boss arena**. Plan: a new far-off strip like the other worlds (for example `shared/lair.ts`, x 170000-171024, a floating obsidian arena in the void, with an exit block back to where you came from). Every `isRobotic`/`isElemental` hook would need a lair case:
+   - worldgen.ts: columnInfo, generateChunkData, placeFeatures, structureInRegion;
+   - client/sky.ts;
+   - client/weather.ts;
+   - mob spawning in game.ts;
+   - daylight.
+2. **Black Dragon, 800 health.** It flies, swoops and nearly one-shots you, uses only elemental abilities, and has **8 moves**. Proposed:
+   - fire breath (fireball fan);
+   - magma meteors (marked);
+   - frost breath (icicles, freeze);
+   - quake slam;
+   - poison cloud;
+   - hurricanes;
+   - lightning storm;
+   - a telegraphed death swoop (~17 damage).
+3. **The Elemental Core becomes a black dragon, 1500 health** (currently 2000 in shared/mobs.ts). A **spinner on its head** picks its element (**fire, earth, wind, water**), and its **spikes, teeth and eyes** recolour to match. It keeps the existing element cycling (`updateCore` with `CORE_ELEMENTS`). **Second form: it transforms into a Black Knight** and fights on foot with melee, a dash, elemental sword waves and a leap slam.
+4. **Totems: Speed and Jump.** They are crafted, stack (to 16; the effect does not grow with stack size), and work **in the offhand** (`slots[60]`, `OFFHAND` in shared/inventory.ts) or **placed as a block**, which buffs everyone within 5 blocks. There is no generic buff system yet: add a server→client `buff` message and multiply client walk speed and `JUMP_VELOCITY` (client/player.ts). Server move budgets (game.ts onMove, refill 11/13 per s) should allow about ×1.35.
+5. The owner asked to confirm with them before building, since the app direction may change priorities.
+
+### Name research (2026-10-03)
+
+The owner picked **Riventale** (riventale.world). For the record, names checked earlier and found free on .io: Cubelore, Voxelborn, Voxeltempest, Elementalbound, Cubiara, Poxelforge, Voxzy. Taken: voxel.io, VoxelCraft, VoxelForge, Voxelmine, Voxel Quest, Cubia.
+
+## Earlier handoff (2026-10-01)
 
 Poxel.io is a browser voxel sandbox game (its own game — never describe it as a clone of anything) with single player and multiplayer. Everything is on `master`, pushed to https://github.com/njytim-cyber/poxel.io. **Live:** https://poxel.njytim.workers.dev (Cloudflare).
 
@@ -27,7 +88,7 @@ Poxel.io is a browser voxel sandbox game (its own game — never describe it as 
   - The Magma Colossus gathers 5 magma balls and throws them one by one (10 hearts each without armour), slams the ground, and in phase two makes fireballs rain from the sky.
   - The Thorn Guardian stomps (everything within 8 blocks is hurt and thrown about 8 blocks) and, in phase two, bursts into poison spores.
   - The Tempest (renamed from the Storm Roc: a gold core in gold rings, with white wings) fires lasers from its core and summons hurricanes that fling you up.
-  - Each boss now has a temple with two loot chests. The Cloud Kingdom's floats at y 48 with a spiral stair. (2026-10-02: temples now sit at the middle of each biome, radius 16, four 16-tall towers with boss crystals that heal the boss; the Tempest (960 hp) has a second form; the Elemental Core has 2000 hp.)
+  - Each boss now has a temple with two loot chests. The Cloud Kingdom's floats at y 48 with a spiral stair. (2026-10-02: temples now sit at the middle of each biome, radius 16, four 16-tall towers with boss crystals that heal the boss; the Tempest (480 hp) has a second form; the Elemental Core has 2000 hp.)
   - All bosses (the Robot Titan too) come back **5 minutes** after being defeated.
   - Visuals: a particle system (`client/particles.ts`) with effects sent as `fx` messages, screen shake, projectiles with glows and trails, and new boss models.
   - Armour is now drawn as plates over the body, with elemental trims. Ores have their own icons.

@@ -693,9 +693,9 @@ test('bosses come back 5 minutes after being defeated', () => {
   assert.ok(boss(), 'back after 5');
 });
 
-test('the Tempest: tough (960 health), and now and then it perches on the ground for a few seconds', () => {
+test('the Tempest: tough (480 health), and now and then it perches on the ground for a few seconds', () => {
   const { g, got, p, boss, y } = arena('tempest');
-  assert.equal(boss.health, 960);
+  assert.equal(boss.health, 480);
   boss.moves.perch = 0; boss.moves.laser = 99;
   tick(g, 2);
   assert.ok(chats(got).some(t => t.includes('lands to rest')));
@@ -960,13 +960,18 @@ test('the Tempest\'s second form: draws in the crystals, grows a shield that tur
   boss.crystals = [[x + 8, y + 10, z + 8], [x - 8, y + 10, z - 8], [x + 8, y + 10, z - 8]];
   w.set(x + 8, y + 10, z + 8, BLOCK_ID.boss_crystal); w.set(x - 8, y + 10, z - 8, BLOCK_ID.boss_crystal);
   boss.moves.rapture = 99; boss.moves.starfall = 99; boss.moves.swoop = 99; boss.moves.bolt = 99; boss.moves.laser = 99;
-  boss.health = 400;
+  boss.health = 200;
   tick(g, 2);
   assert.ok(boss.phase2, 'its second form');
-  assert.ok(fxs(got, 'transform').length === 1 && chats(got).some(t => t.includes('draws in 2 crystals')));
+  assert.ok(chats(got).some(t => t.includes('begins to transform')) && fxs(got, 'transform').length === 0, 'it starts transforming');
+  const mid = boss.health;
+  (g as any).damageMob(boss, 50, p.body.pos);
+  assert.equal(boss.health, mid, 'it cannot be hurt while it transforms');
+  tick(g, 20 * 10.2); // (the transformation)
+  assert.ok(fxs(got, 'transform').length === 1 && chats(got).some(t => t.includes('draws in 2 crystals')), 'then the burst');
+  assert.ok(fxs(got, 'gather').length === 1 && got.filter(m => m.t === 'beam').length >= 6, 'lasers on the crystals, then light pours in');
   assert.equal(w.get(x + 8, y + 10, z + 8), 0, 'the crystals are gone');
-  assert.ok(boss.health >= 400 + 120 - 4, `healed by them (${boss.health})`);
-  tick(g, 20 * 3.2); // (the transformation)
+  assert.ok(boss.health >= 200 + 120 - 4, `healed by them (${boss.health})`);
   // The shield: a fireball bounces back
   const hp = boss.health;
   (g as any).spawnShot('fireball', { x: boss.body.pos.x + 4, y: boss.body.pos.y + 1, z: boss.body.pos.z }, { x: -18, y: 0, z: 0 }, p.eid, true, 6, { fire: 3 });

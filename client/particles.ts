@@ -146,6 +146,16 @@ export function onFx(m: Extract<ServerMsg, { t: 'fx' }>, eye: THREE.Vector3) {
       pillar(x, y, z, y + 80, 1.2, 0xfff4a0, 1.5);
       if (near(60)) shake = Math.max(shake, 0.8);
       break;
+    case 'gather':
+      // The Tempest gathers itself: streams of light pour in towards its core from all around
+      for (let k = 0; k < 220; k++) {
+        const a = Math.random() * Math.PI * 2, u = Math.random() * 2 - 1, d = r * (0.5 + Math.random() * 0.6), q = Math.sqrt(1 - u * u);
+        const t = 0.5 + Math.random() * 1.6, dx = Math.cos(a) * q * d, dy = u * d * 0.6, dz = Math.sin(a) * q * d;
+        emit(x + dx, y + dy, z + dz, -dx / t, -dy / t, -dz / t, [0xffffff, 0xffd040, 0xfff4a0][k % 3], t);
+      }
+      ring(x, y - 1.5, z, r, 0xffd040, 2.2, { thick: 0.06 });
+      if (near(50)) shake = Math.max(shake, 0.25);
+      break;
     case 'skybeam':
       // Its core splits into five beams shot up into the sky
       for (let k = 0; k < 5; k++) {

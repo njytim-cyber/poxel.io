@@ -35,7 +35,7 @@ export const MOB_SPECS: Record<MobKind, MobSpec> = {
   hurricane: { halfW: 0.9, height: 4.0, health: 999, speed: 3.2, hostile: true, damage: 0 },
   // The final boss: summoned at an Elemental Altar; floats, and fights with each element in turn
   elemental_core: { halfW: 1.2, height: 3.0, health: 2000, speed: 3.0, hostile: true, damage: 6 },
-  tempest: { halfW: 1.3, height: 1.8, health: 960, speed: 4.5, hostile: true, damage: 4 },
+  tempest: { halfW: 1.3, height: 1.8, health: 480, speed: 4.5, hostile: true, damage: 4 },
 };
 
 export const MOB_KINDS = Object.keys(MOB_SPECS) as MobKind[];

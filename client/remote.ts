@@ -18,7 +18,10 @@ interface MobModel {
   aura?: { colors: number[]; rise: number; height: number; width: number }; // a boss's particles (more of them when enraged)
   core?: THREE.Mesh;                                                        // the Elemental Core's crystal
   // The Tempest's second form, eased in over two seconds (t: 0..1) once it's enraged
-  form2?: { rings: THREE.Object3D[]; ringMat: THREE.MeshLambertMaterial; extraWings: THREE.Object3D[]; halo: THREE.Mesh; shield: THREE.Mesh; t: number };
+  form2?: {
+    rings: THREE.Object3D[]; ringMat: THREE.MeshLambertMaterial; extraWings: THREE.Object3D[]; halo: THREE.Mesh; shield: THREE.Mesh;
+    heart: THREE.Mesh; glow: THREE.Mesh; wingMats: THREE.MeshLambertMaterial[]; tt: number; seen: boolean; // tt: seconds into the transformation
+  };
 }
 interface View {
   eid: number; kind: EntityKind; obj: THREE.Object3D; samples: Sample[];
@@ -271,7 +274,8 @@ function buildMob(kind: MobKind, owner?: string): MobModel {
     const shield = new THREE.Mesh(new THREE.SphereGeometry(2.1, 24, 16), new THREE.MeshBasicMaterial({ color: 0xc8e8ff, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
     (shield.material as THREE.Material).userData.owned = true;
     shield.position.y = 1.2; model.add(shield);
-    form2 = { rings, ringMat, extraWings, halo: haloRing, shield, t: 0 };
+    white.transparent = true; tip.transparent = true; // (its wings fade away as it transforms)
+    form2 = { rings, ringMat, extraWings, halo: haloRing, shield, heart: core, glow: halo, wingMats: [white, tip], tt: 0, seen: false };
     for (const side of [-1, 1]) {
       // Each wing: a fan of long feathers
       const wing = new THREE.Group();
@@ -561,15 +565,7 @@ export function updateRemote(dt: number, eye?: THREE.Vector3) {
       if (v.kind === 'tempest' || v.kind === 'elemental_core') v.mob.model.position.y = Math.sin(v.age * 3) * 0.3;
       if (v.kind === 'hurricane') v.mob.model.scale.setScalar(angry ? 2 : 1); // the Tempest's second form: twice the size
       const f2 = v.mob.form2;
-      if (f2) {
-        // The transformation: rings fade away, the new wings unfold, the angel's ring and the shield appear
-        f2.t = angry ? Math.min(1, f2.t + dt / 2) : Math.max(0, f2.t - dt);
-        f2.ringMat.opacity = 1 - f2.t;
-        for (const r of f2.rings) r.visible = f2.t < 0.99;
-        for (const w of f2.extraWings) w.scale.setScalar(Math.max(0.001, f2.t));
-        f2.halo.visible = f2.t > 0.05; f2.halo.scale.setScalar(f2.t); f2.halo.rotation.z += dt * 2;
-        (f2.shield.material as THREE.MeshBasicMaterial).opacity = f2.t * (0.12 + 0.06 * Math.sin(v.age * 4));
-      }
+      if (f2) tempestForm(v, f2, angry, dt);
       if (v.mob.core) {
         // Its element (ice, fire, earth, wind) arrives in two flag bits; the crystal glows that colour
         const elem = (v.flags & EF_SNEAK ? 1 : 0) | (v.flags & EF_DOWNED ? 2 : 0);
@@ -604,6 +600,58 @@ function flyProjectile(v: View, dt: number) {
 
 // A boss's aura: embers rising off the Colossus, leaves off the Guardian, snow round the Wraith, sparks round the
 // Tempest, dust whirling up a hurricane (twice as many when enraged)
+// The Tempest's transformation, in step with the server's 10 seconds (tt counts them):
+//   0-2.5    it flies to the middle of its temple; its rings start to spin up
+//   2.5-7    it lasers each crystal in turn (beams from the server); the core swells, the rings whirl faster
+//   5.5-6.6  the rings stretch out and shatter away
+//   6.5-7.8  its wings fade away, leaving the bare, trembling core inside a bright shell
+//   8.2      the burst (the server's 'transform' effect): four wings fade back in and snap open, the halo drops on
+//   10       the second form: the shield settles to a faint shimmer
+// Seen already transformed (joined mid-fight): straight to the end. Back to the first form (a new Tempest): reset.
+const TRANSFORM_SECONDS = 10;
+const smooth = (a: number, b: number, t: number) => { const u = Math.min(1, Math.max(0, (t - a) / (b - a))); return u * u * (3 - 2 * u); };
+const springOut = (u: number) => { const c = 2.2; return u <= 0 ? 0 : u >= 1 ? 1 : 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2); };
+function tempestForm(v: View, f2: NonNullable<MobModel['form2']>, angry: boolean, dt: number) {
+  if (!f2.seen) { f2.seen = true; if (angry) f2.tt = TRANSFORM_SECONDS; }
+  f2.tt = angry ? Math.min(TRANSFORM_SECONDS, f2.tt + dt) : 0;
+  const t = f2.tt, live = t > 0 && t < TRANSFORM_SECONDS;
+  const charge = smooth(0, 7, t) * (1 - smooth(8.2, 9, t));
+  const shatter = smooth(5.5, 6.6, t), open = springOut(Math.min(1, Math.max(0, (t - 8.2) / 0.6)));
+  const flare = live ? smooth(7.4, 8.2, t) * (1 - smooth(8.2, 9.2, t)) : 0;
+  // The rings: whirl faster and faster, then stretch out and fade away
+  f2.ringMat.opacity = 1 - shatter;
+  for (const r of f2.rings) {
+    r.visible = shatter < 0.99;
+    r.scale.setScalar(1 + shatter * 2.2);
+    r.rotation.y += dt * charge * 16;
+  }
+  // The core swells and trembles, flaring white just before the burst
+  f2.heart.scale.setScalar(1 + charge * 0.5 + flare * 0.7);
+  (f2.glow.material as THREE.MeshBasicMaterial).opacity = 0.25 + charge * 0.35 + flare * 0.4;
+  const j = live && t > 5 && t < 8.2 ? 0.08 * charge : 0;
+  v.mob!.model.position.x = (Math.random() - 0.5) * j; v.mob!.model.position.z = (Math.random() - 0.5) * j;
+  // Its wings fade away... then four come back
+  const wingsShown = live ? 1 - smooth(6.5, 7.8, t) + smooth(8.2, 8.9, t) : 1;
+  for (const m of f2.wingMats) { m.opacity = Math.min(1, wingsShown); m.depthWrite = wingsShown > 0.98; }
+  for (const w of v.mob!.wings) {
+    w.obj.visible = wingsShown > 0.02;
+    if (!f2.extraWings.includes(w.obj)) continue;
+    // The new pair bursts out (with a little overshoot), sweeping open from folded
+    w.obj.scale.setScalar(Math.max(0.001, open));
+    w.obj.rotation.y = -w.side * (1 - Math.min(1, open)) * 1.4;
+  }
+  // The angel's ring drops from above and settles over it
+  const halo = smooth(8.4, 9.6, t);
+  f2.halo.visible = halo > 0.01;
+  f2.halo.position.y = 2.5 + (1 - halo) * 2.5;
+  f2.halo.scale.setScalar(Math.max(0.001, halo));
+  f2.halo.rotation.z += dt * (2 + (1 - halo) * 10);
+  // The shield: a bright shell round the bare core, then a faint shimmer
+  const shell = smooth(6.5, 7.6, t) * (1 - smooth(8.2, 9.5, t));
+  (f2.shield.material as THREE.MeshBasicMaterial).opacity = shell * 0.45 + smooth(8.8, 10, t) * (0.12 + 0.06 * Math.sin(v.age * 4));
+  f2.shield.scale.setScalar(0.6 + 0.4 * smooth(6.5, 8.6, t));
+}
+
 function bossAura(v: View, dt: number, angry: boolean) {
   const au = v.mob!.aura!;
   const n = Math.min(6, Math.floor((angry ? 60 : 25) * dt + Math.random()));

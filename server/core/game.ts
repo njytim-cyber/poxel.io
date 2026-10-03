@@ -92,6 +92,7 @@ function sanitizeChest(c: unknown[]): Stack[] {
 const MOB_CAUSES = new Set(['zombie', 'husk', 'frostbitten', 'spider', 'skeleton', 'slime', 'robot', 'robot_titan', 'frost_wraith', 'magma_colossus', 'thorn_guardian', 'tempest', 'elemental_core']);
 // The bosses: a health bar while near, kept far from where they wake, 5 minutes to return once defeated
 const BOSS_NAMES: Partial<Record<MobKind, string>> = { robot_titan: 'Robot Titan', frost_wraith: 'Frost Wraith', magma_colossus: 'Magma Colossus', thorn_guardian: 'Thorn Guardian', tempest: 'Tempest', elemental_core: 'Elemental Core' };
+const TRANSFORM_SECONDS = 10; // the Tempest's transformation into its second form (the client's animation matches it)
 const BOSS_ACHIEVEMENTS: Partial<Record<MobKind, string>> = { robot_titan: 'titan', frost_wraith: 'wraith', magma_colossus: 'colossus', thorn_guardian: 'thorn', tempest: 'roc', elemental_core: 'core' };
 const FLOAT_HEIGHT: Partial<Record<MobKind, number>> = { frost_wraith: 2.5, tempest: 7, elemental_core: 3 }; // flyers: how high above the ground
 // The Elemental Core fights as each element's boss in turn
@@ -228,6 +229,9 @@ interface Mob {
   crystals?: [number, number, number][]; // a temple boss: its towers' crystals (it heals from them)
   healT?: number;
   transformT?: number;       // the Tempest: its second-form transformation (seconds left)
+  home?: { x: number; z: number };        // a temple boss: the middle of its temple
+  laserAt?: [number, number, number];      // the Tempest transforming: the crystal its laser is on
+  absorbed?: number; absorbT?: number; // the Tempest's transformation: crystals drawn in so far, and when the next goes
   raptureAt?: { x: number; y: number; z: number }; // the Tempest's four-wing charge: where it will lunge
   raptureT?: number;
   grabbed?: number;          // the player it holds in its wings
@@ -773,7 +777,7 @@ export class Game {
   }
 
   private onDev(p: Player, m: { give?: string; count?: number; spawn?: string; time?: number; tp?: { x: number; y: number; z: number }; blocks?: number[];
-    equip?: (string | null)[]; heal?: boolean; enraged?: boolean; dist?: number; clearMobs?: boolean; weather?: Weather; achieve?: string[] }) {
+    equip?: (string | null)[]; heal?: boolean; enraged?: boolean; dist?: number; clearMobs?: boolean; weather?: Weather; achieve?: string[]; enrageNear?: boolean }) {
     if (!this.devTools) return;
     if (Array.isArray(m.blocks)) for (let i = 0; i + 3 < m.blocks.length; i += 4) {
       const [x, y, z, id] = m.blocks.slice(i, i + 4);
@@ -787,6 +791,8 @@ export class Game {
       const mob = this.spawnMob(m.spawn as MobKind, x, this.world.surfaceHeight(Math.floor(x), Math.floor(z)) + 1, z);
       if (m.enraged) mob.health = MOB_SPECS[mob.kind].health * 0.45; // a boss straight into phase two
     }
+    // A boss already up (one that rose at its temple): straight into phase two
+    if (m.enrageNear) for (const b of this.mobs.values()) if (BOSS_NAMES[b.kind] && b.dying < 0 && Math.hypot(b.body.pos.x - p.body.pos.x, b.body.pos.z - p.body.pos.z) < 64) b.health = Math.min(b.health, MOB_SPECS[b.kind].health * 0.45);
     // Wear armour (slots: helmet, chestplate, leggings, boots), and full health
     if (Array.isArray(m.equip)) {
       p.cheated = true;
@@ -1718,7 +1724,7 @@ export class Game {
       if (this.world.get(s.x, s.y - 1, s.z) !== BLOCK_ID[SHRINE_CORE[s.biome]]) continue;
       const kind = SHRINE_BOSS[s.biome];
       const m = this.spawnMob(kind, s.x + 0.5, s.y + (FLOAT_HEIGHT[kind] ?? 0), s.z + 0.5);
-      m.altar = s.key; m.attackCd = 2;
+      m.altar = s.key; m.attackCd = 2; m.home = { x: s.x + 0.5, z: s.z + 0.5 };
       // Its temple's crystals are whole again, ready to heal it
       m.crystals = shrineCrystals(s);
       // (only into empty space: never over a player's chest or claim stone, nor on someone's claim)
@@ -2041,19 +2047,56 @@ export class Game {
 
   // Half its health gone: the Tempest's rings fade, leaving its core bare; it draws in its temple's crystals (healing
   // from each), grows four wings and an angel's ring, and a shield that turns back elemental shots
+  // The transformation (10 s; it can't be hurt meanwhile). Timeline, in seconds from the start:
+  //   0-2.5  it flies to the middle of its temple
+  //   2.5-7  it fires a laser at each standing crystal in turn; each one shatters into it (60 health)
+  //   6.8    light pours in from all around; its wings fade away (on the client)
+  //   8.2    the burst: four wings, the angel's ring and the shield
   private tempestTransforms(m: Mob) {
-    const b = m.body.pos;
-    m.transformT = 3;
-    let absorbed = 0;
-    for (const [x, y, z] of m.crystals ?? []) {
-      if (this.world.get(x, y, z) !== BOSS_CRYSTAL) continue;
-      this.bossBeam(m, { x: b.x, y: b.y + 1, z: b.z }, 0xffd040, { x: x + 0.5, y: y + 0.5, z: z + 0.5 });
-      this.setBlock(x, y, z, 0);
-      absorbed++;
+    m.transformT = TRANSFORM_SECONDS;
+    m.absorbed = 0;
+    m.absorbT = 0; m.laserAt = undefined;
+    this.tellNear(m.body.pos.x, m.body.pos.z, 96, 'The Tempest begins to transform!');
+  }
+
+  private stepTransform(m: Mob, dt: number) {
+    const b = m.body.pos, was = TRANSFORM_SECONDS - m.transformT!;
+    m.transformT = m.transformT! - dt;
+    const at = TRANSFORM_SECONDS - m.transformT;
+    const core = { x: b.x, y: b.y + m.body.height * 0.6, z: b.z };
+    if (at < 2.5 && m.home) {
+      // To the middle of its temple
+      const k = Math.min(1, dt * 2.5);
+      b.x += (m.home.x - b.x) * k; b.z += (m.home.z - b.z) * k;
     }
-    m.health = Math.min(MOB_SPECS.tempest.health, m.health + absorbed * 60);
-    this.fx('transform', b.x, b.y + 1, b.z, 6);
-    this.tellNear(b.x, b.z, 96, absorbed ? `The Tempest's rings fade... it draws in ${absorbed} crystal${absorbed > 1 ? 's' : ''} and unfurls four wings!` : "The Tempest's rings fade... it unfurls four wings!");
+    if (at >= 2.5 && at < 7) {
+      if (m.laserAt) {
+        // Its laser on a crystal: held for 0.9 s, then the crystal shatters and its light flows in
+        const [x, y, z] = m.laserAt;
+        m.absorbT = (m.absorbT ?? 0) - dt;
+        if (Math.floor((m.absorbT + dt) / 0.15) !== Math.floor(m.absorbT / 0.15)) this.bossBeam(m, { x: x + 0.5, y: y + 0.5, z: z + 0.5 }, 0xffe060, core);
+        if (m.absorbT <= 0) {
+          if (this.world.get(x, y, z) === BOSS_CRYSTAL) {
+            this.fx('shatter', x + 0.5, y + 0.5, z + 0.5, 1);
+            this.bossBeam(m, core, 0xffffff, { x: x + 0.5, y: y + 0.5, z: z + 0.5 });
+            this.setBlock(x, y, z, 0);
+            m.absorbed = (m.absorbed ?? 0) + 1;
+            m.health = Math.min(MOB_SPECS.tempest.health, m.health + 60);
+          }
+          m.laserAt = undefined; m.absorbT = 0.2; // (a breath before the next)
+        }
+      } else if ((m.absorbT = (m.absorbT ?? 0) - dt) <= 0) {
+        const c = (m.crystals ?? []).find(([x, y, z]) => this.world.get(x, y, z) === BOSS_CRYSTAL);
+        if (c) { m.laserAt = c; m.absorbT = 0.9; this.bossBeam(m, { x: c[0] + 0.5, y: c[1] + 0.5, z: c[2] + 0.5 }, 0xffe060, core); }
+      }
+    }
+    if (was < 6.8 && at >= 6.8) this.fx('gather', core.x, core.y, core.z, 7);
+    if (was < 8.2 && at >= 8.2) {
+      // The burst: four wings, the halo, the shield
+      this.fx('transform', b.x, b.y + 1, b.z, 6);
+      const n = m.absorbed ?? 0;
+      this.tellNear(b.x, b.z, 96, n ? `The Tempest's rings shatter... it draws in ${n} crystal${n > 1 ? 's' : ''} and unfurls four wings!` : "The Tempest's rings shatter... it unfurls four wings!");
+    }
   }
 
   // The Tempest's second form. Returns true while one of these moves has it busy (its other moves wait). Also
@@ -2071,7 +2114,7 @@ export class Game {
       cd[move] = every * (this.difficulty === 'hard' ? 0.8 : 1);
       return true;
     };
-    if ((m.transformT ?? 0) > 0) { m.transformT! -= dt; m.moving = false; return true; }
+    if ((m.transformT ?? 0) > 0) { this.stepTransform(m, dt); m.moving = false; return true; }
     // Holding someone in its wings: it rises with them, then the laser
     if (m.grabbed !== undefined) {
       const v = this.players.get(m.grabbed);
@@ -2681,6 +2724,7 @@ export class Game {
 
   private damageMob(m: Mob, amount: number, from: { x: number; y: number; z: number }, knock = 1) {
     if (m.dying >= 0 || m.hurt > 0.35 || m.kind === 'hurricane') return; // (a hurricane can't be hurt)
+    if ((m.transformT ?? 0) > 0) return; // (nor the Tempest while it transforms)
     m.health -= amount;
     m.hurt = 0.5;
     const dx = m.body.pos.x - from.x, dz = m.body.pos.z - from.z, d = Math.hypot(dx, dz) || 1;
