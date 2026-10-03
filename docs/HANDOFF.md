@@ -3,10 +3,9 @@
 ## Read first (2026-10-03)
 
 - **Direction change:** the game is moving to the new domain **riventale.world** and will become an **app-based game**. **Principal development now happens on another machine**; this PC (the owner's Windows PC) is no longer the main dev box.
-- **Cloudflare accounts (a standing rule):** **tim@latticelogic.app holds only riventale.world** (the game). **njytim@gmail.com is for other side and non-commercial projects** (such as the old `poxel` Worker). Never mix them, and check `npx wrangler whoami` before any deploy, tunnel or DNS change. **riventale.world is the only domain the owner owns**: the old site has no domain of its own (it's on workers.dev).
 - **Cloudflare account for the new domain: tim@latticelogic.app.** riventale.world was bought through Cloudflare Registrar in that account (2026-10-03). On 2026-10-03 the registry did not yet list nameservers for it, so it was not resolving yet; give it time.
   - The **old** site, https://poxel.njytim.workers.dev, is a Worker named `poxel` in a **different** account (njytim@gmail.com). Its secrets `ORIGIN_URL`/`ORIGIN_SECRET` are set there by `npm run host:cf`.
-  - **Account rule (owner's instruction):** tim@latticelogic.app holds **only** riventale.world. Every other side or non-commercial project goes in njytim@gmail.com. Never mix them. Before any `wrangler deploy`, `npm run deploy:cf`, `npm run host:cf` or DNS change, run `npx wrangler whoami` and check the account matches the project.
+  - **Account rule (owner's instruction):** tim@latticelogic.app holds **only** riventale.world. Every other side or non-commercial project goes in njytim@gmail.com. Never mix them. Before any `wrangler deploy`, `npm run deploy:cf`, `npm run host:cf` or DNS change, run `npx wrangler whoami` and check the account matches the project. **riventale.world is the only domain the owner owns**: the old site has none (it's on workers.dev).
 - **Name confirmed:** the game is called **Riventale** (confirmed by the owner 2026-10-03).
 - **Code state:** `master` at `3a537c8` is pushed and deployed (gh-pages and the workers.dev Worker). The commit carrying this handoff adds the work below (pushed; **not** deployed anywhere yet).
 - The owner's untracked `index.docx` must never be committed.
