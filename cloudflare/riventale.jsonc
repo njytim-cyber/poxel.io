@@ -1,4 +1,4 @@
-// Cloudflare Worker for riventale.world. Account: tim@latticelogic.app ONLY (check with npx wrangler whoami).
+// Cloudflare Worker for riventale.world (live). Account: tim@latticelogic.app ONLY (check with npx wrangler whoami).
 // Deploy with: npm run deploy:riventale
 // The old poxel.njytim.workers.dev site is cloudflare/wrangler.jsonc, in the njytim@gmail.com account.
 {
@@ -7,8 +7,7 @@
   "main": "worker.js",
   "compatibility_date": "2026-09-01",
   "workers_dev": true,
-  // Add once riventale.world is active in the account (it had no nameservers on 2026-10-03):
-  // "routes": [{ "pattern": "riventale.world", "custom_domain": true }, { "pattern": "www.riventale.world", "custom_domain": true }],
+  "routes": [{ "pattern": "riventale.world", "custom_domain": true }, { "pattern": "www.riventale.world", "custom_domain": true }],
   "assets": {
     "directory": "../dist-cf",
     "binding": "ASSETS",

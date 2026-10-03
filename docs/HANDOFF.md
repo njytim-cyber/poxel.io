@@ -10,7 +10,7 @@
 - **Code state:** `master` at `3a537c8` is pushed and deployed (gh-pages and the workers.dev Worker). The commit carrying this handoff adds the work below (pushed; **not** deployed anywhere yet).
 - The owner's untracked `index.docx` must never be committed.
 
-### Publishing to riventale.world (static site first; multiplayer later)
+### riventale.world (static site live since 2026-10-03; multiplayer later)
 
 The game is now called **Riventale** in the UI: page title, a pixel-art crest and wordmark on the main menu, a favicon, home-screen icons and a web manifest (all in `public/`, drawn by `npm run art` = `scripts/art.mjs`). Saved-data keys (`poxel_*`) and the `/poxel.io/` gh-pages path were left alone on purpose, so players keep their saves.
 
@@ -18,7 +18,7 @@ The riventale.world site has its **own** Worker config, `cloudflare/riventale.js
 
 1. `npx wrangler whoami` must show **tim@latticelogic.app**. If not: `npx wrangler logout`, then `npx wrangler login` as that account.
 2. `npm run deploy:riventale` builds with base `/` and deploys the Worker to its workers.dev address in that account.
-3. Once riventale.world is active in the account (it had no nameservers on 2026-10-03), uncomment the `routes` line in `cloudflare/riventale.jsonc` and deploy again. Then consider `"workers_dev": false`.
+3. Live: https://riventale.world and https://www.riventale.world (custom domains in `cloudflare/riventale.jsonc`), plus https://riventale.tim-00e.workers.dev. Consider `"workers_dev": false` later.
 4. Multiplayer is deliberately not set up for riventale yet (the owner will decide later). Without the `ORIGIN_URL`/`ORIGIN_SECRET` secrets, Play Online shows the server as offline. `npm run host:cf` still targets the old poxel site.
 5. To deploy the old poxel site again, sign wrangler back in to njytim@gmail.com first.
 
