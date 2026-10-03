@@ -73,6 +73,8 @@ const GLYPHS = {
   Y: ['10001', '10001', '01010', '00100', '00100', '00100', '00100'],
   U: ['10001', '10001', '10001', '10001', '10001', '10001', '01110'],
   P: ['11110', '10001', '10001', '11110', '10000', '10000', '10000'],
+  W: ['10001', '10001', '10001', '10101', '10101', '11011', '10001'],
+  B: ['11110', '10001', '10001', '11110', '10001', '10001', '11110'],
   G: ['01111', '10000', '10000', '10111', '10001', '10001', '01111'],
   D: ['11110', '10001', '10001', '10001', '10001', '10001', '11110'],
   M: ['10001', '11011', '10101', '10101', '10001', '10001', '10001'],
@@ -102,9 +104,11 @@ function wordmark(text) {
 save('wordmark.svg', wordmark('RIVENTALE'));
 save('title-path.svg', wordmark('CHOOSE YOUR PATH'));
 save('title-load.svg', wordmark('LOAD GAME'));
+save('title-wardrobe.svg', wordmark('WARDROBE'));
 
 // 16 x 16 icons for the difficulty cards: a sapling (easy), a sword (medium), a flame (hard)
 function sprite(rows, colours) {
+  rows.forEach((r, i) => { if (r.length !== 16) throw new Error(`sprite row ${i} is ${r.length} wide`); });
   return svg(16, 16, rows.flatMap((row, y) => [...row].map((ch, x) => colours[ch] ? px(x, y, colours[ch]) : '')).join(''));
 }
 save('icon-easy.svg', sprite([
@@ -185,3 +189,114 @@ save('manifest.webmanifest', JSON.stringify({
   ],
 }, null, 2) + '\n');
 console.log('Art written to public/');
+
+// Wardrobe icons: Random (a die) and the sets
+const K = '#0a0716';
+save('icon-die.svg', sprite([
+  '................',
+  '.kkkkkkkkkkkkkk.',
+  '.kwwwwwwwwwwwwk.',
+  '.kwppwwwwwwppwk.',
+  '.kwppwwwwwwppwk.',
+  '.kwwwwwwwwwwwwk.',
+  '.kwwwwwwwwwwwwk.',
+  '.kwwwwwppwwwwwk.',
+  '.kwwwwwppwwwwwk.',
+  '.kwwwwwwwwwwwwk.',
+  '.kwwwwwwwwwwwwk.',
+  '.kwppwwwwwwppwk.',
+  '.kwppwwwwwwppwk.',
+  '.kggggggggggggk.',
+  '.kkkkkkkkkkkkkk.',
+  '................',
+], { k: K, w: '#f4f0ff', p: '#c23a10', g: '#b9b0d8' }));
+save('icon-tophat.svg', sprite([
+  '................',
+  '................',
+  '....kkkkkkkk....',
+  '....kHHHHHhk....',
+  '....kHHHHHhk....',
+  '....kHHHHHhk....',
+  '....kHHHHHhk....',
+  '....kRRRRRRk....',
+  '....kHHHHHhk....',
+  '..kkkkkkkkkkkk..',
+  '..kHHHHHHHHHhk..',
+  '..kkkkkkkkkkkk..',
+  '................',
+  '................',
+  '................',
+  '................',
+], { k: K, H: '#3a3a52', h: '#24243a', R: '#c23a10' }));
+save('icon-backpack.svg', sprite([
+  '................',
+  '......kkkk......',
+  '.....kbbbbk.....',
+  '....kk....kk....',
+  '...kbbbbbbbbk...',
+  '...kbBBBBBBbk...',
+  '...kbBBBBBBbk...',
+  '...kbbbbbbbbk...',
+  '...kbbkyykbbk...',
+  '...kbbkyykbbk...',
+  '...kbbbbbbbbk...',
+  '...kbBBBBBBbk...',
+  '...kbbbbbbbbk...',
+  '...kkkkkkkkkk...',
+  '................',
+  '................',
+], { k: K, b: '#aa2222', B: '#d94a4a', y: '#ffd23f' }));
+save('icon-ninja.svg', sprite([
+  '................',
+  '...kkkkkkkkkk...',
+  '..kNNNNNNNNNNk..',
+  '..kNNNNNNNNNNk..',
+  '..kRRRRRRRRRRkk.',
+  '..kssssssssssRR.',
+  '..kswksssswksk.R',
+  '..kssssssssssk..',
+  '..kNNNNNNNNNNk..',
+  '..kNNNNNNNNNNk..',
+  '..kNNNNNNNNNNk..',
+  '...kkkkkkkkkk...',
+  '................',
+  '................',
+  '................',
+  '................',
+], { k: K, N: '#1e1e2c', s: '#f2d3ab', w: '#ffffff', R: '#c23a10' }));
+save('icon-lock.svg', sprite([
+  '................',
+  '.....kkkkkk.....',
+  '....kSSSSSSk....',
+  '....kSk..kSk....',
+  '....kSk..kSk....',
+  '...kkkkkkkkkk...',
+  '...kYYYYYYYYk...',
+  '...kYYYYYYYYk...',
+  '...kYYYkkYYYk...',
+  '...kYYYkkYYYk...',
+  '...kYYYYkYYYk...',
+  '...kYYYYYYYYk...',
+  '...kDDDDDDDDk...',
+  '...kkkkkkkkkk...',
+  '................',
+  '................',
+], { k: K, S: '#cfd8e6', Y: '#ffd23f', D: '#d99a12' }));
+save('icon-none.svg', sprite([
+  '................',
+  '................',
+  '..kk........kk..',
+  '..kxk......kxk..',
+  '...kxk....kxk...',
+  '....kxk..kxk....',
+  '.....kxkkxk.....',
+  '......kxxk......',
+  '......kxxk......',
+  '.....kxkkxk.....',
+  '....kxk..kxk....',
+  '...kxk....kxk...',
+  '..kxk......kxk..',
+  '..kk........kk..',
+  '................',
+  '................',
+], { k: K, x: '#ff6a7a' }));

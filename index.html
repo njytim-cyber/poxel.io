@@ -319,14 +319,13 @@
       <div class="shop" id="shop-screen" style="display: none;">
         <div class="shop-stage">
           <div class="shop-stage-sky"></div>
-          <div class="shop-pedestal"></div>
           <canvas id="shop-canvas" aria-label="Your character. Drag to turn."></canvas>
-          <p class="shop-drag-hint">Drag to turn</p>
+          <label class="shop-turn" title="Turn your character"><span>&#x21bb; 360&deg;</span><input type="range" id="shop-turn" min="0" max="359" value="0" aria-label="Turn your character" /></label>
         </div>
         <div class="shop-panel">
           <header class="shop-head">
-            <h2>Wardrobe</h2>
-            <button id="btn-shop-random" class="shop-ghost" title="Random look">🎲 Random</button>
+            <h2><img src="/title-wardrobe.svg" alt="Wardrobe" /></h2>
+            <button id="btn-shop-random" class="shop-btn" title="Random look"><img class="shop-icon" src="/icon-die.svg" alt="" />Random</button>
           </header>
           <nav class="shop-cats" role="tablist">
             <button class="shop-cat active" data-tab="skin" role="tab"><i style="--sw: #e0ac69"></i>Skin</button>
@@ -334,7 +333,7 @@
             <button class="shop-cat" data-tab="pants" role="tab"><i style="--sw: #2b3a8f"></i>Pants</button>
             <button class="shop-cat" data-tab="hair" role="tab"><i style="--sw: #6b4423"></i>Hair</button>
             <button class="shop-cat" data-tab="eyes" role="tab"><i style="--sw: #1a6fd1"></i>Eyes</button>
-            <button class="shop-cat shop-cat-sets" data-tab="super" role="tab"><i></i>★ Sets</button>
+            <button class="shop-cat" data-tab="super" role="tab"><img src="/crest.svg" alt="" />Sets</button>
           </nav>
           <div class="shop-body">
             <section id="tab-skin" class="shop-page active"><h3>Skin tone</h3><div class="shop-swatches" id="grid-skin"></div></section>
@@ -354,8 +353,8 @@
             <section id="tab-super" class="shop-page"><h3>Sets <small>Unlocked by playing</small></h3><div class="shop-sets" id="grid-super"></div></section>
           </div>
           <footer class="shop-foot">
-            <button id="btn-cancel-shop" class="shop-ghost">Cancel</button>
-            <button id="btn-save-shop" class="shop-save">Save look</button>
+            <button id="btn-cancel-shop" class="shop-btn">Cancel</button>
+            <button id="btn-save-shop" class="shop-btn primary">Save look</button>
           </footer>
         </div>
       </div>

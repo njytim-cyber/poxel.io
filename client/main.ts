@@ -122,48 +122,133 @@ const menuLoadScreen = document.getElementById('save-slots-container');
 const menuShopScreen = document.getElementById('shop-screen');
 
 // Shop Scene Setup
+const ASSET_BASE = (import.meta as any).env?.BASE_URL || '/';
 const shopCanvas = document.getElementById('shop-canvas') as HTMLCanvasElement;
 const shopScene = new THREE.Scene();
 export const shopCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
 shopCamera.position.set(0, 0, 4);
 export const shopRenderer = new THREE.WebGLRenderer({ canvas: shopCanvas, alpha: true, antialias: true });
 shopRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // sharp enough; 3x phones would draw 9x the pixels
-shopScene.add(new THREE.AmbientLight(0xffffff, 1.6));
-const shopDirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-shopDirLight.position.set(5, 10, 5);
+// Soft key light from the front, a cool rim light from behind so the voxel edges read against the sky
+shopScene.add(new THREE.AmbientLight(0xffffff, 1.05));
+const shopDirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+shopDirLight.position.set(3, 6, 6);
 shopScene.add(shopDirLight);
+const shopRimLight = new THREE.DirectionalLight(0x9d8cff, 2.2);
+shopRimLight.position.set(-4, 3, -5);
+shopScene.add(shopRimLight);
+const shopWarmRim = new THREE.DirectionalLight(0xffc860, 1.2);
+shopWarmRim.position.set(5, 1, -4);
+shopScene.add(shopWarmRim);
+
+// Greyscale pixel textures, tinted by each material's colour: shading, seams and creases
+function shopTexture(draw: (px: (x: number, y: number, v: number) => void) => void, grain = 20): THREE.CanvasTexture {
+  const c = document.createElement('canvas'); c.width = c.height = 16;
+  const g = c.getContext('2d')!;
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+    const v = 256 - grain + Math.floor(rnd() * grain); // fine cloth/skin noise
+    g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, y, 1, 1);
+  }
+  draw((x, y, v) => { g.fillStyle = `rgb(${v},${v},${v})`; g.fillRect(x, y, 1, 1); });
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const row = (px: (x: number, y: number, v: number) => void, y: number, v: number) => { for (let x = 0; x < 16; x++) px(x, y, v); };
+const texSkin = shopTexture(px => { row(px, 15, 214); row(px, 14, 232); }, 6);
+const texFace = shopTexture(px => { row(px, 15, 214); row(px, 14, 234); for (let y = 0; y < 16; y++) { px(0, y, 236); px(15, y, 236); } px(7, 10, 228); px(8, 10, 228); }, 4);
+const texArm = shopTexture(px => { row(px, 0, 206); row(px, 1, 228); row(px, 8, 230); row(px, 15, 216); }, 6);
+const texShirt = shopTexture(px => {
+  row(px, 0, 190); for (let x = 5; x < 11; x++) { px(x, 1, 200); } // collar shadow under the chin
+  row(px, 15, 205); row(px, 14, 225);                               // hem
+  for (let y = 2; y < 14; y++) { px(0, y, 220); px(15, y, 220); }   // side seams where the arms meet
+});
+const texPants = shopTexture(px => {
+  row(px, 0, 175); row(px, 1, 200);                                 // belt
+  row(px, 7, 216);                                                  // knee crease
+  for (let y = 12; y < 16; y++) row(px, y, y === 12 ? 150 : 128);  // shoes
+});
+const texHair = shopTexture(px => { for (let x = 0; x < 16; x += 3) for (let y = 0; y < 16; y++) px(x, y, 214); });
+const texStone = shopTexture(px => {
+  for (let i = 0; i < 40; i++) px((i * 7) % 16, (i * 11) % 16, 200 + (i % 3) * 10);
+  row(px, 0, 255); row(px, 15, 170);
+});
 
 const shopAvatar = new THREE.Group();
-const shopMatSkin = new THREE.MeshLambertMaterial({ color: store.get('poxel_skin') || '#ffcc99' });
-const shopMatShirt = new THREE.MeshLambertMaterial({ color: store.get('poxel_shirt') || '#00aaff' });
-const shopMatPants = new THREE.MeshLambertMaterial({ color: store.get('poxel_pants') || '#0000aa' });
-const shopMatHair = new THREE.MeshLambertMaterial({ color: store.get('poxel_hair') || '#6b4423' });
+const shopMatSkin = new THREE.MeshLambertMaterial({ color: store.get('poxel_skin') || '#ffcc99', map: texSkin });
+const shopMatFace = new THREE.MeshLambertMaterial({ map: texFace });
+const shopMatArm = new THREE.MeshLambertMaterial({ map: texArm });
+const shopMatShirt = new THREE.MeshLambertMaterial({ color: store.get('poxel_shirt') || '#00aaff', map: texShirt });
+const shopMatPants = new THREE.MeshLambertMaterial({ color: store.get('poxel_pants') || '#0000aa', map: texPants });
+const shopMatHair = new THREE.MeshLambertMaterial({ color: store.get('poxel_hair') || '#6b4423', map: texHair });
 const shopEyeMat = new THREE.MeshBasicMaterial({ color: store.get('poxel_eye') || '#000000' });
+// The face and arms share the skin colour
+const syncSkin = () => { shopMatFace.color.copy(shopMatSkin.color); shopMatArm.color.copy(shopMatSkin.color); };
+syncSkin();
 let currentHairStyle = parseInt(store.get('poxel_style') || '0');
 
-const shopHead = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), shopMatSkin);
-shopHead.position.y = 0.5;
+const shopHead = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), [shopMatSkin, shopMatSkin, shopMatSkin, shopMatSkin, shopMatSkin, shopMatFace]);
+shopHead.position.y = 0.52;
 const shopHair = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.1, 0.52), shopMatHair);
 applyHairGeometry(currentHairStyle, shopHair);
 shopHead.add(shopHair);
 addBigEyes(shopHead, shopEyeMat);
 shopAvatar.add(shopHead);
+const shopNeck = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.16), shopMatArm);
+shopNeck.position.y = 0.26;
+shopAvatar.add(shopNeck);
 const shopBody = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.75, 0.25), shopMatShirt);
 shopBody.position.y = -0.125;
 shopAvatar.add(shopBody);
+// Arms hang from the shoulders, angled a little away from the body
+const shopArms: THREE.Group[] = [];
 for (const x of [-0.31, 0.31]) {
-  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.75, 0.18), shopMatSkin);
-  arm.position.set(x, -0.125, 0);
-  shopAvatar.add(arm);
+  const shoulder = new THREE.Group();
+  shoulder.position.set(x, 0.24, 0);
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.75, 0.18), shopMatArm);
+  arm.position.y = -0.37;
+  shoulder.add(arm);
+  shoulder.rotation.z = Math.sign(x) * 0.09;
+  shopAvatar.add(shoulder);
+  shopArms.push(shoulder);
 }
-for (const x of [-0.11, 0.11]) {
-  const leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.75, 0.22), shopMatPants);
+// Two legs with a gap between them; the weight rests on one
+const shopLegs: THREE.Mesh[] = [];
+for (const x of [-0.112, 0.112]) {
+  const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.75, 0.22), shopMatPants);
   leg.position.set(x, -0.875, 0);
   shopAvatar.add(leg);
+  shopLegs.push(leg);
 }
-shopAvatar.position.y = 0.25;
+// A voxel plinth: dark stone with a gold trim, turning with the character
+const shopPlinth = new THREE.Group();
+// Stone on top (the feet rest on it at y -1.25), a gold band under it, a wider dark base
+const plinthStone = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.22, 1.0), new THREE.MeshLambertMaterial({ color: 0x5a4f96, map: texStone }));
+plinthStone.position.y = -1.36;
+const plinthTrim = new THREE.Mesh(new THREE.BoxGeometry(1.08, 0.06, 1.08), new THREE.MeshLambertMaterial({ color: 0xffd23f, emissive: 0x3a2a00 }));
+plinthTrim.position.y = -1.5;
+const plinthBase = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 1.2), new THREE.MeshLambertMaterial({ color: 0x2c2450, map: texStone }));
+plinthBase.position.y = -1.59;
+shopPlinth.add(plinthStone, plinthTrim, plinthBase);
+shopAvatar.add(shopPlinth);
+shopAvatar.position.y = 0.32;
 shopAvatar.rotation.y = Math.PI; // face the camera
 shopScene.add(shopAvatar);
+
+// Idle: breathing, a slow sway, and the weight shifting between the legs
+function animateShopAvatar(t: number) {
+  const breathe = Math.sin(t * 2.2);
+  shopBody.scale.y = 1 + breathe * 0.012;
+  shopHead.position.y = 0.52 + breathe * 0.006;
+  shopHead.rotation.z = Math.sin(t * 0.7) * 0.03;
+  shopArms.forEach((a, i) => { a.rotation.z = (i ? 1 : -1) * (0.09 + Math.sin(t * 1.3 + i) * 0.025); a.rotation.x = Math.sin(t * 0.9 + i * 2) * 0.04; });
+  const shift = Math.sin(t * 0.5) * 0.5 + 0.5;
+  shopLegs[0].position.y = -0.875 + shift * 0.012;
+  shopLegs[1].position.y = -0.875 + (1 - shift) * 0.012;
+  shopBody.rotation.z = (shift - 0.5) * 0.025;
+}
 
 let activeSuperCosmetic = store.get('poxel_super') || 'none';
 
@@ -191,19 +276,25 @@ function applySuperCosmetic(id: string, c: typeof shopCosmetics) {
 }
 applySuperCosmetic(activeSuperCosmetic, shopCosmetics);
 
-// Turning the character: drag with a mouse or a finger
-let isShopDrag = false, shopPX = 0, shopPY = 0;
+// Turning the character: drag with a mouse or a finger, or the 360° handle under the stage
+let isShopDrag = false, shopPX = 0, shopPY = 0, shopTurn = 0;
+const shopTurnInput = document.getElementById('shop-turn') as HTMLInputElement | null;
+function setShopTurn(deg: number) {
+  shopTurn = ((deg % 360) + 360) % 360;
+  shopAvatar.rotation.set(0, Math.PI + (shopTurn * Math.PI) / 180, 0);
+  if (shopTurnInput && Number(shopTurnInput.value) !== Math.round(shopTurn)) shopTurnInput.value = String(Math.round(shopTurn));
+}
+shopTurnInput?.addEventListener('input', () => setShopTurn(Number(shopTurnInput.value)));
 const shopStage = document.querySelector('.shop-stage') as HTMLElement | null;
 if (shopStage) {
   shopStage.addEventListener('pointerdown', e => {
+    if ((e.target as HTMLElement).closest('.shop-turn')) return; // the handle turns it by itself
     isShopDrag = true; shopPX = e.clientX; shopPY = e.clientY;
     shopStage.setPointerCapture(e.pointerId);
-    shopStage.classList.add('dragged');
   });
   shopStage.addEventListener('pointermove', e => {
     if (!isShopDrag) return;
-    shopAvatar.rotation.y += (e.clientX - shopPX) * 0.012;
-    shopAvatar.rotation.x = Math.max(-0.4, Math.min(0.4, shopAvatar.rotation.x + (e.clientY - shopPY) * 0.008));
+    setShopTurn(shopTurn + (e.clientX - shopPX) * 0.7);
     shopPX = e.clientX; shopPY = e.clientY;
   });
   const stop = () => { isShopDrag = false; };
@@ -235,7 +326,7 @@ function partHex(part: LookPart): string {
 }
 function setPart(part: LookPart, col: string) {
   const hex = col.replace('#', '');
-  if (part === 'skin') { currentSkin = hex; shopMatSkin.color.set(col); }
+  if (part === 'skin') { currentSkin = hex; shopMatSkin.color.set(col); syncSkin(); }
   if (part === 'shirt') { currentShirt = hex; shopMatShirt.color.set(col); }
   if (part === 'pants') { currentPants = hex; shopMatPants.color.set(col); }
   if (part === 'hair') { currentHairHex = hex; shopMatHair.color.set(col); }
@@ -245,15 +336,54 @@ function setPart(part: LookPart, col: string) {
 function markSelected(part: LookPart) {
   const grid = document.getElementById(PART_GRID[part]);
   const cur = partHex(part).toLowerCase();
+  syncCustom(part, cur);
   grid?.querySelectorAll<HTMLElement>('.shop-swatch').forEach(sw => {
     const on = sw.dataset.col === cur;
     sw.classList.toggle('selected', on);
     sw.setAttribute('aria-pressed', String(on));
   });
 }
+// Custom colour under each palette: hue, saturation and brightness sliders
+const customs = new Map<LookPart, { h: HTMLInputElement; s: HTMLInputElement; l: HTMLInputElement; chip: HTMLElement; hex: HTMLElement; box: HTMLElement }>();
+const hsl = { h: 0, s: 0, l: 0 };
+let customDriving: LookPart | null = null;
+function paintCustomTracks(c: NonNullable<ReturnType<typeof customs.get>>) {
+  const h = Number(c.h.value), sat = Number(c.s.value), l = Number(c.l.value);
+  c.s.style.setProperty('--track', `linear-gradient(90deg, hsl(${h} 0% ${l}%), hsl(${h} 100% ${l}%))`);
+  c.l.style.setProperty('--track', `linear-gradient(90deg, #000, hsl(${h} ${sat}% 50%), #fff)`);
+}
+function syncCustom(part: LookPart, hex: string) {
+  const c = customs.get(part);
+  if (!c) return;
+  c.chip.style.background = hex; c.hex.textContent = hex.toUpperCase();
+  // While a slider is moving, leave the sliders where the player put them (a round trip through hex would nudge them)
+  if (customDriving === part) { paintCustomTracks(c); return; }
+  new THREE.Color(hex).getHSL(hsl, THREE.SRGBColorSpace);
+  c.h.value = String(Math.round(hsl.h * 360)); c.s.value = String(Math.round(hsl.s * 100)); c.l.value = String(Math.round(hsl.l * 100));
+  c.chip.style.background = hex; c.hex.textContent = hex.toUpperCase();
+  paintCustomTracks(c);
+}
+function buildCustom(part: LookPart, grid: HTMLElement) {
+  const box = document.createElement('div');
+  box.className = 'shop-custom';
+  box.innerHTML = `<h3>Custom</h3><div class="shop-custom-row"><span class="shop-custom-chip"></span><span class="shop-custom-hex"></span></div>` +
+    ['Hue', 'Saturation', 'Brightness'].map((n, i) => `<label class="shop-slider"><span>${n}</span><input type="range" min="0" max="${i ? 100 : 359}" data-k="${'hsl'[i]}" /></label>`).join('');
+  grid.after(box);
+  const [h, sl, l] = Array.from(box.querySelectorAll('input'));
+  const c = { h, s: sl, l, chip: box.querySelector('.shop-custom-chip') as HTMLElement, hex: box.querySelector('.shop-custom-hex') as HTMLElement, box };
+  customs.set(part, c);
+  const apply = () => {
+    const col = '#' + new THREE.Color().setHSL(Number(h.value) / 360, Number(sl.value) / 100, Number(l.value) / 100, THREE.SRGBColorSpace).getHexString();
+    customDriving = part;
+    setPart(part, col);
+    customDriving = null;
+  };
+  [h, sl, l].forEach(inp => inp.addEventListener('input', apply));
+}
 (Object.keys(PALETTES) as LookPart[]).forEach(part => {
   const grid = document.getElementById(PART_GRID[part]);
   if (!grid) return;
+  buildCustom(part, grid);
   grid.innerHTML = '';
   PALETTES[part].forEach(col => {
     const sw = document.createElement('button');
@@ -268,10 +398,10 @@ function markSelected(part: LookPart) {
 });
 
 const superItems = [
-  { id: 'none', name: 'No set', icon: '✖', rarity: 'common', unlockMin: 0 },
-  { id: 'tophat', name: 'Mayor', icon: '🎩', rarity: 'rare', unlockMin: 5, shirt: '#111111', pants: '#222222' },
-  { id: 'backpack', name: 'Explorer', icon: '🎒', rarity: 'epic', unlockMin: 10, shirt: '#8d5524', pants: '#556b2f' },
-  { id: 'ninja', name: 'Ninja', icon: '🥷', rarity: 'legendary', unlockMin: 15, shirt: '#111111', pants: '#111111', skin: '#f2d3ab' },
+  { id: 'none', name: 'No set', icon: 'icon-none.svg', rarity: 'common', unlockMin: 0 },
+  { id: 'tophat', name: 'Mayor', icon: 'icon-tophat.svg', rarity: 'rare', unlockMin: 5, shirt: '#111111', pants: '#222222' },
+  { id: 'backpack', name: 'Explorer', icon: 'icon-backpack.svg', rarity: 'epic', unlockMin: 10, shirt: '#8d5524', pants: '#556b2f' },
+  { id: 'ninja', name: 'Ninja', icon: 'icon-ninja.svg', rarity: 'legendary', unlockMin: 15, shirt: '#111111', pants: '#111111', skin: '#f2d3ab' },
 ];
 
 let playTimeSeconds = parseInt(store.get('poxel_playtime') || '0');
@@ -291,7 +421,7 @@ function populateSuperGrid() {
     const unlocked = played >= item.unlockMin;
     const card = document.createElement('button');
     card.className = `shop-set rarity-${item.rarity}${unlocked ? '' : ' locked'}${activeSuperCosmetic === item.id ? ' selected' : ''}`;
-    card.innerHTML = `<span class="shop-set-icon">${unlocked ? item.icon : '🔒'}</span><span class="shop-set-name">${item.name}</span>` +
+    card.innerHTML = `<img class="shop-set-icon" src="${ASSET_BASE}${unlocked ? item.icon : 'icon-lock.svg'}" alt="" /><span class="shop-set-name">${item.name}</span>` +
       `<span class="shop-set-rarity">${item.id === 'none' ? 'Plain look' : item.rarity}</span>` +
       (unlocked ? '' : `<span class="shop-set-lock">Play ${item.unlockMin} min<span class="shop-set-bar"><i style="width:${Math.min(100, (played / item.unlockMin) * 100)}%"></i></span>${played}/${item.unlockMin} min</span>`);
     if (unlocked) card.addEventListener('click', () => {
@@ -335,7 +465,7 @@ function loadShopLook() {
   setHairStyle(parseInt(store.get('poxel_style') || '0') || 0);
   activeSuperCosmetic = store.get('poxel_super') || 'none';
   applySuperCosmetic(activeSuperCosmetic, shopCosmetics);
-  shopAvatar.rotation.set(0, Math.PI, 0);
+  setShopTurn(0);
 }
 function pickOne<T>(a: T[]): T { return a[Math.floor(Math.random() * a.length)]; }
 document.getElementById('btn-shop-random')?.addEventListener('click', () => {
@@ -350,7 +480,6 @@ const DIFFICULTY_LOOK: Record<string, { name: string; icon: string; colour: stri
   medium: { name: 'Medium', icon: '/icon-medium.svg', colour: '#ffd23f' },
   hard: { name: 'Hard', icon: '/icon-hard.svg', colour: '#ff6a2a' },
 };
-const ASSET_BASE = (import.meta as any).env?.BASE_URL || '/';
 function timeAgo(ms: number, fallback: string): string {
   if (!ms) return fallback ? `Saved ${fallback}` : 'Saved';
   const s = Math.max(0, (Date.now() - ms) / 1000);
@@ -740,7 +869,7 @@ function frame() {
     }
 
     if (menuShopScreen && menuShopScreen.style.display !== 'none') {
-      if (!isShopDrag) shopAvatar.rotation.y += 0.005;
+      animateShopAvatar(performance.now() / 1000);
       shopRenderer.render(shopScene, shopCamera);
     }
 
