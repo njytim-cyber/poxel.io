@@ -103,7 +103,7 @@ function onWindowResize() {
   perspectiveCamera.aspect = window.innerWidth / window.innerHeight;
   perspectiveCamera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  const shopPreview = document.querySelector('.shop-preview');
+  const shopPreview = document.querySelector('.shop-stage');
   if (shopPreview) {
     const rect = shopPreview.getBoundingClientRect();
     if (rect.width > 0) {
@@ -191,17 +191,26 @@ function applySuperCosmetic(id: string, c: typeof shopCosmetics) {
 }
 applySuperCosmetic(activeSuperCosmetic, shopCosmetics);
 
+// Turning the character: drag with a mouse or a finger
 let isShopDrag = false, shopPX = 0, shopPY = 0;
-const previewBox = document.querySelector('.shop-preview') as HTMLElement;
-if (previewBox) {
-  previewBox.addEventListener('mousedown', e => { isShopDrag = true; shopPX = e.clientX; shopPY = e.clientY; });
-  window.addEventListener('mouseup', () => (isShopDrag = false));
-  window.addEventListener('mousemove', e => {
+const shopStage = document.querySelector('.shop-stage') as HTMLElement | null;
+if (shopStage) {
+  shopStage.addEventListener('pointerdown', e => {
+    isShopDrag = true; shopPX = e.clientX; shopPY = e.clientY;
+    shopStage.setPointerCapture(e.pointerId);
+    shopStage.classList.add('dragged');
+  });
+  shopStage.addEventListener('pointermove', e => {
     if (!isShopDrag) return;
-    shopAvatar.rotation.y += (e.clientX - shopPX) * 0.01;
-    shopAvatar.rotation.x = Math.max(-0.5, Math.min(0.5, shopAvatar.rotation.x + (e.clientY - shopPY) * 0.01));
+    shopAvatar.rotation.y += (e.clientX - shopPX) * 0.012;
+    shopAvatar.rotation.x = Math.max(-0.4, Math.min(0.4, shopAvatar.rotation.x + (e.clientY - shopPY) * 0.008));
     shopPX = e.clientX; shopPY = e.clientY;
   });
+  const stop = () => { isShopDrag = false; };
+  shopStage.addEventListener('pointerup', stop);
+  shopStage.addEventListener('pointercancel', stop);
+  // The preview follows the stage's size (it changes with the window and the phone layout)
+  new ResizeObserver(() => onWindowResize()).observe(shopStage);
 }
 
 let currentSkin = shopMatSkin.color.getHexString();
@@ -210,45 +219,59 @@ let currentPants = shopMatPants.color.getHexString();
 let currentHairHex = shopMatHair.color.getHexString();
 let currentEyeColorState = shopEyeMat.color.getHexString();
 
-const swatchesSkin = ['#ffcc99', '#f2d3ab', '#e0ac69', '#c68642', '#8d5524', '#3d2c23'];
-const swatchesShirt = ['#00aaff', '#33cc33', '#ff3333', '#ffff33', '#ff9900', '#aa00aa', '#ffffff', '#111111', '#555555'];
-const swatchesPants = ['#0000aa', '#00aa00', '#aa0000', '#aaaa00', '#222222', '#666666', '#ffffff', '#0055ff'];
-const swatchesHair = ['#6b4423', '#111111', '#ddbb55', '#cc3333', '#aa5500', '#3333cc', '#e6e6fa', '#ffffff'];
-const swatchesEye = ['#000000', '#0055ff', '#00aa00', '#8d5524', '#aa0000', '#aa00aa', '#ffffff'];
+type LookPart = 'skin' | 'shirt' | 'pants' | 'hair' | 'eye';
+const PALETTES: Record<LookPart, string[]> = {
+  skin: ['#ffdbb5', '#ffcc99', '#f2d3ab', '#e0ac69', '#c68642', '#a0663a', '#8d5524', '#5c3a21', '#3d2c23'],
+  shirt: ['#00aaff', '#3fb4ff', '#1a6fd1', '#33cc33', '#1f7d3a', '#ff3333', '#c23a10', '#ff9900', '#ffd23f', '#ffff33',
+    '#aa00aa', '#7b4dff', '#ff66b2', '#ffffff', '#b0b0b0', '#555555', '#111111', '#8d5524'],
+  pants: ['#0000aa', '#2b3a8f', '#0055ff', '#00aa00', '#556b2f', '#aa0000', '#5c1a1a', '#aaaa00', '#8d5524', '#ffffff', '#666666', '#222222'],
+  hair: ['#6b4423', '#3b2414', '#111111', '#ddbb55', '#ffe680', '#aa5500', '#cc3333', '#ff66b2', '#7b4dff', '#3333cc', '#3fc25a', '#e6e6fa', '#ffffff'],
+  eye: ['#000000', '#3b2414', '#8d5524', '#0055ff', '#3fb4ff', '#00aa00', '#3fc25a', '#aa0000', '#aa00aa', '#ffd23f', '#ffffff'],
+};
+const PART_GRID: Record<LookPart, string> = { skin: 'grid-skin', shirt: 'grid-shirt', pants: 'grid-pants', hair: 'grid-hair', eye: 'grid-eyes' };
 
-function populateGrid(id: string, colors: string[], type: 'skin' | 'shirt' | 'pants' | 'hair' | 'eye') {
-  const grid = document.getElementById(id);
-  if (!grid) return;
-  grid.innerHTML = '';
-  colors.forEach(col => {
-    const sw = document.createElement('div');
-    sw.className = 'color-swatch';
-    sw.style.backgroundColor = col;
-    const curHex = '#' + (type === 'skin' ? currentSkin : type === 'shirt' ? currentShirt : type === 'pants' ? currentPants : type === 'hair' ? currentHairHex : currentEyeColorState);
-    if (col.toLowerCase() === curHex.toLowerCase()) sw.classList.add('selected');
-    sw.addEventListener('click', () => {
-      Array.from(grid.children).forEach(c => c.classList.remove('selected'));
-      sw.classList.add('selected');
-      if (type === 'skin') { currentSkin = col.slice(1); shopMatSkin.color.set(col); }
-      if (type === 'shirt') { currentShirt = col.slice(1); shopMatShirt.color.set(col); }
-      if (type === 'pants') { currentPants = col.slice(1); shopMatPants.color.set(col); }
-      if (type === 'hair') { currentHairHex = col.slice(1); shopMatHair.color.set(col); }
-      if (type === 'eye') { currentEyeColorState = col.slice(1); shopEyeMat.color.set(col); }
-    });
-    grid.appendChild(sw);
+function partHex(part: LookPart): string {
+  return '#' + (part === 'skin' ? currentSkin : part === 'shirt' ? currentShirt : part === 'pants' ? currentPants : part === 'hair' ? currentHairHex : currentEyeColorState);
+}
+function setPart(part: LookPart, col: string) {
+  const hex = col.replace('#', '');
+  if (part === 'skin') { currentSkin = hex; shopMatSkin.color.set(col); }
+  if (part === 'shirt') { currentShirt = hex; shopMatShirt.color.set(col); }
+  if (part === 'pants') { currentPants = hex; shopMatPants.color.set(col); }
+  if (part === 'hair') { currentHairHex = hex; shopMatHair.color.set(col); }
+  if (part === 'eye') { currentEyeColorState = hex; shopEyeMat.color.set(col); }
+  markSelected(part);
+}
+function markSelected(part: LookPart) {
+  const grid = document.getElementById(PART_GRID[part]);
+  const cur = partHex(part).toLowerCase();
+  grid?.querySelectorAll<HTMLElement>('.shop-swatch').forEach(sw => {
+    const on = sw.dataset.col === cur;
+    sw.classList.toggle('selected', on);
+    sw.setAttribute('aria-pressed', String(on));
   });
 }
-populateGrid('grid-skin', swatchesSkin, 'skin');
-populateGrid('grid-shirt', swatchesShirt, 'shirt');
-populateGrid('grid-pants', swatchesPants, 'pants');
-populateGrid('grid-hair', swatchesHair, 'hair');
-populateGrid('grid-eyes', swatchesEye, 'eye');
+(Object.keys(PALETTES) as LookPart[]).forEach(part => {
+  const grid = document.getElementById(PART_GRID[part]);
+  if (!grid) return;
+  grid.innerHTML = '';
+  PALETTES[part].forEach(col => {
+    const sw = document.createElement('button');
+    sw.className = 'shop-swatch';
+    sw.dataset.col = col.toLowerCase();
+    sw.style.setProperty('--sw', col);
+    sw.setAttribute('aria-label', `Colour ${col}`);
+    sw.addEventListener('click', () => setPart(part, col));
+    grid.appendChild(sw);
+  });
+  markSelected(part);
+});
 
 const superItems = [
-  { id: 'none', name: 'Remove Set', rarity: 'common', unlockMin: 0 },
-  { id: 'tophat', name: 'Mayor Set', rarity: 'rare', unlockMin: 5, shirt: '#111111', pants: '#222222' },
-  { id: 'backpack', name: 'Explorer Set', rarity: 'epic', unlockMin: 10, shirt: '#8d5524', pants: '#556b2f' },
-  { id: 'ninja', name: 'Ninja Set', rarity: 'legendary', unlockMin: 15, shirt: '#111111', pants: '#111111', skin: '#f2d3ab' },
+  { id: 'none', name: 'No set', icon: '✖', rarity: 'common', unlockMin: 0 },
+  { id: 'tophat', name: 'Mayor', icon: '🎩', rarity: 'rare', unlockMin: 5, shirt: '#111111', pants: '#222222' },
+  { id: 'backpack', name: 'Explorer', icon: '🎒', rarity: 'epic', unlockMin: 10, shirt: '#8d5524', pants: '#556b2f' },
+  { id: 'ninja', name: 'Ninja', icon: '🥷', rarity: 'legendary', unlockMin: 15, shirt: '#111111', pants: '#111111', skin: '#f2d3ab' },
 ];
 
 let playTimeSeconds = parseInt(store.get('poxel_playtime') || '0');
@@ -263,62 +286,63 @@ function populateSuperGrid() {
   const grid = document.getElementById('grid-super');
   if (!grid) return;
   grid.innerHTML = '';
+  const played = Math.floor(playTimeSeconds / 60);
   superItems.forEach(item => {
-    const card = document.createElement('div');
-    card.className = `super-item-card rarity-${item.rarity}`;
-    if (activeSuperCosmetic === item.id) card.classList.add('selected');
-    const unlocked = playTimeSeconds >= item.unlockMin * 60;
-    const emoji = item.id === 'tophat' ? '🎩' : item.id === 'backpack' ? '🎒' : item.id === 'ninja' ? '🥷' : '❌';
-    if (unlocked) {
-      card.innerHTML = `<div style="font-size:50px; margin-bottom:10px;">${emoji}</div><div class="item-name">${item.name}</div>`;
-      card.addEventListener('click', () => {
-        Array.from(grid.children).forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        activeSuperCosmetic = item.id;
-        applySuperCosmetic(activeSuperCosmetic, shopCosmetics);
-        const it = item as any;
-        if (it.shirt) { currentShirt = it.shirt.slice(1); shopMatShirt.color.set(it.shirt); }
-        if (it.pants) { currentPants = it.pants.slice(1); shopMatPants.color.set(it.pants); }
-        if (it.skin) { currentSkin = it.skin.slice(1); shopMatSkin.color.set(it.skin); }
-      });
-    } else {
-      card.style.opacity = '0.5';
-      const progressMin = Math.floor(playTimeSeconds / 60);
-      card.innerHTML = `<div style="font-size:40px; margin-bottom:5px;">🔒</div><div style="font-size:14px; font-weight:bold;">Play ${item.unlockMin}m</div><div class="item-name">${progressMin}/${item.unlockMin}m</div>`;
-    }
+    const unlocked = played >= item.unlockMin;
+    const card = document.createElement('button');
+    card.className = `shop-set rarity-${item.rarity}${unlocked ? '' : ' locked'}${activeSuperCosmetic === item.id ? ' selected' : ''}`;
+    card.innerHTML = `<span class="shop-set-icon">${unlocked ? item.icon : '🔒'}</span><span class="shop-set-name">${item.name}</span>` +
+      `<span class="shop-set-rarity">${item.id === 'none' ? 'Plain look' : item.rarity}</span>` +
+      (unlocked ? '' : `<span class="shop-set-lock">Play ${item.unlockMin} min<span class="shop-set-bar"><i style="width:${Math.min(100, (played / item.unlockMin) * 100)}%"></i></span>${played}/${item.unlockMin} min</span>`);
+    if (unlocked) card.addEventListener('click', () => {
+      activeSuperCosmetic = item.id;
+      applySuperCosmetic(activeSuperCosmetic, shopCosmetics);
+      const it = item as any;
+      if (it.shirt) setPart('shirt', it.shirt);
+      if (it.pants) setPart('pants', it.pants);
+      if (it.skin) setPart('skin', it.skin);
+      grid.querySelectorAll('.shop-set').forEach(c => c.classList.toggle('selected', c === card));
+    });
+    else card.disabled = true;
     grid.appendChild(card);
   });
 }
 
-const styleBtns = document.querySelectorAll('#grid-hair-style .shop-tab');
-styleBtns.forEach(btn => {
-  const styleId = parseInt((btn as HTMLElement).dataset.style || '-1');
-  if (styleId === currentHairStyle) { styleBtns.forEach(b => b.classList.remove('active')); btn.classList.add('active'); }
-  btn.addEventListener('click', () => {
-    styleBtns.forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentHairStyle = styleId;
-    applyHairGeometry(currentHairStyle, shopHair);
-  });
-});
+const styleBtns = document.querySelectorAll<HTMLElement>('#grid-hair-style .shop-style');
+function setHairStyle(id: number) {
+  currentHairStyle = id;
+  applyHairGeometry(currentHairStyle, shopHair);
+  styleBtns.forEach(b => b.classList.toggle('active', Number(b.dataset.style) === id));
+}
+styleBtns.forEach(btn => btn.addEventListener('click', () => setHairStyle(Number(btn.dataset.style))));
+setHairStyle(currentHairStyle);
 
-const tabs = document.querySelectorAll('.shop-tabs .shop-tab');
-const tabContents = document.querySelectorAll('.shop-tab-content');
-tabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    tabs.forEach(t => t.classList.remove('active'));
-    tabContents.forEach(tc => tc.classList.remove('active'));
-    tab.classList.add('active');
-    const target = (tab as HTMLElement).dataset.tab;
-    document.getElementById(`tab-${target}`)?.classList.add('active');
-    const shopScreen = document.getElementById('shop-screen');
-    if (shopScreen) {
-      shopScreen.classList.toggle('super-mode', target === 'super');
-      let ticks = 0;
-      const resizeInt = setInterval(() => { onWindowResize(); if (++ticks > 15) clearInterval(resizeInt); }, 35);
-    }
-  });
+const shopCats = document.querySelectorAll<HTMLElement>('.shop-cats .shop-cat');
+const shopPages = document.querySelectorAll('.shop-page');
+function showShopTab(target: string) {
+  shopCats.forEach(t => { const on = t.dataset.tab === target; t.classList.toggle('active', on); t.setAttribute('aria-selected', String(on)); });
+  shopPages.forEach(pg => pg.classList.toggle('active', pg.id === `tab-${target}`));
+}
+shopCats.forEach(tab => tab.addEventListener('click', () => showShopTab(tab.dataset.tab || 'skin')));
+
+// Opening the shop shows the saved look; Cancel goes back to it, Save keeps the new one
+function loadShopLook() {
+  setPart('skin', store.get('poxel_skin') || '#ffcc99');
+  setPart('shirt', store.get('poxel_shirt') || '#00aaff');
+  setPart('pants', store.get('poxel_pants') || '#0000aa');
+  setPart('hair', store.get('poxel_hair') || '#6b4423');
+  setPart('eye', store.get('poxel_eye') || '#000000');
+  setHairStyle(parseInt(store.get('poxel_style') || '0') || 0);
+  activeSuperCosmetic = store.get('poxel_super') || 'none';
+  applySuperCosmetic(activeSuperCosmetic, shopCosmetics);
+  shopAvatar.rotation.set(0, Math.PI, 0);
+}
+function pickOne<T>(a: T[]): T { return a[Math.floor(Math.random() * a.length)]; }
+document.getElementById('btn-shop-random')?.addEventListener('click', () => {
+  (Object.keys(PALETTES) as LookPart[]).forEach(part => setPart(part, pickOne(PALETTES[part])));
+  setHairStyle(Math.floor(Math.random() * 3));
 });
+document.getElementById('btn-cancel-shop')?.addEventListener('click', () => { loadShopLook(); showMenuScreen('main'); });
 
 const saveButtons = document.querySelectorAll('.save-slot');
 function refreshSaveLabels() {
@@ -405,9 +429,10 @@ function firstFreeSlot(): number {
 document.getElementById('btn-open-load')?.addEventListener('click', () => { refreshSaveLabels(); showMenuScreen('load'); });
 document.getElementById('btn-back-load')?.addEventListener('click', () => showMenuScreen('main'));
 document.getElementById('btn-shop')?.addEventListener('click', () => {
+  loadShopLook();
   populateSuperGrid();
+  showShopTab('skin');
   showMenuScreen('shop');
-  setTimeout(onWindowResize, 10);
 });
 document.getElementById('btn-save-shop')?.addEventListener('click', () => {
   store.set('poxel_skin', '#' + currentSkin);

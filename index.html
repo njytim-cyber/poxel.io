@@ -315,39 +315,47 @@
         <button id="btn-back-load" class="menu-btn" style="margin-top: 20px;">Back</button>
       </div>
 
-      <div class="menu-content shop-layout" id="shop-screen" style="display: none;">
-        <div class="shop-preview">
-           <canvas id="shop-canvas"></canvas>
+      <div class="shop" id="shop-screen" style="display: none;">
+        <div class="shop-stage">
+          <div class="shop-stage-sky"></div>
+          <div class="shop-pedestal"></div>
+          <canvas id="shop-canvas" aria-label="Your character. Drag to turn."></canvas>
+          <p class="shop-drag-hint">Drag to turn</p>
         </div>
-        <div class="shop-controls">
-            <h2>Character Shop</h2>
-            <div class="shop-tabs">
-                <button class="shop-tab active" data-tab="skin">Skin</button>
-                <button class="shop-tab" data-tab="shirt">Shirt</button>
-                <button class="shop-tab" data-tab="pants">Pants</button>
-                <button class="shop-tab" data-tab="hair">Hair</button>
-                <button class="shop-tab" data-tab="eyes">Eyes</button>
-                <button class="shop-tab super-shop-tab" data-tab="super">★ Super ★</button>
-            </div>
-            <div id="tab-skin" class="shop-tab-content active"><div class="swatch-grid" id="grid-skin"></div></div>
-            <div id="tab-shirt" class="shop-tab-content"><div class="swatch-grid" id="grid-shirt"></div></div>
-            <div id="tab-pants" class="shop-tab-content"><div class="swatch-grid" id="grid-pants"></div></div>
-            <div id="tab-hair" class="shop-tab-content">
-                <h3 style="color:white; margin-bottom: 10px; text-align: left; font-size: 16px;">Hair Style</h3>
-                <div style="display:flex; gap: 10px; margin-bottom: 20px;" id="grid-hair-style">
-                    <button class="shop-tab active" data-style="0">Flat</button>
-                    <button class="shop-tab" data-style="1">Spike</button>
-                    <button class="shop-tab" data-style="2">Tall</button>
-                </div>
-                <h3 style="color:white; margin-bottom: 10px; text-align: left; font-size: 16px;">Hair Color</h3>
-                <div class="swatch-grid" id="grid-hair"></div>
-            </div>
-            <div id="tab-eyes" class="shop-tab-content">
-                <h3 style="color:white; margin-bottom: 10px; text-align: left; font-size: 16px;">Eye Color</h3>
-                <div class="swatch-grid" id="grid-eyes"></div>
-            </div>
-            <div id="tab-super" class="shop-tab-content"><div class="super-shop-grid" id="grid-super"></div></div>
-            <button id="btn-save-shop" class="menu-btn" style="margin-top: 20px; justify-content: center; width: 100%;">Save & Back</button>
+        <div class="shop-panel">
+          <header class="shop-head">
+            <h2>Wardrobe</h2>
+            <button id="btn-shop-random" class="shop-ghost" title="Random look">🎲 Random</button>
+          </header>
+          <nav class="shop-cats" role="tablist">
+            <button class="shop-cat active" data-tab="skin" role="tab"><i style="--sw: #e0ac69"></i>Skin</button>
+            <button class="shop-cat" data-tab="shirt" role="tab"><i style="--sw: #3fb4ff"></i>Shirt</button>
+            <button class="shop-cat" data-tab="pants" role="tab"><i style="--sw: #2b3a8f"></i>Pants</button>
+            <button class="shop-cat" data-tab="hair" role="tab"><i style="--sw: #6b4423"></i>Hair</button>
+            <button class="shop-cat" data-tab="eyes" role="tab"><i style="--sw: #1a6fd1"></i>Eyes</button>
+            <button class="shop-cat shop-cat-sets" data-tab="super" role="tab"><i></i>★ Sets</button>
+          </nav>
+          <div class="shop-body">
+            <section id="tab-skin" class="shop-page active"><h3>Skin tone</h3><div class="shop-swatches" id="grid-skin"></div></section>
+            <section id="tab-shirt" class="shop-page"><h3>Shirt colour</h3><div class="shop-swatches" id="grid-shirt"></div></section>
+            <section id="tab-pants" class="shop-page"><h3>Pants colour</h3><div class="shop-swatches" id="grid-pants"></div></section>
+            <section id="tab-hair" class="shop-page">
+              <h3>Hair style</h3>
+              <div class="shop-styles" id="grid-hair-style">
+                <button class="shop-style active" data-style="0">Flat</button>
+                <button class="shop-style" data-style="1">Spiky</button>
+                <button class="shop-style" data-style="2">Tall</button>
+              </div>
+              <h3>Hair colour</h3>
+              <div class="shop-swatches" id="grid-hair"></div>
+            </section>
+            <section id="tab-eyes" class="shop-page"><h3>Eye colour</h3><div class="shop-swatches" id="grid-eyes"></div></section>
+            <section id="tab-super" class="shop-page"><h3>Sets <small>Unlocked by playing</small></h3><div class="shop-sets" id="grid-super"></div></section>
+          </div>
+          <footer class="shop-foot">
+            <button id="btn-cancel-shop" class="shop-ghost">Cancel</button>
+            <button id="btn-save-shop" class="shop-save">Save look</button>
+          </footer>
         </div>
       </div>
     </div>
